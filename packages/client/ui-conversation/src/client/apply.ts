@@ -37,6 +37,8 @@ import { ComposerSubmissionPolicy } from './input/submission-policy.ts'
 import { queueDockEntry } from './queue/QueueDock.tsx'
 import { EnterBehaviorRow } from './settings/EnterBehaviorRow.tsx'
 import type { EnterBehaviorRowInjected } from './settings/EnterBehaviorRow.tsx'
+import { ViewTabsRow } from './settings/ViewTabsRow.tsx'
+import type { ViewTabsRowInjected } from './settings/ViewTabsRow.tsx'
 import { ConversationRoot } from './skeleton/ConversationRoot.tsx'
 import { ConversationContent } from './skeleton/ConversationContent.tsx'
 import { ConversationPanel } from './skeleton/ConversationPanel.tsx'
@@ -46,7 +48,7 @@ import { InputBar } from './skeleton/InputBar.tsx'
 import { todoDockEntry } from './skeleton/TodoPanel.tsx'
 import { installStopShortcut } from './stop-shortcut.ts'
 import { TRAJECTORY_VIEW_ID, resolveActiveView } from './view-selection.ts'
-import { createViewPins } from './view-pins.ts'
+import { FIXED_VIEW_ID, ViewTabsPreference, preferredViewTabs } from './view-tabs.ts'
 import { en, ja, es, fr, de, ru, pt, NS, zh, type ConversationKey } from './locales.ts'
 import { CONVERSATION_SETTINGS_NAMESPACE, type ConversationSettings } from '../submission-settings.ts'
 
@@ -189,11 +191,14 @@ export function apply(ctx: Context, config: Config = Config({})): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }), 'ui-conversation: dictionaries')
   const t = ctx.locale.bind(NS)
   const conversationStore = createConversationStore()
-  const submissionPolicy = new ComposerSubmissionPolicy(
-    ctx.configForms.get<ConversationSettings>(CONVERSATION_SETTINGS_NAMESPACE),
-  )
+  const conversationSettings = ctx.configForms.get<ConversationSettings>(CONVERSATION_SETTINGS_NAMESPACE)
+  const submissionPolicy = new ComposerSubmissionPolicy(conversationSettings)
+  const viewTabsPreference = new ViewTabsPreference(conversationSettings)
 
-  ctx.effect(() => () => { submissionPolicy.dispose() })
+  ctx.effect(() => () => {
+    submissionPolicy.dispose()
+    viewTabsPreference.dispose()
+  })
 
   ctx.slots.inject('settings.general.item', () => ctx.slots.register({
     name: 'settings.general.item',
@@ -205,6 +210,17 @@ export function apply(ctx: Context, config: Config = Config({})): void {
       setBusyEnter: (behavior) => { submissionPolicy.setBusyEnter(behavior) },
     }),
   }, EnterBehaviorRow))
+
+  ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+    name: 'settings.general.item',
+    id: 'conversation-view-tabs',
+    order: 21,
+    locale: NS,
+    inject: (): ViewTabsRowInjected => ({
+      hooks: { viewTabs: viewTabsPreference.visible, conversationViews },
+      setViewTabs: (ids) => { viewTabsPreference.setVisible(ids) },
+    }),
+  }, ViewTabsRow))
 
   const viewTabs = (): ViewTab[] => {
     const tabs: ViewTab[] = []
@@ -227,7 +243,6 @@ export function apply(ctx: Context, config: Config = Config({})): void {
     activateView(sessionId, readConversationViewPreference(sessionId))
   }
   const conversationViews = createSnapshotStore<readonly ViewTab[]>(viewTabs())
-  const viewPins = createViewPins()
   const viewActions = {
     getSnapshot: () => slots.entriesOfSlot('conversation.session.header.views.actions').length > 0,
     subscribe: (listener: () => void) => slots.subscribe('conversation.session.header.views.actions', listener),
@@ -449,8 +464,15 @@ export function apply(ctx: Context, config: Config = Config({})): void {
     },
     store: conversationStore,
     inject: (sessionId: SessionId, actions: BoundActions<typeof conversationStore>): ConversationSessionHeaderInjected => ({
-      hooks: { conversationViews, entryPins: viewPins.unpinned, entryActions: viewActions },
-      setPinned: viewPins.setPinned,
+      hooks: { conversationViews, viewTabs: viewTabsPreference.visible, entryActions: viewActions },
+      setPinned: (id, pinned) => {
+        if (id === FIXED_VIEW_ID) return
+        const visibleIds = preferredViewTabs(viewTabs(), viewTabsPreference.visible.getSnapshot())
+          .filter(tab => tab.id !== FIXED_VIEW_ID)
+          .map(tab => tab.id)
+        if (visibleIds.includes(id) === pinned) return
+        viewTabsPreference.setVisible(pinned ? [...visibleIds, id] : visibleIds.filter(entry => entry !== id))
+      },
       open: (id) => { workspaceNavigation.openSession(id) },
       selectView: (view) => {
         activateView(sessionId, view)

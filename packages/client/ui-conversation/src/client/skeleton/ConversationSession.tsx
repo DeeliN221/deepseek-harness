@@ -1,6 +1,6 @@
 /** Strict per-session header/body content inserted into the resident conversation layout. */
 
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { Button, IconEllipsisOutlineRegular, Menu, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
@@ -9,7 +9,7 @@ import type {
   ConversationSessionHeaderSlotProps, ConversationSessionSlotProps, ConversationViewActionsOwnerProps,
 } from '../contract/slots.ts'
 import { resolveActiveView } from '../view-selection.ts'
-import { FIXED_VIEW_ID } from '../view-pins.ts'
+import { preferredViewTabs } from '../view-tabs.ts'
 import { DefaultConversationViews } from './DefaultConversationViews.tsx'
 import css from './ConversationRoot.module.css'
 
@@ -107,14 +107,14 @@ function equalBreadcrumbs(left: readonly Breadcrumb[], right: readonly Breadcrum
  */
 export function ConversationSessionHeader({
   sessionId, hideChrome, useSessions, useConversationViews, useStore,
-  renderSlot, open, useContextMenu, selectView, setPinned, t, useEntryPins, useEntryActions,
+  renderSlot, open, useContextMenu, selectView, setPinned, t, useViewTabs, useEntryActions,
 }: ConversationSessionHeaderProps) {
   const { getTriggerProps } = useContextMenu()
   const tabs = useConversationViews(value => value)
   const selectedId = useStore(s => s.view)
   const active = resolveActiveView(tabs, selectedId)
   const ancestry = useSessions(s => deriveAncestry(s, sessionId), equalBreadcrumbs)
-  const unpinned = useEntryPins(ids => ids)
+  const visibleIds = useViewTabs(selection => selection)
   const hasEntryActions = useEntryActions(registered => registered)
   const showTabs = !hideChrome && tabs.length > 1
   const tabRow = useRef<HTMLDivElement>(null)
@@ -132,15 +132,12 @@ export function ConversationSessionHeader({
     observer.observe(row)
     return () => { observer.disconnect() }
   }, [showTabs, hasEntryActions])
-  const { visibleTabs, moreTabs } = useMemo(() => {
-    const preferred = [
-      ...tabs.filter(tab => tab.id === FIXED_VIEW_ID),
-      ...tabs.filter(tab => tab.id !== FIXED_VIEW_ID && !unpinned.includes(tab.id)),
-    ]
-    const visibleTabs = hasEntryActions ? preferred.slice(0, visibleViewLimit) : preferred
-    const visibleIds = new Set(visibleTabs.map(tab => tab.id))
-    return { visibleTabs, moreTabs: tabs.filter(tab => !visibleIds.has(tab.id)) }
-  }, [tabs, unpinned, hasEntryActions, visibleViewLimit])
+  const preferred = preferredViewTabs(tabs, visibleIds)
+  // Without a More menu nothing can fold: a hidden View would become unreachable.
+  const visibleTabs = hasEntryActions ? preferred.slice(0, visibleViewLimit) : preferredViewTabs(tabs, null)
+  const shown = new Set(visibleTabs.map(tab => tab.id))
+  const moreTabs = tabs.filter(tab => !shown.has(tab.id))
+  const preferredIds = new Set(preferred.map(tab => tab.id))
   const currentInMore = moreTabs.some(tab => tab.id === active?.id)
   return (
     <>
@@ -239,7 +236,7 @@ export function ConversationSessionHeader({
               current={currentInMore}
               entries={moreTabs.map(viewTab => ({
                 id: viewTab.id, label: viewTab.label,
-                pinned: !unpinned.includes(viewTab.id), active: viewTab.id === active?.id,
+                pinned: preferredIds.has(viewTab.id), active: viewTab.id === active?.id,
               }))}
               onOpen={selectView}
               onPinnedChange={setPinned}

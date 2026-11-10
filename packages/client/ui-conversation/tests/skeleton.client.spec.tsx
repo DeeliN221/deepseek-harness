@@ -142,8 +142,8 @@ function mount(
     composerBlock?: { reason: string }
     /** Mutable view ledger used by registration-order regressions. */
     viewTabs?: ViewTab[]
-    /** Persisted ids of unpinned View tabs. */
-    unpinnedViews?: readonly string[]
+    /** Ordered ids of View tabs kept outside More; null or omitted lays them out by width. */
+    visibleViews?: readonly string[] | null
     /** Whether the View actions list has registrations. */
     entryActions?: boolean
     /** Isolate header capability checks from the composer's required layout observers. */
@@ -229,7 +229,7 @@ function mount(
           useSession={useSession}
           useConversation={useConversation}
           useConversationViews={useConversationViews}
-          useEntryPins={selector => selector(options.unpinnedViews ?? [])}
+          useViewTabs={selector => selector(options.visibleViews ?? null)}
           useEntryActions={selector => selector(options.entryActions ?? false)}
           setPinned={setPinned}
           useChat={useChat}
@@ -711,13 +711,14 @@ describe('ConversationRoot resident composer', () => {
     expect(b.actionsOwner().entries.map(entry => entry.id)).toEqual(['timeline'])
   })
 
-  it('keeps an unpinned View selected without exposing its tab', () => {
+  it('keeps a folded View selected without exposing its tab', () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000)
     const viewTabs: ViewTab[] = [
       { id: 'chat', label: 'Chat' },
       { id: 'trajectory', label: 'Trajectory' },
       { id: 'timeline', label: 'Timeline' },
     ]
-    const b = mount(sessionSnapshotOf(), undefined, undefined, { viewTabs, unpinnedViews: ['chat', 'trajectory', 'removed-view'] })
+    const b = mount(sessionSnapshotOf(), undefined, undefined, { viewTabs, visibleViews: ['timeline'], entryActions: true })
     act(() => { b.store.actions.setView('trajectory') })
     const tabs = (): HTMLElement[] => within(b.view.getByRole('tablist')).getAllByRole('tab')
     expect(tabs().map(tab => [tab.textContent, tab.getAttribute('aria-selected')])).toEqual([
@@ -728,8 +729,8 @@ describe('ConversationRoot resident composer', () => {
     expect(tabs().map(tab => tab.textContent)).toEqual(['Chat', 'Timeline'])
   })
 
-  it('keeps the tab row and More after the tabs while every other View is unpinned', () => {
-    const b = mount(sessionSnapshotOf(), undefined, undefined, { unpinnedViews: ['trajectory'], entryActions: true })
+  it('keeps the tab row and More after the tabs while every other View is folded', () => {
+    const b = mount(sessionSnapshotOf(), undefined, undefined, { visibleViews: [], entryActions: true })
     const tablist = b.view.getByRole('tablist')
     expect(within(tablist).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['Chat'])
     const more = b.view.getByRole('button', { name: zh['session.moreViews'] })
@@ -832,6 +833,36 @@ describe('ConversationRoot resident composer', () => {
     expect(b.actionsOwner().entries).toEqual([])
   })
 
+  it('lays out the profile ordered header selection and folds every other View into More', () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000)
+    const viewTabs = ['chat', 'trajectory', 'context', 'fleet'].map(id => ({ id, label: id }))
+    const b = mount(sessionSnapshotOf(), undefined, undefined, {
+      viewTabs, visibleViews: ['fleet', 'trajectory'], entryActions: true,
+    })
+    expect(within(b.view.getByRole('tablist')).getAllByRole('tab').map(tab => tab.textContent))
+      .toEqual(['chat', 'fleet', 'trajectory'])
+    fireEvent.click(b.view.getByRole('button', { name: zh['session.moreViews'] }))
+    expect(b.actionsOwner().entries).toEqual([{ id: 'context', label: 'context', pinned: false, active: false }])
+  })
+
+  it('caps the ordered selection by the width budget and folds the remaining Views', () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(300)
+    const viewTabs = ['chat', 'trajectory', 'context', 'fleet'].map(id => ({ id, label: id }))
+    const b = mount(sessionSnapshotOf(), undefined, undefined, {
+      viewTabs, visibleViews: ['fleet', 'trajectory', 'context'], entryActions: true,
+    })
+    expect(within(b.view.getByRole('tablist')).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['chat', 'fleet'])
+    fireEvent.click(b.view.getByRole('button', { name: zh['session.moreViews'] }))
+    expect(b.actionsOwner().entries.map(entry => [entry.id, entry.pinned])).toEqual([['trajectory', true], ['context', true]])
+  })
+
+  it('shows every View in registration-independent chat-first order while no More menu exists', () => {
+    const viewTabs = ['trajectory', 'fleet', 'chat'].map(id => ({ id, label: id }))
+    const b = mount(sessionSnapshotOf(), undefined, undefined, { viewTabs, visibleViews: ['fleet'] })
+    expect(within(b.view.getByRole('tablist')).getAllByRole('tab').map(tab => tab.textContent))
+      .toEqual(['chat', 'trajectory', 'fleet'])
+  })
+
   it('omits More while the View actions list has no registrations', () => {
     const b = mount(sessionSnapshotOf())
     expect(b.view.getByRole('tablist')).toBeTruthy()
@@ -844,8 +875,8 @@ describe('ConversationRoot resident composer', () => {
     expect(b.view.queryByRole('button', { name: zh['session.moreViews'] })).toBeNull()
   })
 
-  it('hands the More menu the non-Chat Views with their pin state and this Session\'s selection', () => {
-    const b = mount(sessionSnapshotOf(), undefined, undefined, { unpinnedViews: ['trajectory'], entryActions: true })
+  it('hands the More menu the folded non-Chat Views with this Session\'s selection', () => {
+    const b = mount(sessionSnapshotOf(), undefined, undefined, { visibleViews: [], entryActions: true })
     const more = b.view.getByRole('button', { name: zh['session.moreViews'] })
     fireEvent.click(more)
     expect(more.getAttribute('aria-expanded')).toBe('true')

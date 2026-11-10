@@ -23,6 +23,7 @@ import type { createConversationStore } from '../stores.ts'
 import type { BusyEnterBehavior } from './composer-submission.ts'
 import type { ConversationSnapshot } from './snapshot.ts'
 import type { ViewTab } from './views.ts'
+import type { ViewTabSelection } from '../../submission-settings.ts'
 import type { UserTextDocumentInput, UserTextEvaluator, UserTextId, UserTextNode } from './user-text.ts'
 
 /** Browser-owned draft attachment that has not crossed the durable Host boundary. */
@@ -483,7 +484,7 @@ export interface ConversationViewActionEntry {
   readonly id: string
   /** Resolved View label. */
   readonly label: string
-  /** False while the View is manually unpinned. A pinned View still enters More when the header's width budget cannot hold it. */
+  /** Whether the ordered header selection lists this View; false folds it into More first. */
   readonly pinned: boolean
   /** Whether this View is selected in this Session, independently of its pin state. */
   readonly active?: boolean
@@ -499,9 +500,9 @@ export interface ConversationViewActionsOwnerProps {
    */
   readonly onOpen: (id: string) => void
   /**
-   * Pin or unpin a View in every Session.
+   * Add or remove a View from the ordered header selection shared by every Session.
    * @param id - Listed View id.
-   * @param pinned - Whether the View is manually pinned; the width budget can still fold it into More.
+   * @param pinned - Whether the header selection lists the View; the width budget can still fold it into More.
    */
   readonly onPinnedChange: (id: string, pinned: boolean) => void
   /** Close the More menu. */
@@ -514,15 +515,15 @@ export interface ConversationSessionHeaderInjected {
   /** Package-owned View roster source bound only for the Conversation header. */
   readonly hooks: {
     readonly conversationViews: ObservableSnapshot<readonly ViewTab[]>
-    /** Ids of unpinned View tabs held in memory and shared by every Session until plugin reload. */
-    readonly entryPins: ObservableSnapshot<readonly string[]>
+    /** Ordered ids of View tabs kept outside More; null lays the non-Chat Views out by width. */
+    readonly viewTabs: ObservableSnapshot<ViewTabSelection>
     /** Whether `conversation.session.header.views.actions` has registrations. */
     readonly entryActions: ObservableSnapshot<boolean>
   }
   /**
-   * Pin or unpin one View tab in every Session; Chat is ignored.
+   * Add or remove one View tab from the ordered header selection; Chat is ignored.
    * @param id - View id.
-   * @param pinned - Whether the View is manually pinned; the width budget can still fold it into More.
+   * @param pinned - Whether the header selection lists the View; the width budget can still fold it into More.
    */
   setPinned: (id: string, pinned: boolean) => void
   /** Select a Session through the Session Controller. */

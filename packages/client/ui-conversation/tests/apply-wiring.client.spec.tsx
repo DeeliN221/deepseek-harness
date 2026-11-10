@@ -8,6 +8,7 @@ import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { createSnapshotStore, type ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { apply, inject, type ViewTab } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ConversationSettings, ViewTabSelection } from '../src/submission-settings.ts'
 
 usePinnedBrowserLanguages('zh-CN')
 
@@ -22,7 +23,8 @@ async function bench(options: { declareConversation?: boolean } = {}) {
     }),
     openSession: vi.fn(),
   } as never)
-  runtime.ctx.provide('configForms', { developerTools: { enabled: developerTools }, get: () => stubConfigForm().scope } as never)
+  const settingsForm = stubConfigForm<ConversationSettings>()
+  runtime.ctx.provide('configForms', { developerTools: { enabled: developerTools }, get: () => settingsForm.scope } as never)
   const locale = new LocaleRuntime(runtime.ctx)
   runtime.ctx.provide('locale', locale)
   runtime.slots.installLocale(locale)
@@ -36,7 +38,7 @@ async function bench(options: { declareConversation?: boolean } = {}) {
   }
   const feature = await runtime.mount({ inject: [...inject], apply })
   if (options.declareConversation !== false) runtime.renderRoot()
-  return { runtime, feature, developerTools }
+  return { runtime, feature, developerTools, settingsForm }
 }
 
 function entry(
@@ -47,33 +49,43 @@ function entry(
 }
 
 describe('target-neutral Conversation apply wiring', () => {
-  it('hands every Session header the same in-memory View pins without restoring saved choices', async () => {
-    localStorage.setItem('dsh.slot.manual-order.conversation.view.v1', JSON.stringify({ unpinned: ['trajectory'] }))
-    try {
-      const b = await bench()
-      const header = b.runtime.slots.entries('conversation.session.header')[0]!
-      type PinHooks = {
-        hooks: { entryPins: ObservableSnapshot<readonly string[]>; entryActions: ObservableSnapshot<boolean> }
-        setPinned: (id: string, pinned: boolean) => void
+  it('hands every Session header the same profile View tab preference and writes pins through the shared form', async () => {
+    const b = await bench()
+    b.runtime.slots.register({ name: 'conversation.view', id: 'trajectory', label: 'Trajectory' }, (() => null) as never)
+    b.runtime.slots.register({ name: 'conversation.view', id: 'chat', label: 'Chat' }, (() => null) as never)
+    const header = b.runtime.slots.entries('conversation.session.header')[0]!
+    type PreferenceHooks = {
+      hooks: {
+        viewTabs: ObservableSnapshot<ViewTabSelection>
+        entryActions: ObservableSnapshot<boolean>
       }
-      const inject = header.inject as (sessionId: SessionId) => PinHooks
-      const injected = inject(SID)
-      const first = injected.hooks.entryPins
-      expect(first.getSnapshot()).toEqual([])
-      expect(inject('session-2' as SessionId).hooks.entryPins).toBe(first)
-      injected.setPinned('timeline', false)
-      expect(first.getSnapshot()).toEqual(['timeline'])
-      const actions = injected.hooks.entryActions
-      const changed = vi.fn()
-      actions.subscribe(changed)
-      expect(actions.getSnapshot()).toBe(false)
-      b.runtime.slots.register({ name: 'conversation.session.header.views.actions', id: 'probe' }, (() => null) as never)
-      expect(actions.getSnapshot()).toBe(true)
-      await vi.waitFor(() => { expect(changed).toHaveBeenCalled() })
-      await b.runtime.dispose()
-    } finally {
-      localStorage.clear()
+      setPinned: (id: string, pinned: boolean) => void
     }
+    const inject = header.inject as (sessionId: SessionId) => PreferenceHooks
+    const injected = inject(SID)
+    const visible = injected.hooks.viewTabs
+    expect(visible.getSnapshot()).toBeNull()
+    expect(inject('session-2' as SessionId).hooks.viewTabs).toBe(visible)
+    b.settingsForm.publish({
+      status: 'ready',
+      value: { busyEnter: 'queue', viewTabs: ['trajectory'] },
+    })
+    expect(visible.getSnapshot()).toEqual(['trajectory'])
+    injected.setPinned('chat', false)
+    expect(b.settingsForm.set).not.toHaveBeenCalled()
+    injected.setPinned('trajectory', false)
+    expect(visible.getSnapshot()).toEqual([])
+    expect(b.settingsForm.set).toHaveBeenCalledExactlyOnceWith('viewTabs', [])
+    injected.setPinned('trajectory', true)
+    expect(visible.getSnapshot()).toEqual(['trajectory'])
+    const actions = injected.hooks.entryActions
+    const changed = vi.fn()
+    actions.subscribe(changed)
+    expect(actions.getSnapshot()).toBe(false)
+    b.runtime.slots.register({ name: 'conversation.session.header.views.actions', id: 'probe' }, (() => null) as never)
+    expect(actions.getSnapshot()).toBe(true)
+    await vi.waitFor(() => { expect(changed).toHaveBeenCalled() })
+    await b.runtime.dispose()
   })
 
   it('hides only the Trajectory View while developer tools are disabled and restores it when enabled', async () => {
@@ -133,7 +145,7 @@ describe('target-neutral Conversation apply wiring', () => {
     expect(b.runtime.slots.spec('conversation.composer'))
       .toEqual({ kind: 'chain', scope: 'session' })
     expect(b.runtime.slots.entries('settings.general.item').map(row => row.options.id))
-      .toEqual(['composer-enter'])
+      .toEqual(['composer-enter', 'conversation-view-tabs'])
     await b.runtime.dispose()
   })
 
