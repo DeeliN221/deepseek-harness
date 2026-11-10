@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** General Settings row that chooses and orders the Conversation View tabs kept in the header. */
+/** General Settings row that orders the Conversation View tabs in the Session header. */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { contextMenuHook } from '@deepseek-ai/dsh-client-test-runtime'
@@ -64,32 +64,23 @@ function mount(selection: ViewTabSelection) {
 }
 
 describe('ViewTabsRow', () => {
-  it('explains the scope and lists the fixed Chat plus every configurable View', () => {
+  it('explains the order scope and lists the fixed Chat plus every configurable View', () => {
     mount(['fleet', 'trajectory'])
-    expect(screen.getByText('Header session tabs')).toBeDefined()
-    expect(screen.getByText(/Choose which View tabs/)).toBeDefined()
+    expect(screen.getByText('Header tab order')).toBeDefined()
+    expect(screen.getByText(/Choose the order of the header tabs/)).toBeDefined()
     expect(screen.getByText('Fixed')).toBeDefined()
-    expect(screen.getByRole('list', { name: 'Header session tabs' })).toBeDefined()
+    expect(screen.getByRole('list', { name: 'Header tab order' })).toBeDefined()
     const labels = screen.getAllByRole('listitem').map(item => item.textContent)
     expect(labels).toEqual(['ChatFixed', 'Fleet', 'Trajectory', 'Context'])
   })
 
-  it('checks the ordered selection and keeps every other View unchecked at the end', () => {
+  it('keeps every View in the list and exposes no visibility toggle', () => {
     mount(['fleet', 'trajectory'])
-    expect(screen.getByRole('button', { name: 'Hide Fleet' }).getAttribute('aria-pressed')).toBe('true')
-    expect(screen.getByRole('button', { name: 'Hide Trajectory' }).getAttribute('aria-pressed')).toBe('true')
-    expect(screen.getByRole('button', { name: 'Show Context' }).getAttribute('aria-pressed')).toBe('false')
+    expect(screen.queryByRole('button', { name: /Show |Hide / })).toBeNull()
+    expect(screen.getAllByRole('button')).toHaveLength(6)
   })
 
-  it('adds a hidden View at the end and removes a shown View', () => {
-    const b = mount(['fleet', 'trajectory'])
-    fireEvent.click(screen.getByRole('button', { name: 'Show Context' }))
-    expect(b.setViewTabs).toHaveBeenLastCalledWith(['fleet', 'trajectory', 'context'])
-    fireEvent.click(screen.getByRole('button', { name: 'Hide Fleet' }))
-    expect(b.setViewTabs).toHaveBeenLastCalledWith(['trajectory', 'context'])
-  })
-
-  it('reorders within the selection and disables the edge moves', () => {
+  it('reorders the configured Views and disables the edge moves', () => {
     const b = mount(['fleet', 'trajectory', 'context'])
     fireEvent.click(screen.getByRole('button', { name: 'Move Trajectory up' }))
     expect(b.setViewTabs).toHaveBeenLastCalledWith(['trajectory', 'fleet', 'context'])
@@ -99,10 +90,11 @@ describe('ViewTabsRow', () => {
     expect((screen.getByRole('button', { name: 'Move Context down' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('treats the automatic layout as every View checked in registration order', () => {
+  it('orders unlisted Views by registration order and persists an explicit order on the first move', () => {
     const b = mount(null)
-    expect(screen.getByRole('button', { name: 'Hide Trajectory' }).getAttribute('aria-pressed')).toBe('true')
-    fireEvent.click(screen.getByRole('button', { name: 'Hide Context' }))
-    expect(b.setViewTabs).toHaveBeenLastCalledWith(['trajectory', 'fleet'])
+    expect(screen.getAllByRole('listitem').map(item => item.textContent))
+      .toEqual(['ChatFixed', 'Trajectory', 'Context', 'Fleet'])
+    fireEvent.click(screen.getByRole('button', { name: 'Move Fleet up' }))
+    expect(b.setViewTabs).toHaveBeenLastCalledWith(['trajectory', 'fleet', 'context'])
   })
 })

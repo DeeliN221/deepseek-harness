@@ -18,7 +18,7 @@ export {
 export interface Config {
   /** Enter key behavior while a turn is running. */
   busyEnter: Volatile<BusyEnterBehavior>
-  /** Ordered View ids the Session header keeps outside More; null folds the non-Chat Views by width. */
+  /** Ordered View ids; ids not listed follow in registration order. */
   viewTabs: Volatile<ViewTabSelection>
 }
 

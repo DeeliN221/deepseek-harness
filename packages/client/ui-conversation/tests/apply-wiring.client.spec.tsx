@@ -49,42 +49,27 @@ function entry(
 }
 
 describe('target-neutral Conversation apply wiring', () => {
-  it('hands every Session header the same profile View tab preference and writes pins through the shared form', async () => {
+  it('hands every Session header the same profile View tab order and the settings row writes it', async () => {
     const b = await bench()
     b.runtime.slots.register({ name: 'conversation.view', id: 'trajectory', label: 'Trajectory' }, (() => null) as never)
     b.runtime.slots.register({ name: 'conversation.view', id: 'chat', label: 'Chat' }, (() => null) as never)
     const header = b.runtime.slots.entries('conversation.session.header')[0]!
-    type PreferenceHooks = {
-      hooks: {
-        viewTabs: ObservableSnapshot<ViewTabSelection>
-        entryActions: ObservableSnapshot<boolean>
-      }
-      setPinned: (id: string, pinned: boolean) => void
-    }
+    type PreferenceHooks = { hooks: { viewTabs: ObservableSnapshot<ViewTabSelection> } }
     const inject = header.inject as (sessionId: SessionId) => PreferenceHooks
     const injected = inject(SID)
-    const visible = injected.hooks.viewTabs
-    expect(visible.getSnapshot()).toBeNull()
-    expect(inject('session-2' as SessionId).hooks.viewTabs).toBe(visible)
+    const order = injected.hooks.viewTabs
+    expect(order.getSnapshot()).toBeNull()
+    expect(inject('session-2' as SessionId).hooks.viewTabs).toBe(order)
     b.settingsForm.publish({
       status: 'ready',
       value: { busyEnter: 'queue', viewTabs: ['trajectory'] },
     })
-    expect(visible.getSnapshot()).toEqual(['trajectory'])
-    injected.setPinned('chat', false)
-    expect(b.settingsForm.set).not.toHaveBeenCalled()
-    injected.setPinned('trajectory', false)
-    expect(visible.getSnapshot()).toEqual([])
-    expect(b.settingsForm.set).toHaveBeenCalledExactlyOnceWith('viewTabs', [])
-    injected.setPinned('trajectory', true)
-    expect(visible.getSnapshot()).toEqual(['trajectory'])
-    const actions = injected.hooks.entryActions
-    const changed = vi.fn()
-    actions.subscribe(changed)
-    expect(actions.getSnapshot()).toBe(false)
-    b.runtime.slots.register({ name: 'conversation.session.header.views.actions', id: 'probe' }, (() => null) as never)
-    expect(actions.getSnapshot()).toBe(true)
-    await vi.waitFor(() => { expect(changed).toHaveBeenCalled() })
+    expect(order.getSnapshot()).toEqual(['trajectory'])
+    const settingsRow = b.runtime.slots.entries('settings.general.item')
+      .find(row => row.options.id === 'conversation-view-tabs')!
+    const rowInject = settingsRow.inject as () => { setViewTabs: (ids: readonly string[]) => void }
+    rowInject().setViewTabs(['trajectory', 'context'])
+    expect(b.settingsForm.set).toHaveBeenCalledExactlyOnceWith('viewTabs', ['trajectory', 'context'])
     await b.runtime.dispose()
   })
 

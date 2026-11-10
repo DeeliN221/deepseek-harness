@@ -274,7 +274,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       owner: ConversationHeaderCornerOwnerProps
     }
     /** Rows of the View tab row's More menu; the header shows More only while this list has registrations. */
-    'conversation.session.header.views.actions': { kind: 'list'; scope: 'root'; owner: ConversationViewActionsOwnerProps }
     /** Registered Conversation target Views, rendered one at a time. */
     'conversation.view': { kind: 'list'; scope: 'session'; owner: ConvViewOwnerProps }
     /**
@@ -478,54 +477,15 @@ export interface ConversationSessionInjected {
   openView: (view: string, focus: string) => void
 }
 
-/** One customizable View tab listed in the More menu. */
-export interface ConversationViewActionEntry {
-  /** View id. */
-  readonly id: string
-  /** Resolved View label. */
-  readonly label: string
-  /** Whether the ordered header selection lists this View; false folds it into More first. */
-  readonly pinned: boolean
-  /** Whether this View is selected in this Session, independently of its pin state. */
-  readonly active?: boolean
-}
-
-/** Owner share of the View tab row's More menu rows. */
-export interface ConversationViewActionsOwnerProps {
-  /** Views outside the header in registration order. */
-  readonly entries: readonly ConversationViewActionEntry[]
-  /**
-   * Select a View in this Session without changing its pin state.
-   * @param id - Listed View id.
-   */
-  readonly onOpen: (id: string) => void
-  /**
-   * Add or remove a View from the ordered header selection shared by every Session.
-   * @param id - Listed View id.
-   * @param pinned - Whether the header selection lists the View; the width budget can still fold it into More.
-   */
-  readonly onPinnedChange: (id: string, pinned: boolean) => void
-  /** Close the More menu. */
-  readonly onDismiss: () => void
-}
-
 /** Business callbacks injected into the strict Session header. */
 export interface ConversationSessionHeaderInjected {
   /** Open the clicked title's actions. */
   /** Package-owned View roster source bound only for the Conversation header. */
   readonly hooks: {
     readonly conversationViews: ObservableSnapshot<readonly ViewTab[]>
-    /** Ordered ids of View tabs kept outside More; null lays the non-Chat Views out by width. */
+    /** Ordered View ids; ids not listed follow in registration order. */
     readonly viewTabs: ObservableSnapshot<ViewTabSelection>
-    /** Whether `conversation.session.header.views.actions` has registrations. */
-    readonly entryActions: ObservableSnapshot<boolean>
   }
-  /**
-   * Add or remove one View tab from the ordered header selection; Chat is ignored.
-   * @param id - View id.
-   * @param pinned - Whether the header selection lists the View; the width budget can still fold it into More.
-   */
-  setPinned: (id: string, pinned: boolean) => void
   /** Select a Session through the Session Controller. */
   open: (sessionId: SessionId) => void
   /** Select and activate one registered Conversation View. */
@@ -679,7 +639,6 @@ export type ConversationSessionHeaderSlotProps =
     | 'conversation.session.header.actions'
     | 'conversation.session.header.utilities'
     | 'conversation.session.header.corner'
-    | 'conversation.session.header.views.actions'
   >
   & PropsStore<ConversationStore>
   & InjectFace<ConversationSessionHeaderInjected>

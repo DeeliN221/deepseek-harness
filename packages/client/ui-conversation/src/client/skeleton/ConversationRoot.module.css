@@ -207,12 +207,12 @@
   position: relative;
   z-index: 1;
   display: flex;
-  gap: 16px 20px;
+  gap: 20px;
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
   align-items: flex-start;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   margin-top: 10px;
   padding-left: 8px;
 }
@@ -223,12 +223,28 @@
   }
 }
 
+/* Every registered View keeps a tab; a narrow strip scrolls horizontally
+   instead of folding tabs away, so no View becomes unreachable. The 10px
+   padding recovers the press-target overhang clipped by the scroll box. */
 .viewTabs {
   display: flex;
-  flex-wrap: wrap;
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
   gap: 32px;
   min-width: 0;
   min-height: 25px;
+  padding-top: 10px;
+  margin-top: -10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+@media (max-width: 767px) {
+  .viewTabs {
+    gap: 24px;
+  }
 }
 
 /* The 16px text line retains 9px below it. The press target extends 10px
@@ -276,31 +292,7 @@
   background: var(--dsw-alias-state-business-primary);
 }
 
-/* The More launcher centers its 22px box on the tab's 16px text line. */
-.viewsMoreAnchor {
-  flex: none;
-}
-
-.viewsMore {
-  width: 22px;
-  height: 22px;
-  margin-top: -3px;
-  padding: 0;
-  color: var(--dsw-alias-label-secondary);
-}
-
-.viewsMoreActive { color: var(--dsw-alias-state-business-primary); }
-
-.tabLabel { display: block; max-width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.viewsMore[aria-expanded='true'] {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-.viewsMoreMenu {
-  width: 288px;
-  max-width: calc(100vw - 24px);
-}
+.tabLabel { display: block; white-space: nowrap; }
 
 .viewArea {
   display: flex;
