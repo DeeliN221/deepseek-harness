@@ -4,7 +4,9 @@ import type { LexicalEditor, NodeKey } from 'lexical'
 import {
   $addUpdateTag, $createParagraphNode, $createTextNode, $getAdjacentNode, $isTextNode,
   $getRoot, $getSelection, $getNodeByKey, $isRangeSelection,
-  BLUR_COMMAND, CLEAR_HISTORY_COMMAND, COMMAND_PRIORITY_BEFORE_CRITICAL, COMMAND_PRIORITY_CRITICAL, createEditor,
+  BEFORE_INPUT_COMMAND, BLUR_COMMAND, CLEAR_HISTORY_COMMAND, COMPOSITION_END_TAG,
+  COMPOSITION_START_COMMAND, CONTROLLED_TEXT_INSERTION_COMMAND,
+  COMMAND_PRIORITY_BEFORE_CRITICAL, COMMAND_PRIORITY_CRITICAL, createEditor,
   HISTORY_MERGE_TAG, PASTE_TAG,
   RootNode, SELECTION_CHANGE_COMMAND, SKIP_DOM_SELECTION_TAG, KEY_BACKSPACE_COMMAND, KEY_DELETE_COMMAND, HISTORY_PUSH_TAG,
 } from 'lexical'
@@ -101,8 +103,59 @@ export class DraftEditorRuntime {
       }
       return false
     }
+    const isolatedKeys = new Set<NodeKey>()
+    const releaseCompositionNodes = (discrete = false): void => {
+      if (isolatedKeys.size === 0) return
+      this.editor.update(() => {
+        for (const key of isolatedKeys) {
+          const node = $getNodeByKey(key)
+          if ($isTextNode(node) && node.isUnmergeable()) node.toggleUnmergeable()
+        }
+        isolatedKeys.clear()
+      }, { tag: HISTORY_MERGE_TAG, ...(discrete ? { discrete: true } : {}) })
+    }
     const unregister = mergeRegister(
       registerPlainText(this.editor),
+      this.editor.registerUpdateListener(({ tags }) => {
+        if (tags.has(COMPOSITION_END_TAG)) releaseCompositionNodes()
+      }),
+      this.editor.registerRootListener((root, previous) => {
+        if (previous !== null && root !== previous) releaseCompositionNodes()
+      }),
+      this.editor.registerCommand(COMPOSITION_START_COMMAND, () => {
+        if (!/Android/u.test(navigator.userAgent) || this.editor.isComposing()) return false
+        const selection = $getSelection()
+        if (!$isRangeSelection(selection) || !selection.isCollapsed() || selection.anchor.type !== 'text') return false
+        const node = selection.anchor.getNode()
+        if (!$isTextNode(node) || node.getType() !== 'text' || node.getTextContentSize() === 0) return false
+        const offset = selection.anchor.offset
+        // Keep committed text outside the DOM text node owned by this composition.
+        // Lexical's default composition handler creates the insertion node at this element point.
+        if (!node.isUnmergeable()) {
+          node.toggleUnmergeable()
+          isolatedKeys.add(node.getKey())
+        }
+        const split = offset > 0 && offset < node.getTextContentSize() ? node.splitText(offset) : [node]
+        if (isolatedKeys.has(node.getKey())) for (const part of split) isolatedKeys.add(part.getKey())
+        const prefix = node.getLatest()
+        const parent = prefix.getParentOrThrow()
+        const index = prefix.getIndexWithinParent() + (offset > 0 ? 1 : 0)
+        parent.select(index, index)
+        return false
+      }, COMMAND_PRIORITY_BEFORE_CRITICAL),
+      this.editor.registerCommand(BEFORE_INPUT_COMMAND, (event) => {
+        if (event.inputType !== 'insertFromDictation' || !event.cancelable || event.data === null) return false
+        const selection = $getSelection()
+        if (!$isRangeSelection(selection)) return false
+        const range = typeof event.getTargetRanges === 'function' ? event.getTargetRanges()[0] : undefined
+        const root = this.editor.getRootElement()
+        if (range !== undefined
+          && (root === null || !root.contains(range.startContainer) || !root.contains(range.endContainer))) return false
+        if (selection.isCollapsed() && range !== undefined) selection.applyDOMRange(range)
+        event.preventDefault()
+        this.editor.dispatchCommand(CONTROLLED_TEXT_INSERTION_COMMAND, event)
+        return true
+      }, COMMAND_PRIORITY_BEFORE_CRITICAL),
       this.editor.registerNodeTransform(QuoteNode, (node) => { node.setLabels(this.deps.quoteLabels()) }),
       this.editor.registerCommand(REMOVE_QUOTE_COMMAND, key => this.removeQuote(key), COMMAND_PRIORITY_CRITICAL),
       this.editor.registerCommand(KEY_BACKSPACE_COMMAND, event => this.deleteAdjacentQuote(event, true), COMMAND_PRIORITY_BEFORE_CRITICAL),
@@ -128,6 +181,7 @@ export class DraftEditorRuntime {
       },
     )
     return () => {
+      releaseCompositionNodes(true)
       unregister()
       this.editor.setRootElement(null)
     }
