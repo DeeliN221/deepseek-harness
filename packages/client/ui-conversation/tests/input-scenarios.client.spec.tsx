@@ -1,3 +1,4 @@
+import { composerEnter } from './composer-enter-fixture.client.ts'
 // @vitest-environment jsdom
 import { contextMenuHook } from '@deepseek-ai/dsh-client-test-runtime'
 /**
@@ -268,7 +269,7 @@ describe('scenario A: menu-pick /goal, type args, enter submits', () => {
     b.append('发布 v1')
     expect(b.shell.snapshot.phase).toBe('claimed')
     // Enter: submitting → command execute → commit clears.
-    fireEvent.keyDown(b.textarea, { key: 'Enter' })
+    composerEnter(b.textarea, { key: 'Enter', ctrlKey: true })
     await vi.waitFor(() => { expect(b.execute).toHaveBeenCalledWith('/goal 发布 v1', []) })
     await vi.waitFor(() => { expect(b.shell.snapshot.draft).toBe('') })
     expect(b.shell.snapshot.phase).toBe('plain')
@@ -283,7 +284,7 @@ describe('scenario C: pasted /goal xxx + enter (menu never opened)', () => {
     // Paste lands whole; caret at end means detectTrigger sees no token under
     // the caret mid-whitespace — menu stays closed; enter runs adjudication.
     act(() => { b.shell.setDraft('/goal 尽快发布') })
-    fireEvent.keyDown(b.textarea, { key: 'Enter' })
+    composerEnter(b.textarea, { key: 'Enter', ctrlKey: true })
     await vi.waitFor(() => { expect(b.execute).toHaveBeenCalledWith('/goal 尽快发布', []) })
     await vi.waitFor(() => { expect(b.shell.snapshot.phase).toBe('plain') })
     expect(b.shell.snapshot.draft).toBe('')
@@ -305,14 +306,14 @@ describe('scenario D: execute-kind /compact', () => {
   it('bare /compact + enter executes; trailing text falls to the default sink (scenario I twin)', async () => {
     const b = await bench()
     act(() => { b.shell.setDraft('/compact') })
-    fireEvent.keyDown(b.textarea, { key: 'Enter' })
+    composerEnter(b.textarea, { key: 'Enter', ctrlKey: true })
     await vi.waitFor(() => { expect(b.executed).toContain('/compact') })
     // 'handled' flows back as the adjudicated event one microtask later.
     await vi.waitFor(() => { expect(b.shell.snapshot.phase).toBe('plain') })
     cleanup()
     const b2 = await bench()
     act(() => { b2.shell.setDraft('/compact 现在') })
-    fireEvent.keyDown(b2.textarea, { key: 'Enter' })
+    composerEnter(b2.textarea, { key: 'Enter', ctrlKey: true })
     // execute with trailing → matchEnter answers undefined → default sink.
     await vi.waitFor(() => { expect(b2.sink).toHaveBeenCalledWith('/compact 现在', [], 'queue', expect.any(AbortSignal), expect.any(Function)) })
     expect(b2.executed).toHaveLength(0)
@@ -324,7 +325,7 @@ describe('scenario: images ride an accepting command through the real pipeline',
     const b = await bench()
     act(() => { b.shell.addAttachments(['img-1' as DraftAttachmentId]) })
     act(() => { b.shell.setDraft('/vision 这张图是什么') })
-    fireEvent.keyDown(b.textarea, { key: 'Enter' })
+    composerEnter(b.textarea, { key: 'Enter', ctrlKey: true })
     await vi.waitFor(() => { expect(b.execute).toHaveBeenCalledWith('/vision 这张图是什么', [PNG]) })
     // The envelope the controller forwarded to matchEnter carried the count.
     expect(b.envelopes).toEqual([{ attachments: 1 }])
@@ -338,7 +339,7 @@ describe('scenario: images ride an accepting command through the real pipeline',
   it('an imageless enter adjudicates with a zero-image envelope', async () => {
     const b = await bench()
     act(() => { b.shell.setDraft('/goal 发布') })
-    fireEvent.keyDown(b.textarea, { key: 'Enter' })
+    composerEnter(b.textarea, { key: 'Enter', ctrlKey: true })
     await vi.waitFor(() => { expect(b.execute).toHaveBeenCalledWith('/goal 发布', []) })
     expect(b.envelopes).toEqual([{ attachments: 0 }])
     expect(b.serialize).not.toHaveBeenCalled()
@@ -523,7 +524,7 @@ describe('scenario H: the command chip deletes whole', () => {
     expect(b.shell.snapshot.phase).toBe('plain')
     expect(b.shell.snapshot.draft).toBe(' 发布')
     expect(b.view.container.querySelector('[data-composer-command]')).toBeNull()
-    fireEvent.keyDown(b.textarea, { key: 'Enter' })
+    composerEnter(b.textarea, { key: 'Enter', ctrlKey: true })
     expect(b.sink).toHaveBeenCalledWith('发布', [], 'queue', expect.any(AbortSignal), expect.any(Function))
     expect(b.execute).not.toHaveBeenCalled()
   })
@@ -562,7 +563,7 @@ describe('scenario H: the command chip deletes whole', () => {
     expect(b.shell.snapshot.claim?.name).toBe('goal')
     expect(b.shell.snapshot.draft).toBe('/goal 发布')
     expect(b.view.container.querySelector('[data-composer-command]')?.textContent).toBe('/goal')
-    fireEvent.keyDown(b.textarea, { key: 'Enter' })
+    composerEnter(b.textarea, { key: 'Enter', ctrlKey: true })
     await vi.waitFor(() => { expect(b.execute).toHaveBeenCalledWith('/goal 发布', []) })
   })
 })
@@ -616,7 +617,7 @@ describe('scenario I: unknown /xyz + enter', () => {
   it('adjudication misses in one hop and the whole line rides the default sink', async () => {
     const b = await bench()
     act(() => { b.shell.setDraft('/xyz 干点啥') })
-    fireEvent.keyDown(b.textarea, { key: 'Enter' })
+    composerEnter(b.textarea, { key: 'Enter', ctrlKey: true })
     await vi.waitFor(() => { expect(b.sink).toHaveBeenCalledWith('/xyz 干点啥', [], 'queue', expect.any(AbortSignal), expect.any(Function)) })
     await vi.waitFor(() => { expect(b.shell.snapshot.phase).toBe('plain') })
     expect(b.execute).not.toHaveBeenCalled()
@@ -632,7 +633,7 @@ describe('scenario I: unknown /xyz + enter', () => {
       } as never)
     })
     act(() => { b.shell.setDraft('/plan 上线') })
-    fireEvent.keyDown(b.textarea, { key: 'Enter' })
+    composerEnter(b.textarea, { key: 'Enter', ctrlKey: true })
     await vi.waitFor(() => { expect(b.view.getByText('目录预热失败')).toBeTruthy() })
     // Never a silent downgrade: draft retained, sink untouched.
     expect(b.shell.snapshot.draft).toBe('/plan 上线')

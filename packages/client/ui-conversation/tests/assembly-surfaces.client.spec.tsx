@@ -1,3 +1,4 @@
+import { composerEnter } from './composer-enter-fixture.client.ts'
 // @vitest-environment jsdom
 import { apply as applyMenus, inject as injectMenus } from '@deepseek-ai/dsh-client-ui-context-menu/client'
 /** Conversation assembly acceptance independent of Tool presentation. */
@@ -232,7 +233,7 @@ describe('prompt rejection through the assembled composer', () => {
     const conversation = runtime.ctx.get('conversation') as { input: unknown }
     const shell = (conversation.input as InputHub).shell(SID)
     act(() => { shell.setDraft('do not lose this') })
-    fireEvent.keyDown(composer, { key: 'Enter' })
+    composerEnter(composer, { key: 'Enter', ctrlKey: true })
     await waitFor(() => { expect(prompt).toHaveBeenCalledOnce() })
 
     await runtime.sessions.updateSessionSnapshot(SID, (draft) => {

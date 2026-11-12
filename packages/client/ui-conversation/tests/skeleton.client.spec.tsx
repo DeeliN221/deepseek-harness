@@ -1,3 +1,4 @@
+import { composerEnter } from './composer-enter-fixture.client.ts'
 // @vitest-environment jsdom
 import { contextMenuHook } from '@deepseek-ai/dsh-client-test-runtime'
 import type { GlobalStandardProps, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -451,7 +452,7 @@ describe('ConversationRoot resident composer', () => {
     // tree: the DOM survives the block being raised and cleared.
     expect(box.getAttribute('aria-disabled')).toBe('true')
     expect(box.getAttribute('data-placeholder')).toBe('select a model first')
-    fireEvent.keyDown(box, { key: 'Enter' })
+    composerEnter(box, { key: 'Enter', ctrlKey: true })
     expect(b.sink).not.toHaveBeenCalled()
 
     // The model seat stays live. Locking it too would leave the composer
@@ -484,7 +485,7 @@ describe('ConversationRoot resident composer', () => {
     expect(b.wiring.snapshot.draft).toBe('ordinary draft')
     act(() => { b.wiring.setDraft('ordinary revised') })
     expect(b.store.store.getSnapshot().draft).toEqual({ text: 'ordinary revised', references: [] })
-    fireEvent.keyDown(box, { key: 'Enter' })
+    composerEnter(box, { key: 'Enter', ctrlKey: true })
     expect(b.sink).toHaveBeenCalledWith('ordinary revised', [], 'queue', expect.any(AbortSignal), expect.any(Function))
     // The current crumb is plain text (a drag surface on darwin), not a button.
     expect(b.view.queryByRole('button', { name: 'Child' })).toBeNull()

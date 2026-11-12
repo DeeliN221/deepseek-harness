@@ -44,7 +44,7 @@ describe('keymap keydown routing', () => {
     expect(second.hasAttribute('data-composer-composing')).toBe(false)
   })
 
-  it('routes Enter to the keymap submit handler', () => {
+  it('never sends from ordinary or synthetic DOM Enter', () => {
     const editor = createEditor({ namespace: 'keymap-routing', onError: (e) => { throw e } })
     const root = document.createElement('div')
     root.contentEditable = 'true'
@@ -62,9 +62,9 @@ describe('keymap keydown routing', () => {
       pasteText: () => {},
     })
     fireEvent.keyDown(root, { key: 'Enter' })
-    expect(submit).toHaveBeenCalledWith(false)
+    expect(submit).not.toHaveBeenCalled()
     fireEvent.keyDown(root, { key: 'Enter', metaKey: true })
-    expect(submit).toHaveBeenCalledWith(true)
+    expect(submit).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -103,7 +103,9 @@ describe('keymap keydown routing', () => {
     await Promise.resolve()
 
     expect(submit).not.toHaveBeenCalled()
-    expect(arbitrate).not.toHaveBeenCalled()
+    if (modifiers.altKey && !('metaKey' in modifiers) && !('ctrlKey' in modifiers) && !('shiftKey' in modifiers)) {
+      expect(arbitrate).toHaveBeenCalledWith('enter', false)
+    } else expect(arbitrate).not.toHaveBeenCalled()
     expect(event.defaultPrevented).toBe(false)
     expect(applicationKeydown).toHaveBeenCalledOnce()
     expect(editor.getEditorState().read(() => $getRoot().getTextContent())).toBe('unsent draft')

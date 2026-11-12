@@ -1,3 +1,4 @@
+import { composerEnter } from './composer-enter-fixture.client.ts'
 // @vitest-environment jsdom
 import { contextMenuHook } from '@deepseek-ai/dsh-client-test-runtime'
 /**
@@ -155,7 +156,7 @@ describe('matrix row: plain', () => {
     const { textarea, shell, sink } = bench()
     act(() => { shell.setDraft('普通消息') })
     expect(shell.snapshot.claim).toBeUndefined()
-    fireEvent.keyDown(textarea, { key: 'Enter' })
+    composerEnter(textarea, { key: 'Enter', ctrlKey: true })
     expect(sink).toHaveBeenCalledWith('普通消息', [], 'queue', expect.any(AbortSignal), expect.any(Function))
     // The composer holds the message, read-only, until the Host accepts it.
     expect(shell.snapshot).toMatchObject({ phase: 'sending', draft: '普通消息' })
@@ -189,7 +190,7 @@ describe('matrix row: claimed', () => {
     const { view, textarea, shell, sink, claim, typeAtCaret } = bench({ submit })
     claim()
     typeAtCaret('发布')
-    fireEvent.keyDown(textarea, { key: 'Enter' })
+    composerEnter(textarea, { key: 'Enter', ctrlKey: true })
     expect(sink).not.toHaveBeenCalled()
     await vi.waitFor(() => { expect(submit).toHaveBeenCalledWith('发布', SCTX, []) })
     // Commit: draft cleared, notice surfaced, back to plain.
@@ -215,7 +216,7 @@ describe('matrix row: claimed with attachments', () => {
     const { view, textarea, shell, sink, claim } = bench({ submit })
     claim()
     act(() => { shell.addAttachments([img]) })
-    fireEvent.keyDown(textarea, { key: 'Enter' })
+    composerEnter(textarea, { key: 'Enter', ctrlKey: true })
     await Promise.resolve()
     expect(shell.snapshot.phase).toBe('claimed')
     expect(submit).not.toHaveBeenCalled()
@@ -234,7 +235,7 @@ describe('matrix row: claimed with attachments', () => {
     // The claim currency carries the acceptance flag the pre-gate reads.
     expect(shell.snapshot.claim).toEqual({ name: 'goal', token: '/goal ', hint: '目标', attachments: true })
     act(() => { shell.addAttachments([img]) })
-    fireEvent.keyDown(textarea, { key: 'Enter' })
+    composerEnter(textarea, { key: 'Enter', ctrlKey: true })
     await vi.waitFor(() => { expect(submit).toHaveBeenCalledWith('', SCTX, [png, file]) })
     expect(serialize).toHaveBeenCalledWith([img])
     await vi.waitFor(() => { expect(shell.snapshot.draft).toBe('') })
@@ -249,7 +250,7 @@ describe('matrix row: claimed with attachments', () => {
     const { view, textarea, shell, claim, release } = bench({ submit, serialize: () => Promise.resolve([file]) })
     claim('/goal ', '目标', true)
     act(() => { shell.addAttachments([img]) })
-    fireEvent.keyDown(textarea, { key: 'Enter' })
+    composerEnter(textarea, { key: 'Enter', ctrlKey: true })
     await vi.waitFor(() => { expect(view.getByText('处理失败')).toBeTruthy() })
     expect(shell.snapshot.phase).toBe('claimed')
     expect(shell.snapshot.attachmentIds).toEqual([img])
@@ -262,7 +263,7 @@ describe('matrix row: claimed with attachments', () => {
     const { view, textarea, shell, claim, release } = bench({ submit, serialize: () => Promise.reject(new Error('附件已失效')) })
     claim('/goal ', '目标', true)
     act(() => { shell.addAttachments([img]) })
-    fireEvent.keyDown(textarea, { key: 'Enter' })
+    composerEnter(textarea, { key: 'Enter', ctrlKey: true })
     await vi.waitFor(() => { expect(view.getByText('附件已失效')).toBeTruthy() })
     expect(submit).not.toHaveBeenCalled()
     expect(shell.snapshot.attachmentIds).toEqual([img])
@@ -279,7 +280,7 @@ describe('matrix row: claimed with attachments', () => {
     })
     claim('/goal ', '目标', true)
     act(() => { shell.addAttachments([img]) })
-    fireEvent.keyDown(textarea, { key: 'Enter' })
+    composerEnter(textarea, { key: 'Enter', ctrlKey: true })
     await vi.waitFor(() => { expect(resolveSerialize).toBeDefined() })
     shell.dispose()
     resolveSerialize([{ type: 'image', mediaType: 'image/png', data: 'AA==' }])
@@ -293,7 +294,7 @@ describe('matrix row: claimed with attachments', () => {
     const { shell, textarea, claim } = bench({ submit, serialize: () => Promise.resolve([]) })
     claim('/goal ', '目标', true)
     act(() => { shell.addAttachments([img]) })
-    fireEvent.keyDown(textarea, { key: 'Enter' })
+    composerEnter(textarea, { key: 'Enter', ctrlKey: true })
     expect(shell.snapshot.phase).toBe('submitting')
     const draft = shell.snapshot.draft
     expect(shell.addFiles([{
@@ -312,13 +313,13 @@ describe('matrix row: submitting', () => {
     const submit = vi.fn(() => new Promise<SubmitOutcome>(() => {})) // never settles
     const { textarea, shell, sink, claim } = bench({ submit })
     claim()
-    fireEvent.keyDown(textarea, { key: 'Enter' })
+    composerEnter(textarea, { key: 'Enter', ctrlKey: true })
     expect(shell.snapshot.phase).toBe('submitting')
     expect(shell.snapshot.claim).toBeDefined()
     expect(textarea.getAttribute('contenteditable')).toBe('false')
     // Enter is dead inside the lock (submit dispatch is microtask-deferred).
     await vi.waitFor(() => { expect(submit).toHaveBeenCalledTimes(1) })
-    fireEvent.keyDown(textarea, { key: 'Enter' })
+    composerEnter(textarea, { key: 'Enter', ctrlKey: true })
     await Promise.resolve()
     expect(submit).toHaveBeenCalledTimes(1)
     expect(sink).not.toHaveBeenCalled()
@@ -329,7 +330,7 @@ describe('matrix row: submitting', () => {
     const submit = vi.fn(() => new Promise<SubmitOutcome>((_res, rej) => { rejectSubmit = rej }))
     const first = bench({ submit })
     first.claim()
-    fireEvent.keyDown(first.textarea, { key: 'Enter' })
+    composerEnter(first.textarea, { key: 'Enter', ctrlKey: true })
     await vi.waitFor(() => { expect(submit).toHaveBeenCalled() })
     act(() => { rejectSubmit(new Error('执行失败')) })
     await vi.waitFor(() => { expect(first.shell.snapshot.phase).toBe('claimed') })
@@ -340,7 +341,7 @@ describe('matrix row: submitting', () => {
     const submit2 = vi.fn(() => new Promise<SubmitOutcome>((_res, rej) => { rejectSubmit = rej }))
     const second = bench({ submit: submit2 })
     second.claim()
-    fireEvent.keyDown(second.textarea, { key: 'Enter' })
+    composerEnter(second.textarea, { key: 'Enter', ctrlKey: true })
     await vi.waitFor(() => { expect(submit2).toHaveBeenCalled() })
     act(() => { second.shell.setDraft('用户飞行中打的新稿') })
     act(() => { rejectSubmit(new Error('晚到失败')) })
@@ -362,7 +363,7 @@ describe('matrix row: locked (session disabled)', () => {
     const { textarea, shell, sink } = bench({ running: true })
     expect(textarea.getAttribute('aria-disabled')).not.toBe('true')
     act(() => { shell.setDraft('排队') })
-    fireEvent.keyDown(textarea, { key: 'Enter' })
+    composerEnter(textarea, { key: 'Enter', ctrlKey: true })
     expect(sink).toHaveBeenCalledWith('排队', [], 'queue', expect.any(AbortSignal), expect.any(Function))
   })
 })

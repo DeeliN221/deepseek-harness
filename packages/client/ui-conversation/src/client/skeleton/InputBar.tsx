@@ -410,7 +410,7 @@ export const InputBar = memo(function InputBar({
       // The steer hint deliberately outranks the plan placeholder:
       // while it shows, the whole-queue gesture is genuinely available
       // (the gate never consults plan mode), so the actionable hint wins.
-      : canSteerQueue
+      : canSteerQueue && !isMobileDevice()
         ? t('placeholder.steerQueue')
         : planActive ? t('placeholder.plan') : t('placeholder.default'))
 

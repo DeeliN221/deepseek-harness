@@ -22,6 +22,7 @@ import {
   KEY_ESCAPE_COMMAND, KEY_SPACE_COMMAND, KEY_TAB_COMMAND, PASTE_COMMAND,
 } from 'lexical'
 import { mergeRegister } from '@lexical/utils'
+import { isMobileDevice } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ArbitrateKey, ArbitrateOutcome } from '../../contract/draft-editor.ts'
 import { $isQuoteNode } from './QuoteNode.tsx'
 
@@ -35,7 +36,7 @@ export interface ComposerKeymapHandlers {
   dismissPopup(): void
   /** Whether Enter may submit right now (locked/busy states refuse). */
   canSubmit(): boolean
-  /** Plain Enter submits; exactly Ctrl+Enter or Cmd+Enter selects accelerated delivery. */
+  /** Ctrl/Cmd+Enter submits; Alt+Enter selects complementary delivery on desktop. */
   submit(accelerated: boolean): void
   /**
    * Pasted files with directory metadata supplied by the clipboard entry API.
@@ -255,27 +256,30 @@ export function registerComposerKeymap(editor: LexicalEditor, handlers: Composer
       return false
     }, COMMAND_PRIORITY_CRITICAL),
     editor.registerCommand(KEY_ENTER_COMMAND, (event) => {
-      // Returning true stops Lexical's fallback line break without consuming
-      // the DOM event that application shortcuts need.
-      if (event !== null && (event.altKey || event.getModifierState('AltGraph')
-        || (event.ctrlKey && event.metaKey) || (event.shiftKey && (event.ctrlKey || event.metaKey)))) return true
-      // Plain Shift+Enter keeps its native line break, including during composition.
-      if (event?.shiftKey === true) return false
-      if (event !== null && isComposingEvent(event, recentlyComposing)) {
-        // The IME consumes this Enter (candidate pick); neither submit nor
-        // break the line. No preventDefault: the browser owns the gesture.
+      // Null commands and synthetic completion events must never deliver a draft.
+      if (event === null) return false
+      // Mixed Shift chords remain available to application commands.
+      if (event.shiftKey && (event.ctrlKey || event.metaKey || event.altKey)) return true
+      // Shift+Enter retains Lexical's line break, including composition.
+      if (event.shiftKey) return false
+      if (isComposingEvent(event, recentlyComposing)) return true
+      const primary = (event.ctrlKey || event.metaKey) && !event.altKey
+        && !(event.ctrlKey && event.metaKey)
+      const complementary = event.altKey && !event.ctrlKey && !event.metaKey
+        && !event.getModifierState('AltGraph')
+      const plain = !event.ctrlKey && !event.metaKey && !event.altKey
+      // Completion selection precedes every valid Enter gesture, including send chords.
+      if ((plain || primary || complementary) && handlers.arbitrate('enter', false) !== 'pass') {
+        event.preventDefault()
         return true
       }
-      // Menu-open Enter picks the highlight through arbitration; a
-      // no-highlight menu passes down to the submit gesture.
-      if (handlers.arbitrate('enter', false) !== 'pass') {
-        event?.preventDefault()
-        return true
-      }
-      event?.preventDefault()
-      if (event?.repeat === true) return true // held-down Enter must not machine-gun sends
-      if (!handlers.canSubmit()) return true
-      handlers.submit(event?.ctrlKey === true || event?.metaKey === true)
+      if (plain) return false
+      // Mobile keyboards, dictation, and programmatic events only edit text.
+      // Modified Enter must not fall through to another application's shortcut.
+      if (isMobileDevice() || !event.isTrusted || (!primary && !complementary)) return true
+      event.preventDefault()
+      if (event.repeat || !handlers.canSubmit()) return true
+      handlers.submit(complementary)
       return true
     }, COMMAND_PRIORITY_CRITICAL),
     editor.registerCommand(PASTE_COMMAND, (event) => {
