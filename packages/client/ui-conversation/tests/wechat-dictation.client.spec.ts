@@ -284,4 +284,31 @@ describe('Android dictation DOM events', () => {
     await b.flush()
     expect(b.runtime.projection.clipboardText).toBe('第二段')
   })
+  it('retains every line of a multi-line dictation composition', async () => {
+    const b = bench()
+    b.runtime.setDraft('前文')
+    await b.selectDOM(2)
+    b.root.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
+    await b.flush()
+    const dictated = '第一行内容\n第二行内容\n第三行内容'
+    b.root.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertCompositionText', data: dictated, isComposing: true }))
+    await b.flush()
+    b.root.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: dictated }))
+    await b.flush()
+    expect(b.runtime.projection.clipboardText).toBe('前文第一行内容\n第二行内容\n第三行内容')
+  })
+  it('retains every line while a multi-line dictation keeps growing', async () => {
+    const b = bench()
+    b.runtime.setDraft('前文')
+    await b.selectDOM(2)
+    b.root.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
+    await b.flush()
+    for (const dictated of ['一\n二', '一\n二\n三']) {
+      b.root.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertCompositionText', data: dictated, isComposing: true }))
+      await b.flush()
+    }
+    b.root.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '一\n二\n三' }))
+    await b.flush()
+    expect(b.runtime.projection.clipboardText).toBe('前文一\n二\n三')
+  })
 })

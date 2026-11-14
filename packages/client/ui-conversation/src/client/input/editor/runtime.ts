@@ -114,15 +114,57 @@ export class DraftEditorRuntime {
         isolatedKeys.clear()
       }, { tag: HISTORY_MERGE_TAG, ...(discrete ? { discrete: true } : {}) })
     }
+
+    // Android dictation keeps one composition open for a whole utterance and re-sends it
+    // with line breaks. Chrome applies those breaks as paragraphs, Lexical adopts only the
+    // last paragraph as its composition node, and every earlier line is lost. Composition
+    // input is not cancelable, so repair the draft from the IME's own text instead: keep
+    // the draft at composition start, then rebuild it with the composing run on top.
+    let dictation: { snapshot: string; text: string } | null = null
+    const rebuildDictation = (text: string): void => {
+      this.editor.update(() => {
+        $getRoot().clear()
+        $appendParagraphs(text)
+      }, { discrete: true, tag: HISTORY_MERGE_TAG })
+    }
+    const onDictationInput = (event: InputEvent): void => {
+      if (event.inputType !== 'insertCompositionText' || event.data === null) return
+      const pending = dictation
+      if (pending === null || (pending.text === '' && !event.data.includes('\n'))) return
+      // Only the first observation can be verified: Lexical keeps a composition node beside
+      // this text and surfaces it with a zero-width filler, so later projections never match
+      // the draft exactly. The IME re-sends the whole utterance, so its last text stays truth.
+      if (pending.text === '' && !this.projection.clipboardText.startsWith(pending.snapshot)) return
+      pending.text = event.data
+    }
+    const onDictationEnd = (): void => {
+      const pending = dictation
+      dictation = null
+      if (pending === null || pending.text === '') return
+      rebuildDictation(`${pending.snapshot}${pending.text}`)
+    }
+    // The browser has already applied composition text before any listener runs, so the
+    // guard watches the resulting events, ahead of Lexical's own reconciliation.
+    let guardRoot: HTMLElement | null = null
+    const attachCompositionGuard = (root: HTMLElement | null): void => {
+      if (root === guardRoot) return
+      guardRoot?.removeEventListener('input', onDictationInput, true)
+      guardRoot?.removeEventListener('compositionend', onDictationEnd, true)
+      guardRoot = root
+      guardRoot?.addEventListener('input', onDictationInput, true)
+      guardRoot?.addEventListener('compositionend', onDictationEnd, true)
+    }
     const unregister = mergeRegister(
       registerPlainText(this.editor),
       this.editor.registerUpdateListener(({ tags }) => {
         if (tags.has(COMPOSITION_END_TAG)) releaseCompositionNodes()
       }),
       this.editor.registerRootListener((root, previous) => {
+        attachCompositionGuard(root)
         if (previous !== null && root !== previous) releaseCompositionNodes()
       }),
       this.editor.registerCommand(COMPOSITION_START_COMMAND, () => {
+        dictation = { snapshot: this.projection.clipboardText, text: '' }
         if (!/Android/u.test(navigator.userAgent) || this.editor.isComposing()) return false
         const selection = $getSelection()
         if (!$isRangeSelection(selection) || !selection.isCollapsed() || selection.anchor.type !== 'text') return false
@@ -161,6 +203,8 @@ export class DraftEditorRuntime {
       this.editor.registerCommand(KEY_BACKSPACE_COMMAND, event => this.deleteAdjacentQuote(event, true), COMMAND_PRIORITY_BEFORE_CRITICAL),
       this.editor.registerCommand(KEY_DELETE_COMMAND, event => this.deleteAdjacentQuote(event, false), COMMAND_PRIORITY_BEFORE_CRITICAL),
       this.editor.registerCommand(BLUR_COMMAND, () => {
+        // A dictation that never reported its end still has to land before focus leaves.
+        onDictationEnd()
         // Finish this batch before an explicit focus can restore its updated selection.
         this.editor.update(preserveExternalSelection, { discrete: true })
         return false
@@ -181,6 +225,7 @@ export class DraftEditorRuntime {
       },
     )
     return () => {
+      attachCompositionGuard(null)
       releaseCompositionNodes(true)
       unregister()
       this.editor.setRootElement(null)
