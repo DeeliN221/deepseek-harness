@@ -678,9 +678,12 @@ export class ClientSessions implements ISessions {
             ...(projectionValues === undefined ? {} : { projectionValues }),
             ...(title === undefined ? {} : { title }),
           }
-        } else if (summary.displayTitle !== displayTitle || summary.projectionValues !== projectionValues) {
+        } else if (summary.origin !== 'subagent' || summary.parentId === undefined
+          || summary.displayTitle !== displayTitle || summary.projectionValues !== projectionValues) {
           byId[childId] = {
             ...summary,
+            parentId: summary.parentId ?? parentId as SessionId,
+            origin: 'subagent',
             displayTitle,
             ...(projectionValues === undefined ? {} : { projectionValues }),
           }
