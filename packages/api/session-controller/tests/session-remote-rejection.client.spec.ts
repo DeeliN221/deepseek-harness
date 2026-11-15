@@ -1,8 +1,8 @@
 /**
  * A rejection from the Remote face, which the generated client raises only for
  * an assembly fault (wrong arity, an unmounted method, a withdrawn
- * contribution), propagates out of the Session command unchanged and records no
- * prompt error. Carrier failures never reject: they arrive as folded results,
+ * contribution), propagates out of the Session command unchanged. Cancel also
+ * publishes a stop failure so event handlers cannot hide it. Carrier failures never reject: they arrive as folded results,
  * covered by session.client.spec.ts.
  */
 import { describe, expect, it } from 'vitest'
@@ -25,11 +25,12 @@ function rejecting(message: string): SessionRemotes {
 }
 
 describe('Session over a rejecting Remote face', () => {
-  it('propagates the rejection from prompt and cancel and records no prompt error', async () => {
+  it('propagates assembly rejections and makes cancellation failure visible', async () => {
     const session = new Session(SID, rejecting('assembly fault'))
     await expect(session.prompt([{ type: 'text', text: 'x' }], 'queue')).rejects.toThrow('assembly fault')
     await expect(session.cancel()).rejects.toThrow('assembly fault')
-    expect(session.getSnapshot().promptError).toBeNull()
+    expect(session.getSnapshot().promptError).toMatchObject({ op: 'stop', error: { code: 'gateway/internal', message: 'assembly fault' } })
+    expect(session.getSnapshot().stopping).toBeUndefined()
   })
 
   it('propagates the rejection from a subagent continuation prompt and interrupt', async () => {
@@ -39,6 +40,7 @@ describe('Session over a rejecting Remote face', () => {
     })
     await expect(session.prompt([{ type: 'text', text: 'x' }], 'queue')).rejects.toThrow('assembly fault')
     await expect(session.cancel()).rejects.toThrow('assembly fault')
-    expect(session.getSnapshot().promptError).toBeNull()
+    expect(session.getSnapshot().promptError).toMatchObject({ op: 'stop', error: { code: 'gateway/internal', message: 'assembly fault' } })
+    expect(session.getSnapshot().stopping).toBeUndefined()
   })
 })

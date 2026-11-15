@@ -471,6 +471,83 @@ describe('paging', () => {
 })
 
 describe('prompt and cancel errors', () => {
+  it('does not dispatch a stale stop after synchronous natural completion', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    session.handleRunning(true)
+    session.subscribe(() => {
+      if (session.getSnapshot().stopping !== undefined) session.handleRunning(false)
+    })
+    await session.cancel()
+    expect(session.getSnapshot().stopping).toBeUndefined()
+    expect(mock.log.requests('session/cancel')).toHaveLength(0)
+  })
+
+
+  it('publishes stop intent immediately, deduplicates through acceptance, and waits for Host idle', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    session.handleRunning(true)
+    const gate = Promise.withResolvers<RemoteResult<{ accepted: true }>>()
+    mock.remote.session.cancel.mockImplementation(() => gate.promise)
+    const changed = vi.fn()
+    session.subscribe(changed)
+    const first = session.cancel()
+    expect(session.getSnapshot()).toMatchObject({ running: true, stopping: { requestedAt: expect.any(Number) } })
+    expect(changed).toHaveBeenCalled()
+    expect(session.cancel()).toBe(first)
+    gate.resolve(ok({ accepted: true }))
+    await first
+    expect(session.cancel()).toBe(first)
+    expect(mock.log.requests('session/cancel')).toHaveLength(1)
+    expect(session.getSnapshot()).toMatchObject({ running: true, stopping: { requestedAt: expect.any(Number) } })
+    session.handleRunning(false)
+    expect(session.getSnapshot().stopping).toBeUndefined()
+  })
+
+  it('recovers from a rejected stop and clears its error when retrying', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    session.handleRunning(true)
+    mock.remote.session.cancel.mockResolvedValueOnce(err(new RemoteError('session/agent-busy', 'nope', { reason: 'r' })))
+    await session.cancel()
+    expect(session.getSnapshot()).toMatchObject({ running: true, promptError: { op: 'stop' } })
+    expect(session.getSnapshot().stopping).toBeUndefined()
+    const retry = session.cancel()
+    expect(session.getSnapshot().promptError).toBeNull()
+    expect(session.getSnapshot().stopping).toBeDefined()
+    await retry
+    expect(mock.log.requests('session/cancel')).toHaveLength(2)
+  })
+
+  it('ignores a late rejected stop after natural completion and a new Turn', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    mock.stream(FOLLOW, followScript(history([ev.turnStart(SessionSeq(0), 1)])))
+    await session.open()
+    session.handleRunning(true)
+    const gate = Promise.withResolvers<RemoteResult<{ accepted: true }>>()
+    mock.remote.session.cancel.mockImplementationOnce(() => gate.promise)
+    const previous = session.cancel()
+    await pushEvent(mock, ev.turnEnd(SessionSeq(1), 1))
+    await pushEvent(mock, ev.turnStart(SessionSeq(2), 2))
+    expect(session.getSnapshot().stopping).toBeUndefined()
+    const next = session.cancel()
+    await next
+    const feedback = session.getSnapshot().stopping
+    gate.resolve(err(new RemoteError('session/agent-busy', 'old failure', { reason: 'r' })))
+    await previous
+    expect(session.getSnapshot().stopping).toBe(feedback)
+    expect(session.getSnapshot().promptError).toBeNull()
+  })
+
+  it('clears feedback when a new Turn supersedes one whose end was not observed', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    mock.stream(FOLLOW, followScript(history([ev.turnStart(SessionSeq(0), 1)])))
+    await session.open()
+    session.handleRunning(true)
+    await session.cancel()
+    await pushEvent(mock, ev.turnStart(SessionSeq(1), 2))
+    expect(session.getSnapshot().stopping).toBeUndefined()
+    expect(session.getSnapshot().running).toBe(true)
+  })
+
   const CHILD = { parentSessionId: PARENT, childSessionId: SID, mode: 'continuable' } as const
 
   it('routes an addressed child through non-activating history, continuation prompt, and interrupt only', async ({ mock, start }) => {

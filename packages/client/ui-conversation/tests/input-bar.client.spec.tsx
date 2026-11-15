@@ -269,6 +269,27 @@ function bench(over?: BenchOptions) {
   }
 }
 
+describe('stop feedback', () => {
+  it.each([undefined, CONTINUABLE_CHILD])('disables duplicate stop and restores it after failure for %j', (subagent) => {
+    const h = bench({ running: true, ...(subagent === undefined ? {} : { subagent }) })
+    fireEvent.click(h.view.getByRole('button', { name: '停止生成' }))
+    expect(h.stop).toHaveBeenCalledTimes(1)
+    act(() => { h.session.set({ ...h.session.getSnapshot(), stopping: { requestedAt: 5_000 } }) })
+    const stopping = h.view.getByRole('button', { name: '正在停止' }) as HTMLButtonElement
+    expect(stopping.disabled).toBe(true)
+    expect(stopping.getAttribute('aria-busy')).toBe('true')
+    fireEvent.click(stopping)
+    expect(h.stop).toHaveBeenCalledTimes(1)
+    act(() => {
+      const { stopping: _stopping, ...snapshot } = h.session.getSnapshot()
+      h.session.set({ ...snapshot, promptError: { op: 'stop', error: new RemoteError('gateway/internal', 'stop failed', {}) } })
+    })
+    expect((h.view.getByRole('button', { name: '停止生成' }) as HTMLButtonElement).disabled).toBe(false)
+    // Toast renders through a body portal, outside the composer's container.
+    expect(h.view.getByRole('alert').textContent).toBe('stop failed (gateway/internal)')
+  })
+})
+
 function attachmentOwner(slotCalls: readonly { key: string; owner: unknown }[]): ComposerAttachmentsOwnerProps {
   for (let i = slotCalls.length - 1; i >= 0; i -= 1) {
     const call = slotCalls[i]

@@ -71,6 +71,8 @@ export interface SessionSnapshot {
   /** Local prompt-submission echoes the Host accepted and that are not yet observed as durable events or queue occurrences. */
   readonly pendingSubmissions: readonly PendingSubmission[]
   readonly running: boolean
+  /** Local cancellation intent, present until failure or an observed turn/status boundary; never proof of idle. */
+  readonly stopping?: { readonly requestedAt: number }
   readonly subagent: {
     readonly address: SubagentAddress
     /** Absent until the direct-parent catalog resolves. */

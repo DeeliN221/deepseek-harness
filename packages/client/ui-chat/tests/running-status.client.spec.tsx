@@ -17,13 +17,34 @@ function statusHarness(startTime?: number) {
   return {
     ...view,
     content: () => view.container.querySelector('[data-chat-running] > :last-child'),
-    set: (nextStartTime?: number, paused = false) => {
-      view.rerender(<RunningStatus startTime={nextStartTime} paused={paused} t={t} />)
+    set: (nextStartTime?: number, paused = false, stopRequestedAt?: number) => {
+      view.rerender(<RunningStatus startTime={nextStartTime} paused={paused} stopRequestedAt={stopRequestedAt} t={t} />)
     },
   }
 }
 
 describe('RunningStatus', () => {
+  it('freezes at the stop request, announces cleanup, and resumes after rejection', () => {
+    const view = statusHarness(1_000)
+    view.set(1_000, false, 5_000)
+    expect(view.content()?.textContent).toBe('正在停止，已用时 4秒，等待当前操作收尾')
+    expect(view.getByRole('status').textContent).toBe('正在停止，等待当前操作收尾')
+    expect(view.content()?.querySelector('[data-shimmer="true"]')).toBeNull()
+    expect(vi.getTimerCount()).toBe(0)
+    act(() => { vi.advanceTimersByTime(5_000) })
+    expect(view.content()?.textContent).toBe('正在停止，已用时 4秒，等待当前操作收尾')
+    view.set(1_000)
+    expect(view.content()?.textContent).toBe('深度求索中，用时 9秒 ···')
+    expect(vi.getTimerCount()).toBe(1)
+  })
+
+  it('keeps the stop timestamp frozen after remounting during cleanup', () => {
+    vi.setSystemTime(30_000)
+    const view = render(<RunningStatus startTime={1_000} paused={false} stopRequestedAt={5_000} t={t} />)
+    expect(view.container.textContent).toContain('正在停止，已用时 4秒，等待当前操作收尾')
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('waits for an open Turn start before allocating its clock', () => {
     const view = statusHarness()
     expect(view.content()?.textContent).toBe('深度求索中')

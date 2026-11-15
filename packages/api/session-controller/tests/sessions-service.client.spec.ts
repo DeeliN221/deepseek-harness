@@ -752,6 +752,61 @@ describe('borrow-only bindings', () => {
 })
 
 describe('catalog-addressed navigation', () => {
+  for (const mode of ['one-shot', 'continuable', 'unknown'] as const) {
+    it(`classifies an existing ${mode} child when its catalog arrives before origin metadata`, async ({ bench }) => {
+      const b = bench()
+      await feedList(b, [
+        { id: 'root' },
+        { id: 'child' },
+        {
+          id: 'ordinary-fork', parentId: 'child',
+          projections: { subagent: { mode: 'continuable', label: 'Inherited descriptor', seq: SessionSeq(0) } },
+        },
+        { id: 'external' },
+      ])
+      expect(b.svc.list.getSnapshot().byId[sid('child')]?.origin).toBeUndefined()
+
+      b.svc.handleControlFrame({
+        type: 'projection', sessionId: sid('root'), seq: 1,
+        changes: [{ key: 'subagentCatalog', val: [
+          { id: sid('child'), createdAt: 1, mode, label: 'child' },
+          { id: sid('external'), createdAt: 1, mode: 'external', label: 'external' },
+        ] }],
+      })
+      await Promise.resolve()
+
+      const state = b.svc.list.getSnapshot()
+      expect(state.ids).toEqual(['root', 'child', 'ordinary-fork', 'external'])
+      expect(state.byId[sid('child')]).toMatchObject({
+        parentId: 'root', origin: 'subagent', displayTitle: 'child', retainedBy: {},
+      })
+      expect(state.byId[sid('ordinary-fork')]).toMatchObject({ parentId: 'child' })
+      expect(state.byId[sid('ordinary-fork')]?.origin).toBeUndefined()
+      expect(state.byId[sid('external')]?.origin).toBeUndefined()
+      expect(state.byId[sid('root')]?.origin).toBeUndefined()
+      expect(b.svc.binding(sid('child'))).toBeUndefined()
+      expect(b.mock.log.requests(FOLLOW)).toHaveLength(0)
+    })
+  }
+
+  it('preserves the real parent when an ordinary fork repeats its inherited child catalog', async ({ bench }) => {
+    const b = bench()
+    await feedList(b, [
+      { id: 'root' }, { id: 'fork' },
+      { id: 'child', parentId: 'root', origin: 'subagent' },
+    ])
+    for (const parent of ['root', 'fork']) b.svc.handleControlFrame({
+      type: 'projection', sessionId: sid(parent), seq: 1,
+      changes: [{ key: 'subagentCatalog', val: [
+        { id: sid('child'), createdAt: 1, mode: 'continuable', label: 'child' },
+      ] }],
+    })
+    await Promise.resolve()
+    const state = b.svc.list.getSnapshot()
+    expect(state.byId[sid('child')]).toMatchObject({ parentId: 'root', origin: 'subagent' })
+    expect(state.byId[sid('fork')]?.origin).toBeUndefined()
+  })
+
   it('retains a projected child independently of its parent and shares its history generation', async ({ bench }) => {
     const b = bench()
     await feedList(b, [{ id: 'root' }])

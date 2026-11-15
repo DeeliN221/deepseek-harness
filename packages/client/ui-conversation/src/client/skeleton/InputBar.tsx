@@ -63,13 +63,15 @@ export const InputBar = memo(function InputBar({
   const promptDenied = useAccess('session/prompt') === false
   const cancelDenied = useAccess('session/cancel') === false
   const uploadDenied = useAccess('fileUploads/upload') === false
-  const stopAction = cancelDenied ? undefined : stop
   void useLexicon // hook seat stays bound by the inject compartment; text-ref decoration rides the shell's editor transforms
   const commandMenuOpen = useMenuLauncher(source => source === 'command')
   const [activity, setActivity] = useState(false)
   useEffect(() => { setActivity(false) }, [sessionId])
   const promptError = useSession(s => s.promptError) ?? null
   const running = useSession(s => s.running) ?? false
+  const stopping = useSession(s => s.stopping !== undefined) ?? false
+  const stopAction = cancelDenied || stopping ? undefined : stop
+  const stopLabel = t(stopping ? 'input.stopping' : 'input.stop')
   const subagent = useSession(s => s.subagent) ?? null
   const removed = useSession(s => s.removed) ?? false
   // Plan mode swaps the composer placeholder (the projection is the folded
@@ -368,7 +370,7 @@ export const InputBar = memo(function InputBar({
   const primarySubmitMode = resolveSubmitMode(busyEnter, running, 'enter', steeringAvailable)
   const plainMessageDraft = !empty && input?.phase === 'plain' && !draft.trimStart().startsWith('/')
   const primaryLabel = primaryStops
-    ? t('input.stop')
+    ? stopLabel
     : sending
       ? t('input.sending')
       : running && steeringAvailable && !disabled && !uploadsPending && plainMessageDraft
@@ -524,11 +526,12 @@ export const InputBar = memo(function InputBar({
               {renderSlot('conversation.input.activity', { locked, onActiveChange: setActivity })}
             </div>}
             {interruptible && !cancelDenied && (
-              <Tooltip label={t('input.stop')} shortcutKeys={stopKeys} side="top" delayMs={500} disabled={stopAction === undefined} portal>
+              <Tooltip label={stopLabel} shortcutKeys={stopKeys} side="top" delayMs={500} disabled={stopAction === undefined} portal>
                 <button
                   type="button"
                   className={css.primary}
-                  aria-label={t('input.stop')}
+                  aria-label={stopLabel}
+                  aria-busy={stopping}
                   disabled={stopAction === undefined}
                   onMouseDown={keepFocus}
                   onClick={stopAction}
@@ -540,12 +543,12 @@ export const InputBar = memo(function InputBar({
               </Tooltip>
             )}
             {(primaryStops ? cancelDenied : promptDenied) ? null : (
-              <Tooltip label={primaryStops ? t('input.stop') : primaryLabel} shortcutKeys={primaryStops ? stopKeys : undefined} side="top" delayMs={500} disabled={primaryDisabled} portal>
+              <Tooltip label={primaryStops ? stopLabel : primaryLabel} shortcutKeys={primaryStops ? stopKeys : undefined} side="top" delayMs={500} disabled={primaryDisabled} portal>
                 <button
                   type="button"
                   className={css.primary}
                   aria-label={primaryLabel}
-                  aria-busy={sending}
+                  aria-busy={sending || (primaryStops && stopping)}
                   data-sending={sending ? '' : undefined}
                   disabled={primaryDisabled}
                   onMouseDown={keepFocus}
