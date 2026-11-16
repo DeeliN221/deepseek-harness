@@ -31,11 +31,81 @@ interface TurnProcessState {
   readonly turn: number
   readonly assistantStartByStep: ReadonlyMap<number, number>
   readonly messageCountByStep: ReadonlyMap<number, number>
+  readonly openaiByStep: ReadonlyMap<number, boolean>
   readonly otherStartSeq?: number
   readonly controlAnchorSeq?: number
   readonly messageCount: number
   readonly toolCallCount: number
   readonly subagentCount: number
+}
+
+const OPENAI_PROVIDERS = new Set([
+  'openai',
+  'openai-codex',
+  'openai-completions',
+  'openai-responses',
+  'azure-openai',
+  'azure-openai-responses',
+  'openai-codex-responses',
+])
+
+const OPENAI_RESPONSES_APIS = new Set([
+  'openai-responses',
+  'azure-openai-responses',
+  'openai-codex-responses',
+])
+
+function isDeepSeekName(value: string): boolean {
+  const normalized = value.trim().toLowerCase()
+  return normalized === 'deepseek' || normalized.startsWith('deepseek-') || normalized.startsWith('deepseek/')
+}
+
+function isOpenAiProviderName(provider: string): boolean {
+  const normalized = provider.trim().toLowerCase()
+  return OPENAI_PROVIDERS.has(normalized)
+    || normalized.startsWith('openai-')
+    || normalized.startsWith('openai/')
+    || normalized.startsWith('azure-openai-')
+    || normalized.startsWith('azure-openai/')
+}
+
+function isOpenAiModelName(model: string): boolean {
+  const normalized = model.trim().toLowerCase()
+  const bare = normalized.startsWith('openai/') ? normalized.slice('openai/'.length) : normalized
+  return /^gpt-/.test(bare)
+    || /^o[134](?:-|$)/.test(bare)
+    || /^codex(?:-|$)/.test(bare)
+    || /^chatgpt-/.test(bare)
+}
+
+function replayApiOf(replayState: unknown): string | undefined {
+  if (typeof replayState !== 'object' || replayState === null || !('response' in replayState)) return undefined
+  const response = replayState.response
+  if (typeof response !== 'object' || response === null || !('api' in response)) return undefined
+  return typeof response.api === 'string' ? response.api : undefined
+}
+
+/**
+ * Identify whether a durable `assistant/message` source belongs to an OpenAI-format provider.
+ * DeepSeek routes are explicitly excluded even when served over OpenAI-compatible wire APIs.
+ * @param source - Durable `ModelMessageSource` from `assistant/message`.
+ * @returns Whether the message belongs to an OpenAI-format provider.
+ */
+export function isOpenAiFormatSource(source: unknown): boolean {
+  if (typeof source !== 'object' || source === null) return false
+  const provider = 'provider' in source && typeof source.provider === 'string' ? source.provider : ''
+  const model = 'model' in source && typeof source.model === 'string' ? source.model : ''
+  if (isDeepSeekName(provider) || isDeepSeekName(model)) return false
+  if (isOpenAiProviderName(provider) || isOpenAiModelName(model)) return true
+  const api = 'replayState' in source ? replayApiOf(source.replayState) : undefined
+  return api !== undefined && OPENAI_RESPONSES_APIS.has(api)
+}
+
+function hasOpenAiStep(state: TurnProcessState): boolean {
+  for (const matched of state.openaiByStep.values()) {
+    if (matched) return true
+  }
+  return false
 }
 
 type ConversationEvent = Parameters<ConversationNodeDefinition['match']>[0]
@@ -140,6 +210,7 @@ function fallbackState(context: ConversationNodeContext<TurnProcessState>): Turn
     turn,
     assistantStartByStep: new Map(),
     messageCountByStep: new Map(),
+    openaiByStep: new Map(),
     messageCount: 0,
     toolCallCount: 0,
     subagentCount: 0,
@@ -183,8 +254,10 @@ function processSpec(state: TurnProcessState, turn: TurnLocation): TurnProcessSp
       answerStep: null,
       inlineReasoning: false,
       ...counts,
+      ...hasOpenAiStep(state) ? { openaiFormat: true as const } : {},
     }
   }
+  const openaiFormat = state.openaiByStep.get(answer.step) === true
   const inlineReasoning = answer.blocks.some(block => block.kind === 'reasoning' && block.text.trim() !== '')
   const earlierAssistantSeq = Math.min(
     ...[...state.assistantStartByStep]
@@ -204,17 +277,21 @@ function processSpec(state: TurnProcessState, turn: TurnLocation): TurnProcessSp
     answerStep: answer.step,
     inlineReasoning,
     ...counts,
+    ...openaiFormat ? { openaiFormat: true as const, foldIntermediateReplies: true as const } : {},
   }
 }
 
 function updateProcessState(state: TurnProcessState, event: ConversationEvent): TurnProcessState {
   let current = state
-  if (event.type === 'assistant/message'
-    && event.surfaceOp === 'append'
-    && hasAssistantReplyContent(toAssistantBlocks(event.data.message.content))) {
-    const messageCountByStep = new Map(current.messageCountByStep)
-    messageCountByStep.set(event.data.step, (messageCountByStep.get(event.data.step) ?? 0) + 1)
-    current = { ...current, messageCountByStep, messageCount: current.messageCount + 1 }
+  if (event.type === 'assistant/message' && event.surfaceOp === 'append') {
+    const openaiByStep = new Map(current.openaiByStep)
+    openaiByStep.set(event.data.step, isOpenAiFormatSource(event.data.message.source))
+    current = { ...current, openaiByStep }
+    if (hasAssistantReplyContent(toAssistantBlocks(event.data.message.content))) {
+      const messageCountByStep = new Map(current.messageCountByStep)
+      messageCountByStep.set(event.data.step, (messageCountByStep.get(event.data.step) ?? 0) + 1)
+      current = { ...current, messageCountByStep, messageCount: current.messageCount + 1 }
+    }
   }
   if (event.type === 'tool/call') {
     const subagent = isSubagentDelegationTool(event.data.name)
@@ -271,6 +348,7 @@ export const turnProcessDefinition: ConversationNodeDefinition<TurnProcessState>
       turn: match.event.data.turn,
       assistantStartByStep: new Map(),
       messageCountByStep: new Map(),
+      openaiByStep: new Map(),
       messageCount: 0,
       toolCallCount: 0,
       subagentCount: 0,
@@ -300,6 +378,7 @@ export const turnProcessDefinition: ConversationNodeDefinition<TurnProcessState>
       && current.data.messageCount === state.messageCount
       && current.data.toolCallCount === state.toolCallCount
       && current.data.subagentCount === state.subagentCount
+      && Boolean(current.data.openaiFormat) === hasOpenAiStep(state)
       && turn.status !== 'closed'
       && latestStep?.status !== 'closed') return previous
     const spec = processSpec(state, turn)
@@ -328,6 +407,7 @@ export const turnProcessDefinition: ConversationNodeDefinition<TurnProcessState>
       && current.data.messageCount === state.messageCount
       && current.data.toolCallCount === state.toolCallCount
       && current.data.subagentCount === state.subagentCount
+      && Boolean(current.data.openaiFormat) === hasOpenAiStep(state)
       && turn.status !== 'closed'
       && turn.steps.at(-1)?.status !== 'closed'
       && current.location === (context.start?.location ?? context.matches[0]?.location)) return current

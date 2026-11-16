@@ -114,6 +114,10 @@ export interface TurnProcessChatData {
   readonly messageCount: number
   readonly toolCallCount: number
   readonly subagentCount: number
+  /** Present when settled Assistant output originates from an OpenAI-format provider. */
+  readonly openaiFormat?: true
+  /** Present when intermediate Assistant replies fold into the Turn process by default. */
+  readonly foldIntermediateReplies?: true
 }
 
 /**
