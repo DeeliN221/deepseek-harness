@@ -377,6 +377,14 @@ class DshFamily extends ReleaseFamily {
     return this.tagPrefix
   }
 
+  override tagFor(member: ReleaseMember): string {
+    // Date releases keep a valid three-component package version (the trailing
+    // `.0` is required by npm) while presenting the shorter date tag requested
+    // by maintainers, for example package `20261116.1.0` -> tag `dsh-v20261116.1`.
+    const display = /^(\d{8}\.\d+)\.0$/.exec(member.version)?.[1] ?? member.version
+    return `${this.tagPrefix}${display}`
+  }
+
   override distTagForVersion(version: string): string | undefined {
     const separator = version.indexOf('-')
     if (separator === -1) return undefined
