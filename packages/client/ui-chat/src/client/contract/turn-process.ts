@@ -1,3 +1,4 @@
+import type { FoldedReplies } from '../../chat-settings.ts'
 import type { ChatNode } from './chat-nodes.ts'
 
 /** Current process range and finalized answer boundary derived from one Turn. */
@@ -15,6 +16,10 @@ export interface TurnProcessSpec {
   readonly toolCallCount: number
   /** Tool calls whose configured name identifies a subagent delegation. */
   readonly subagentCount: number
+  /** Present when settled Assistant output originates from an OpenAI-format provider. */
+  readonly openaiFormat?: true
+  /** Present when intermediate Assistant replies fold into the Turn process by default. */
+  readonly foldIntermediateReplies?: true
 }
 
 /**
@@ -33,6 +38,21 @@ export function sameTurnProcessSpec(left: TurnProcessSpec, right: TurnProcessSpe
     && left.messageCount === right.messageCount
     && left.toolCallCount === right.toolCallCount
     && left.subagentCount === right.subagentCount
+    && left.openaiFormat === right.openaiFormat
+    && left.foldIntermediateReplies === right.foldIntermediateReplies
+}
+
+/**
+ * Whether every Assistant reply stays outside whole-Turn folding for one Turn.
+ * @param foldedReplies - user-selected reply visibility policy.
+ * @param spec - owning Turn's process specification, when available.
+ * @returns whether intermediate replies remain visible outside the process fold.
+ */
+export function keepsAllReplies(
+  foldedReplies: FoldedReplies,
+  spec: Pick<TurnProcessSpec, 'foldIntermediateReplies'> | undefined,
+): boolean {
+  return foldedReplies === 'all' && spec?.foldIntermediateReplies !== true
 }
 
 /**
@@ -46,7 +66,7 @@ export function isSubagentDelegationTool(name: string): boolean {
 }
 
 /**
- * Keep live, stopped, and failed Turns open.
+ * Keep live, stopped, failed, and unbounded OpenAI-format Turns open.
  * @param node - Node carrying the owning Turn.
  * @returns whether whole-Turn collapse is unavailable.
  */
@@ -54,5 +74,9 @@ export function turnProcessAlwaysOpen(node: ChatNode | undefined): boolean {
   const location = node?.location
   if (location?.kind !== 'turn' && location?.kind !== 'step') return false
   const reason = location.turn.end?.data.reason.kind
-  return location.turn.status === 'open' || reason === 'aborted' || reason === 'interrupted' || reason === 'error'
+  if (location.turn.status === 'open' || reason === 'aborted' || reason === 'interrupted' || reason === 'error') {
+    return true
+  }
+  const spec = location.turn.data.get('turn-process')
+  return spec?.openaiFormat === true && spec.answerAnchorSeq === null
 }

@@ -285,7 +285,7 @@ export function apply(ctx: Context, config: Config = Config({})): void {
         keys: scope.shortcuts.describeBinding({ code: 'Enter', modifiers: ['primary'] }).keys,
         bindings: [{ code: 'Enter', modifiers: ['control'] }, { code: 'Enter', modifiers: ['meta'] }], group: 'input' },
       { id: 'fixed.newline' as ShortcutCommandId, label: () => t('shortcut.newline'), keys: ['Enter'],
-        bindings: [{ code: 'Enter', modifiers: [] }, { code: 'Enter', modifiers: ['shift'] }], group: 'input' },
+        bindings: [{ code: 'Enter', modifiers: [] }, { code: 'Enter', modifiers: ['shift'] }], group: 'input' }
       { id: 'fixed.complementary' as ShortcutCommandId, label: () => t('shortcut.complementary'),
         keys: scope.shortcuts.describeBinding({ code: 'Enter', modifiers: ['alt'] }).keys,
         bindings: [{ code: 'Enter', modifiers: ['alt'] }], group: 'input' },
