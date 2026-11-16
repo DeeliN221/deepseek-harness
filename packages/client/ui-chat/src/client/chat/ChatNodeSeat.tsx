@@ -7,7 +7,7 @@ import { hasAssistantReplyContent } from '../contract/assistant-content.ts'
 import type { ChatNode } from '../contract/chat-nodes.ts'
 import type { ChatNodeStore } from '../contract/snapshot.ts'
 import { isAtOrOutside } from '../contract/group-tree.ts'
-import { turnProcessAlwaysOpen } from '../contract/turn-process.ts'
+import { keepsAllReplies, turnProcessAlwaysOpen } from '../contract/turn-process.ts'
 import { turnProcessOpen } from '../stores.ts'
 import { hiddenOrCollapsing } from './flow-motion.ts'
 import css from './ChatView.module.css'
@@ -70,7 +70,8 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
     }
   }, [actions, processSpec, alwaysOpen])
   const foldCompleted = usePresentation(policy => policy.foldCompletedTurns)
-  const keepReplies = usePresentation(policy => policy.foldedReplies === 'all')
+  const foldedReplies = usePresentation(policy => policy.foldedReplies)
+  const keepReplies = keepsAllReplies(foldedReplies, processSpec)
   // A loaded end makes a partial historical Turn eligible without its start.
   const processWindowReady = processSpec !== undefined
     && processPresentation !== undefined

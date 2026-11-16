@@ -1,5 +1,6 @@
 import { memo, useCallback, useMemo } from 'react'
 import type { InjectFace, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
+import { keepsAllReplies } from '../contract/turn-process.ts'
 import type { ChatFileMentions, ChatNodeViewProps, PresentationInjected, TurnTailOwnerProps } from '../contract/slots.ts'
 import { AssistantMarkdown } from './AssistantMarkdown.tsx'
 
@@ -37,7 +38,8 @@ export const AssistantNodeView = memo(function AssistantNodeView({
     () => owner === undefined ? undefined : fileMentions(owner, getFileTriggerProps),
     [fileMentions, owner, getFileTriggerProps],
   )
-  const keepReplies = usePresentation(policy => policy.foldedReplies === 'all')
+  const foldedReplies = usePresentation(policy => policy.foldedReplies)
+  const keepReplies = keepsAllReplies(foldedReplies, turnProcess?.spec)
   // A kept reply row stays visible while the folded Turn hides its inline reasoning.
   const reasoningHidden = turnProcess !== undefined
     && turnProcess.foldable
