@@ -195,6 +195,12 @@ describe('release families', () => {
     expect(vendor.tagFor({ ...cordis, version: '4.0.0-rc.7' })).toBe('vendor-cordis-v4.0.0-rc.7')
   })
 
+  it('uses a compact date tag for date-based dsh versions', () => {
+    const dsh = releaseFamily('dsh')
+    const cli = { ...member('apps/cli', '@deepseek-ai/dsh'), version: '20261116.1.0' }
+    expect(dsh.tagFor(cli)).toBe('dsh-v20261116.1')
+  })
+
   it('assigns alpha and canary dist-tags only to dsh releases', () => {
     const dsh = releaseFamily('dsh')
     const vendor = releaseFamily('vendor')
