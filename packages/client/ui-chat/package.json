@@ -1,15 +1,16 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-chat",
   "description": "Chat Conversation target, node definitions, renderers, and details surface",
-  "version": "0.2.2-rc.1",
+  "version": "0.2.2-rc.1+zzl.20261116.4",
   "publishConfig": {
     "access": "public"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "url": "git+https://github.com/DeeliN221/deepseek-harness.git",
     "directory": "packages/client/ui-chat"
   },
+  "homepage": "https://github.com/DeeliN221/deepseek-harness/tree/maintained/dsh-0.2.2/packages/client/ui-chat",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
