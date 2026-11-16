@@ -123,6 +123,13 @@ export class Session implements SessionFace {
   private readonly stopObservingInbox: () => void
   private readonly assistantStream = new ClientAssistantStream()
   private running = false
+  private observedTurn: number | undefined
+  /** One local stop owns its receipt and feedback until its addressed turn settles. */
+  private stopRequest: {
+    turn: number | undefined
+    readonly feedback: { readonly requestedAt: number }
+    readonly result: Promise<RemoteResult<{ accepted: true }>>
+  } | undefined
   private address: SubagentAddress | undefined
   /**
    * Sticky send marker, private input of the composerPhase derivation: set
@@ -371,19 +378,62 @@ export class Session implements SessionFace {
    * Stop the active turn while the Host preserves pending inbox work; failures
    * land in promptError (same error-strip display slot). A subagent address
    * routes through `subagents.interruptByUser`, authorized on the target Session
-   * without requiring a live parent Agent.
+   * without requiring a live parent Agent. Repeated stops share the receipt until
+   * the addressed turn settles; acceptance acknowledges only the request, while
+   * running and durable turn boundaries remain Host-owned.
    * @returns the cancel result.
    */
-  async cancel(): Promise<RemoteResult<{ accepted: true }>> {
+  cancel(): Promise<RemoteResult<{ accepted: true }>> {
+    if (this.stopRequest !== undefined) return this.stopRequest.result
     const address = this.address
-    const result = address !== undefined
-      ? await this.remote.subagents.interruptByUser(address.childSessionId)
-      : await this.remote.session.cancel({ sessionId: this.sessionId })
-    if (!result.ok) {
-      this.promptError = { op: 'stop', error: result.error }
-      this.notifier.markDirty()
+    const request: NonNullable<Session['stopRequest']> = {
+      turn: this.observedTurn,
+      feedback: { requestedAt: Date.now() },
+      result: Promise.resolve().then(() => {
+        if (this.stopRequest !== request) return { ok: true, value: { accepted: true } } as const
+        return address !== undefined
+          ? this.remote.subagents.interruptByUser(address.childSessionId)
+          : this.remote.session.cancel({ sessionId: this.sessionId })
+      }).then((result) => {
+        if (this.stopRequest !== request) return result
+        if (!result.ok) {
+          this.stopRequest = undefined
+          this.promptError = { op: 'stop', error: result.error }
+          this.notifier.markDirty()
+        } else if (!this.running) {
+          this.stopRequest = undefined
+        }
+        return result
+      }, (error: unknown) => {
+        if (this.stopRequest === request) {
+          this.stopRequest = undefined
+          this.promptError = {
+            op: 'stop',
+            error: new RemoteError('gateway/internal', error instanceof Error ? error.message : String(error), {}),
+          }
+          this.notifier.markDirty()
+        }
+        throw error
+      }),
     }
-    return result
+    this.stopRequest = request
+    if (this.promptError?.op === 'stop') this.promptError = null
+    this.notifier.notifyNow()
+    return request.result
+  }
+
+  /** Invalidate only feedback owned by a completed or superseded turn, never its Host running bit. */
+  private observeStopBoundary(event: SessionEventLike): void {
+    if (event.type === 'turn/start') {
+      this.observedTurn = event.data.turn
+      if (this.stopRequest === undefined) return
+      if (this.stopRequest.turn === undefined) this.stopRequest.turn = event.data.turn
+      else if (this.stopRequest.turn !== event.data.turn) this.stopRequest = undefined
+    } else if (event.type === 'turn/end') {
+      this.observedTurn = undefined
+      if (this.stopRequest?.turn === undefined || this.stopRequest.turn === event.data.turn) this.stopRequest = undefined
+    }
+    }
   }
 
   /**
@@ -630,6 +680,7 @@ export class Session implements SessionFace {
       this.notifier.markDirty()
     }
     if (running) this.firstPromptPendingTurn = false
+    if (!running || !this.running) this.stopRequest = undefined
     if (this.running === running) return
     this.running = running
     this.notifier.markDirty()
@@ -645,6 +696,7 @@ export class Session implements SessionFace {
       && this.address?.childSessionId === address?.childSessionId
       && this.address?.mode === address?.mode
     this.address = address
+    if (!same) this.stopRequest = undefined
     if (!same && this.openState !== 'cold') void this.resync()
     else this.notifier.markDirty()
   }
@@ -667,6 +719,7 @@ export class Session implements SessionFace {
 
   /** `api-session/removed` relay: flag the snapshot while retaining the resident instance. */
   handleRemoved(): void {
+    this.stopRequest = undefined
     this.removed = true
     this.notifier.markDirty()
   }
@@ -685,6 +738,7 @@ export class Session implements SessionFace {
    * @returns when the Remote iterator has completed teardown.
    */
   async dispose(): Promise<void> {
+    this.stopRequest = undefined
     this.stopObservingInbox()
     // Unsettled echoes retire as failed so their owners can restore or
     // release browser resources; admitted echoes keep their observed outcome.
@@ -779,6 +833,8 @@ export class Session implements SessionFace {
       this.pendingHistory.pages.length = 0
     }
     if (visible.some(entry => entry.event.type === 'turn/start')) this.firstPromptPendingTurn = false
+    const boundary = visible.findLast(entry => entry.event.type === 'turn/start' || entry.event.type === 'turn/end')
+    if (boundary !== undefined) this.observeStopBoundary(boundary.event)
     if (projections !== undefined) this.projections.seed(projections)
     this.eventSource.replace(visible, hasMore)
     // A new follow baseline replaces confirmed optimistic inputs with Host-owned rows.
@@ -848,13 +904,15 @@ export class Session implements SessionFace {
   private appendLive(entry: SessionLiveEventEntry): boolean {
     const event = entry.event
     const awaitingFirstTurn = this.firstPromptPendingTurn
+    const stopping = this.stopRequest
+    this.observeStopBoundary(event)
     if (event.type === 'turn/start') this.firstPromptPendingTurn = false
     this.eventSource.append(entry)
     // After the feed append: the conversation assembly's animation frame is
     // registered by the feed subscribers above, so the echo-retirement frame
     // scheduled here always runs after the durable node became renderable.
     this.observeSubmissionEvent(event)
-    return awaitingFirstTurn !== this.firstPromptPendingTurn
+    return awaitingFirstTurn !== this.firstPromptPendingTurn || stopping !== this.stopRequest
   }
 
   /** Observe durable acceptance even when insertion and claim share one projection notification. */
@@ -1003,6 +1061,7 @@ export class Session implements SessionFace {
       sessionId: this.sessionId,
       pendingSubmissions: this.acceptedSubmissions,
       running: this.running,
+      ...(this.running && this.stopRequest !== undefined ? { stopping: this.stopRequest.feedback } : {}),
       subagent: this.address === undefined
         ? null
         : {

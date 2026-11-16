@@ -3978,6 +3978,19 @@ describe('ChatView', () => {
     expect(vi.getTimerCount()).toBe(0)
   }))
 
+  it('shows stopping and freezes the clock without pretending the Session is idle', withClock(10_000, () => {
+    const h = makeHarness(
+      { nodes: [{ ...userInTurn(1, 'go', 1), time: 2_000 }], turnTimings: new Map([[1, { startTime: 1_000 }]]) },
+      { running: true },
+    )
+    const view = render(<h.ChatView {...h.props} />)
+    act(() => { h.setSession({ stopping: { requestedAt: 10_000 } }) })
+    expect(runningContent(view.container)?.textContent).toBe('正在停止，已用时 9秒，等待当前操作收尾')
+    act(() => { vi.advanceTimersByTime(5_000) })
+    expect(runningContent(view.container)?.textContent).toBe('正在停止，已用时 9秒，等待当前操作收尾')
+    expect(view.getByRole('status').textContent).toBe('正在停止，等待当前操作收尾')
+  }))
+
   it('the running clock freezes while the connection is recovering', withClock(10_000, () => {
     const h = makeHarness(
       { nodes: [{ ...userInTurn(1, 'go', 1), time: 2_000 }], turnTimings: new Map([[1, { startTime: 1_000 }]]) },
