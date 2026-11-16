@@ -102,6 +102,57 @@ export class DraftEditorRuntime {
       }
       return false
     }
+    const isolatedKeys = new Set<NodeKey>()
+    const releaseCompositionNodes = (discrete = false): void => {
+      if (isolatedKeys.size === 0) return
+      this.editor.update(() => {
+        for (const key of isolatedKeys) {
+          const node = $getNodeByKey(key)
+          if ($isTextNode(node) && node.isUnmergeable()) node.toggleUnmergeable()
+        }
+        isolatedKeys.clear()
+      }, { tag: HISTORY_MERGE_TAG, ...(discrete ? { discrete: true } : {}) })
+    }
+
+    // Android dictation keeps one composition open for a whole utterance and re-sends it
+    // with line breaks. Chrome applies those breaks as paragraphs, Lexical adopts only the
+    // last paragraph as its composition node, and every earlier line is lost. Composition
+    // input is not cancelable, so repair the draft from the IME's own text instead: keep
+    // the draft at composition start, then rebuild it with the composing run on top.
+    let dictation: { snapshot: string; text: string } | null = null
+    const rebuildDictation = (text: string): void => {
+      this.editor.update(() => {
+        $getRoot().clear()
+        $appendParagraphs(text)
+      }, { discrete: true, tag: HISTORY_MERGE_TAG })
+    }
+    const onDictationInput = (event: InputEvent): void => {
+      if (event.inputType !== 'insertCompositionText' || event.data === null) return
+      const pending = dictation
+      if (pending === null || (pending.text === '' && !event.data.includes('\n'))) return
+      // Only the first observation can be verified: Lexical keeps a composition node beside
+      // this text and surfaces it with a zero-width filler, so later projections never match
+      // the draft exactly. The IME re-sends the whole utterance, so its last text stays truth.
+      if (pending.text === '' && !this.projection.clipboardText.startsWith(pending.snapshot)) return
+      pending.text = event.data
+    }
+    const onDictationEnd = (): void => {
+      const pending = dictation
+      dictation = null
+      if (pending === null || pending.text === '') return
+      rebuildDictation(`${pending.snapshot}${pending.text}`)
+    }
+    // The browser has already applied composition text before any listener runs, so the
+    // guard watches the resulting events, ahead of Lexical's own reconciliation.
+    let guardRoot: HTMLElement | null = null
+    const attachCompositionGuard = (root: HTMLElement | null): void => {
+      if (root === guardRoot) return
+      guardRoot?.removeEventListener('input', onDictationInput, true)
+      guardRoot?.removeEventListener('compositionend', onDictationEnd, true)
+      guardRoot = root
+      guardRoot?.addEventListener('input', onDictationInput, true)
+      guardRoot?.addEventListener('compositionend', onDictationEnd, true)
+    }
     const unregister = mergeRegister(
       registerPlainText(this.editor),
       this.editor.registerNodeTransform(QuoteNode, (node) => { node.setLabels(this.deps.quoteLabels()) }),
