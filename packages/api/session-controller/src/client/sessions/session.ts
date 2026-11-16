@@ -433,7 +433,6 @@ export class Session implements SessionFace {
       this.observedTurn = undefined
       if (this.stopRequest?.turn === undefined || this.stopRequest.turn === event.data.turn) this.stopRequest = undefined
     }
-    }
   }
 
   /**
