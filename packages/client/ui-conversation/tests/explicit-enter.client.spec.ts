@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { fireEvent } from '@testing-library/react'
-import { $createParagraphNode, $createTextNode, $getRoot, createEditor, KEY_ENTER_COMMAND } from 'lexical'
+import { $createParagraphNode, $createTextNode, $getRoot, $isElementNode, createEditor, KEY_ENTER_COMMAND } from 'lexical'
 import { registerPlainText } from '@lexical/plain-text'
 import { isMobileDevice } from '@deepseek-ai/dsh-client-ui-primitives'
 import { registerComposerKeymap } from '../src/client/input/editor/keymap.ts'
@@ -87,7 +87,7 @@ describe('explicit composer send boundary', () => {
   it.each([false, true])('IME/dictation completion retains all segments, mobile=%s', mobile => {
     vi.mocked(isMobileDevice).mockReturnValue(mobile)
     vi.useFakeTimers()
-    onTestFinished(() => vi.useRealTimers())
+    onTestFinished(() => { vi.useRealTimers() })
     const b = bench()
     for (const segment of ['第一段', '第二段', '第三段']) {
       fireEvent.compositionStart(b.root)
@@ -95,7 +95,7 @@ describe('explicit composer send boundary', () => {
         const root = $getRoot()
         const p = root.getFirstChild() ?? $createParagraphNode()
         if (p.getParent() === null) root.append(p)
-        if ('append' in p) p.append($createTextNode(segment))
+        if ($isElementNode(p)) p.append($createTextNode(segment))
       }, { discrete: true })
       b.enter({ ctrlKey: true, isComposing: true })
       fireEvent.compositionEnd(b.root, { data: segment })
