@@ -427,14 +427,16 @@ export const InputBar = memo(function InputBar({
     return translated !== hintKey ? translated : rawHint
   })()
 
-  const placeholderText = placeholder ?? (disabled
-    ? t('placeholder.unavailable')
-  // The steer hint deliberately outranks the plan placeholder:
-  // while it shows, the whole-queue gesture is genuinely available
-  // (the gate never consults plan mode), so the actionable hint wins.
-    : canSteerQueue
-      ? t('placeholder.steerQueue')
-      : planActive ? t('placeholder.plan') : t('placeholder.default'))
+  const placeholderText = placeholder ?? (parentOffline
+    ? t('placeholder.parentOffline')
+    : disabled
+      ? t('placeholder.unavailable')
+      // The steer hint deliberately outranks the plan placeholder:
+      // while it shows, the whole-queue gesture is genuinely available
+      // (the gate never consults plan mode), so the actionable hint wins.
+      : canSteerQueue && !isMobileDevice()
+        ? t('placeholder.steerQueue')
+        : planActive ? t('placeholder.plan') : t('placeholder.default'))
 
   return (
     <div className={clsx(css.root, variant === 'hero' && css.hero)}>
