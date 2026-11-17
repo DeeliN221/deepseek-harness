@@ -1,7 +1,8 @@
 /**
  * Production client composition without the page: mount the Loader over a
- * module system, create every manifest row, wait for quiescence, and audit
- * activation. `AppWebEntry` and the whole-client test carrier both call it.
+ * module system, create every manifest row, wait for quiescence, and report
+ * the rows that did not activate. The shell decides which of those failures it
+ * can present an application without.
  * @module @deepseek-ai/dsh-client-web/src/boot-client
  */
 import type { Context } from '@deepseek-ai/cordis'
@@ -11,6 +12,21 @@ import { STATE_LABELS } from './loader-status.ts'
 
 /** Entry state label as the boot page renders it. */
 export type EntryStateLabel = (typeof STATE_LABELS)[keyof typeof STATE_LABELS] | 'loading' | 'failed'
+
+/** One client row that did not reach `active`, with the cause the boot chain reports. */
+export interface ClientBootFailure {
+  /** Loader entry name; a client entry name equals its package name. */
+  readonly id: string
+  /** Why the row is not active: import error, missing service, or fiber state. */
+  readonly reason: string
+}
+
+/**
+ * Entry ids without which the shell cannot present an application at all: the
+ * Host connection, the layout that contributes `root`, and the renderer that
+ * owns the React root. Every other row degrades to a boot notice.
+ */
+export const REQUIRED_CLIENT_ENTRY_IDS: ReadonlySet<string> = new Set(['connection', 'ui-layout', 'ui-renderer'])
 
 /** Inputs of {@link bootClient}. */
 export interface ClientBootOptions {
@@ -26,14 +42,15 @@ export interface ClientBootOptions {
 
 /**
  * Compose the client: `ctx.plugin(Loader)`, `loader.internal = modules`, one
- * `loader.create({ name })` per manifest row, `loader.await()`, then
- * {@link assertEntriesActive}. A row whose module cannot be imported is marked
- * failed; the Loader logs its import error, the module system records it, and
- * the audit rejects startup with that error text per entry.
+ * `loader.create({ name })` per manifest row, then `loader.await()`. A row
+ * whose module cannot be imported is marked failed, its import error is
+ * recorded by the module system, and its consumers stay `pending` on the
+ * services it would have provided; both are reported so the caller can decide
+ * whether the application can still be presented.
  * @param options - context, module system, manifest, optional progress sink.
- * @returns resolves after every entry is active; rejects with the audit report otherwise.
+ * @returns every row that is not active, in Loader order.
  */
-export async function bootClient(options: ClientBootOptions): Promise<void> {
+export async function bootClient(options: ClientBootOptions): Promise<ClientBootFailure[]> {
   const { ctx, manifest, onEntryState } = options
   await ctx.plugin(Loader)
   const loader = ctx.loader
@@ -53,37 +70,61 @@ export async function bootClient(options: ClientBootOptions): Promise<void> {
   }
 
   await loader.await()
-  assertEntriesActive(ctx, options.modules)
+  return auditEntries(ctx, options.modules)
 }
 
 /**
- * Reject entries that failed import/apply or still wait on missing services.
+ * Report entries that failed import or apply, or still wait on missing
+ * services. The module system names the transport, registration, or factory
+ * error behind an entry with no fiber.
  * @param ctx - root Context carrying the Loader.
  * @param modules - the module system whose recorded import failures name why an entry
  *   has no fiber; a row with no record points at the console.
- * @throws {Error} listing every non-active entry with its reason.
+ * @returns one failure per non-active entry, in Loader order.
  */
-export function assertEntriesActive(ctx: Context, modules: Pick<ClientModuleLoader, 'importError'>): void {
-  const failures: string[] = []
+export function auditEntries(ctx: Context, modules: Pick<ClientModuleLoader, 'importError'>): ClientBootFailure[] {
+  const failures: ClientBootFailure[] = []
   for (const entry of ctx.loader.entries()) {
-    const name = entry.options.name
+    const id = entry.options.name
     if (entry.fiber === undefined) {
-      const importError = modules.importError(name)
-      failures.push(importError === undefined
-        ? `${name}: import failed (see console for the import error)`
-        : `${name}: import failed: ${importError.message}`)
+      const importError = modules.importError(id)
+      failures.push({
+        id,
+        reason: importError === undefined
+          ? 'import failed (see console for the import error)'
+          : `import failed: ${importError.message}`,
+      })
       continue
     }
     const state = STATE_LABELS[entry.fiber.state]
     if (state === 'active') continue
     if (state === 'pending') {
       const missing = Object.keys(entry.fiber.inject).filter(service => ctx.get(service) === undefined)
-      failures.push(`${name}: pending (waiting for service${missing.length === 1 ? '' : 's'}: ${missing.join(', ') || 'unknown'})`)
+      failures.push({ id, reason: `pending (waiting for service${missing.length === 1 ? '' : 's'}: ${missing.join(', ') || 'unknown'})` })
     } else {
-      failures.push(`${name}: ${state}`)
+      failures.push({ id, reason: state })
     }
   }
-  if (failures.length > 0) {
-    throw new Error(`web boot: ${String(failures.length)} entr${failures.length === 1 ? 'y' : 'ies'} did not activate\n${failures.join('\n')}`)
-  }
+  return failures
+}
+
+/**
+ * Select the failures that keep the application from being presented.
+ * @param failures - every non-active entry reported by {@link bootClient}.
+ * @returns only the failures whose entry id is in {@link REQUIRED_CLIENT_ENTRY_IDS}.
+ */
+export function fatalFailures(failures: readonly ClientBootFailure[]): ClientBootFailure[] {
+  return failures.filter(failure => REQUIRED_CLIENT_ENTRY_IDS.has(failure.id))
+}
+
+/**
+ * Render the startup report for failures the shell cannot run without.
+ * @param binName - diagnostic prefix, matching the Host startup text.
+ * @param failures - required entries that did not activate.
+ * @returns one report block naming each failure.
+ */
+export function requiredFailureReport(binName: string, failures: readonly ClientBootFailure[]): string {
+  const noun = failures.length === 1 ? 'entry' : 'entries'
+  return `${binName}: startup failed: ${String(failures.length)} required ${noun} did not activate\n`
+    + failures.map(failure => `${failure.id}: ${failure.reason}`).join('\n')
 }

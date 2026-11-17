@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-11-17-client-boot-degradation.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-11-17-client-boot-degradation.md
+/agent-note-client-boot-degradation:
+  en: 407bbc104f6f58dd
+  zh: 48d9bc168c9fb0a2
+/agent-note-client-boot-degradation/problem:
+  en: ba2807ad1489ceb5
+  zh: cca013ff8ad28029
+/agent-note-client-boot-degradation/decision:
+  en: 1fcfc4e7f1799e8b
+  zh: d5f3e8093dc4fc36
+/agent-note-client-boot-degradation/alternatives-considered:
+  en: 2518b719136cd898
+  zh: 5a0b962f98d0f13e
+/agent-note-client-boot-degradation/consequences:
+  en: 71c33474f88c27a3
+  zh: d3f4a1dae552a7ec

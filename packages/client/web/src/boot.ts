@@ -1,16 +1,18 @@
 /**
- * Web boot kernel. It owns only the module system, Cordis loader, and a
- * framework-free boot page; plugin composition and the renderer handoff are
- * `bootClient` and `mountClient`. The dynamic UI renderer receives the mount
- * point after every client entry activates.
+ * Web boot kernel. It owns only the module system, Cordis loader, a
+ * framework-free boot page, and the startup notice; plugin composition and the
+ * renderer handoff are `bootClient` and `mountClient`. The dynamic UI renderer
+ * receives the mount point after the client roster settles, and only a failure
+ * in {@link REQUIRED_CLIENT_ENTRY_IDS} keeps the application from mounting.
  * @module @deepseek-ai/dsh-client-web/src/boot
  */
 import { Context } from '@deepseek-ai/cordis'
 import type {
   BootManifest, ClientModuleCreateOptions, ClientModuleSystem, DshWindow,
 } from '@deepseek-ai/dsh-client-modules/client'
-import { bootClient } from './boot-client.ts'
+import { bootClient, fatalFailures, requiredFailureReport } from './boot-client.ts'
 import { BootPage } from './boot-page.ts'
+import { renderBootNotice } from './boot-notice.ts'
 import { mountClient } from './mount.ts'
 import { getStaticModules } from './seed.ts'
 import { installWindowDragRecall } from './window-drag/recall.ts'
@@ -26,6 +28,7 @@ export class AppWebEntry {
   private readonly page: BootPage
   private ctx: Context | undefined
   private stopDragRecall: (() => void) | undefined
+  private stopNotice: (() => void) | undefined
   private modules!: ClientModuleSystem
   private manifest!: BootManifest
 
@@ -42,7 +45,9 @@ export class AppWebEntry {
 
   /**
    * Load and activate every client entry, then hand the mount point to the
-   * UI renderer. Plugin failures remain visible on the boot page.
+   * UI renderer. A failure outside {@link REQUIRED_CLIENT_ENTRY_IDS} skips that
+   * row and keeps the application usable: the boot chain reports it on the boot
+   * page while loading and in a startup notice after the mount.
    * @param onFailure - Optional carrier-owned fatal presentation; keeps the boot page visible.
    * @returns Resolves after application mount or failure reporting.
    */
@@ -82,20 +87,31 @@ export class AppWebEntry {
       this.ctx = ctx
       this.page.setTotal(this.manifest.plugins.length)
       await prefetching
-      await bootClient({
+      const failures = await bootClient({
         ctx,
         modules: this.modules,
         manifest: this.manifest,
+        // A failed row is not a fatal boot condition any more, so the boot page
+        // keeps showing progress and the startup notice reports the row once the
+        // application has mounted. A fatal startup reaches `page.fail` instead.
         onEntryState: (name, state) => {
-          if (onFailure === undefined || state !== 'failed') this.page.setState(name, state)
+          if (state !== 'failed') this.page.setState(name, state)
         },
       })
+      // A row outside the required set stays inert: Cordis never activates a
+      // fiber whose import failed or whose services never arrive, and the
+      // dependencies that would have started it keep waiting. Mounting anyway
+      // keeps the shell, the settings that turn plugins off, and the agent
+      // conversation available.
+      const fatal = fatalFailures(failures)
+      if (fatal.length > 0) throw new Error(requiredFailureReport('web boot', fatal))
       // The shell owns the one watcher that keeps Electron's window drag rects in
       // step with the rows that own them (electron#32341), so no chrome row has to
       // know that trap. It installs before the first mount, so the surface the
       // renderer draws is the one the first frame measures.
       this.stopDragRecall = installWindowDragRecall({ document: this.container.ownerDocument })
       await mountClient(ctx, this.container)
+      if (failures.length > 0) this.stopNotice = renderBootNotice(failures, this.container.ownerDocument)
     } catch (reason) {
       console.error(reason)
       if (onFailure !== undefined) onFailure(reason)
@@ -105,6 +121,8 @@ export class AppWebEntry {
 
   /** Dispose the client plugin tree and whichever page owns the mount point. */
   async dispose(): Promise<void> {
+    this.stopNotice?.()
+    this.stopNotice = undefined
     this.stopDragRecall?.()
     this.stopDragRecall = undefined
     const ctx = this.ctx

@@ -9,8 +9,8 @@
   en: 8423614617b7bbf1
   zh: c99647136c800173
 /deepseek-ai-dsh-client-web/summary:
-  en: 646bd0a246789400
-  zh: d875dc0d37f46338
+  en: ec540edf2f7a74db
+  zh: fb15385c1294d8ca
 /deepseek-ai-dsh-client-web/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
@@ -18,11 +18,11 @@
   en: 3105391bad2e9f06
   zh: fe0c5af5db6c241c
 /deepseek-ai-dsh-client-web/use-this-package/what-boot-looks-like:
-  en: f3b01aa878764e5c
-  zh: f02eab65d441bfe0
+  en: 3158fbfe965e4f39
+  zh: 02982924f0b0c133
 /deepseek-ai-dsh-client-web/use-this-package/the-boot-page:
-  en: 1757ef1631612ff5
-  zh: d2d3fd0313908c12
+  en: 423fd0cccd957966
+  zh: fd32ee2a5c4dbd3a
 /deepseek-ai-dsh-client-web/use-this-package/the-shared-module-table:
   en: 33b256e108a7bd6a
   zh: 3b2b1368721803b7
@@ -36,14 +36,14 @@
   en: e18ec3ae51dcdc3f
   zh: e454da2038979aec
 /deepseek-ai-dsh-client-web/understand-the-implementation/two-stage-boot:
-  en: fb3cab79c1505627
-  zh: 875897afe593aeb3
+  en: 589c7f54d0f56467
+  zh: 668633d289ad33fe
 /deepseek-ai-dsh-client-web/understand-the-implementation/boot-page-mechanics:
-  en: 83f9195138da9a82
-  zh: 135d7da735fb870a
+  en: 2abdfddcb43c7242
+  zh: e092de2fd15d4bb1
 /deepseek-ai-dsh-client-web/understand-the-implementation/source-map:
-  en: 36046f6bc4347fa5
-  zh: a6a8c55ba77fd77b
+  en: 479b4175b655ab56
+  zh: aa4878df2c5a26ca
 /deepseek-ai-dsh-client-web/further-exploration:
   en: f2da70a33bba9086
   zh: a775f6fe309150ea
@@ -54,8 +54,8 @@
   en: ca75c51c89c2c9b0
   zh: de54f3467ef3b9be
 /deepseek-ai-dsh-client-web/known-limitations-and-deferred-work:
-  en: f498ba05d4ea96d5
-  zh: c3e57dd8ca9b5bda
+  en: 9ec3868c034c0063
+  zh: fe7c090d4cc79913
 /deepseek-ai-dsh-client-web/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 3bb0c20c93f16f98
