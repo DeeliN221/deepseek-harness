@@ -5,7 +5,9 @@ import {
   type ClientBundleRegistration, type ClientModuleLoader, type ClientModuleLoaderTarget, type WebBootEntry, type WebBootGraph,
 } from '@deepseek-ai/dsh-client-modules/client'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
-import { assertEntriesActive, bootClient, type EntryStateLabel } from '../src/boot-client.ts'
+import {
+  auditEntries, bootClient, fatalFailures, requiredFailureReport, REQUIRED_CLIENT_ENTRY_IDS, type EntryStateLabel,
+} from '../src/boot-client.ts'
 import { FIBER_STATE } from '../src/loader-status.ts'
 
 const BOOTSTRAP_ID = '@deepseek-ai/dsh-client-modules'
@@ -56,8 +58,9 @@ describe('bootClient', () => {
     const ctx = new Context()
     const sink = stateSink()
 
-    await bootClient({ ctx, modules, manifest: modules.manifest, onEntryState: sink.onEntryState })
+    const failures = await bootClient({ ctx, modules, manifest: modules.manifest, onEntryState: sink.onEntryState })
 
+    expect(failures).toEqual([])
     expect(loaded).toEqual([])
     const consumer = sink.states.get('consumer') ?? []
     expect(consumer[0]).toBe('loading')
@@ -66,15 +69,20 @@ describe('bootClient', () => {
     await ctx.fiber.dispose()
   })
 
-  it('reports a row waiting on a service the roster never provides', async () => {
-    const graph = graphOf(['orphan'])
-    const { modules } = modulesOf(graph, { orphan: { inject: ['nothing'], apply: () => {} } })
+  it('reports a row waiting on a service the roster never provides without failing the composition', async () => {
+    const graph = graphOf(['orphan', 'healthy'])
+    const { modules } = modulesOf(graph, {
+      orphan: { inject: ['nothing'], apply: () => {} },
+      healthy: { apply: () => {} },
+    })
     const ctx = new Context()
+    onTestFinished(() => ctx.fiber.dispose())
 
-    await expect(bootClient({ ctx, modules, manifest: modules.manifest })).rejects.toThrow(
-      'orphan: pending (waiting for service: nothing)',
-    )
-    await ctx.fiber.dispose()
+    const failures = await bootClient({ ctx, modules, manifest: modules.manifest })
+
+    expect(failures).toEqual([{ id: 'orphan', reason: 'pending (waiting for service: nothing)' }])
+    // The sibling still runs: only the orphaned consumer stays inactive.
+    expect([...ctx.loader.entries()].some(entry => entry.options.name === 'healthy')).toBe(true)
   })
 
   it('reports and logs an import failure for a row that is neither seeded nor a graph row', async () => {
@@ -86,16 +94,16 @@ describe('bootClient', () => {
     onTestFinished(() => { error.mockRestore() })
     const sink = stateSink()
 
-    await expect(bootClient({ ctx, modules, manifest, onEntryState: sink.onEntryState })).rejects.toThrow(
-      'web boot: 1 entry did not activate\nghost: import failed (see console for the import error)',
-    )
+    const failures = await bootClient({ ctx, modules, manifest, onEntryState: sink.onEntryState })
+
+    expect(failures).toEqual([{ id: 'ghost', reason: 'import failed (see console for the import error)' }])
     expect(sink.states.get('ghost')).toEqual(['loading', 'failed'])
     expect(error).toHaveBeenCalledOnce()
     expect(error.mock.calls[0]?.[0]).toHaveProperty('message', expect.stringContaining('client-modules: cannot resolve'))
   })
 })
 
-describe('assertEntriesActive', () => {
+describe('auditEntries', () => {
   interface FakeEntry { name: string; fiber?: { state: number; inject: Record<string, null> } }
 
   /** Loader-shaped double: entries with scripted fiber states, services by name. */
@@ -112,8 +120,8 @@ describe('assertEntriesActive', () => {
 
   const silent = { importError: () => undefined }
 
-  it('passes when every entry is active', () => {
-    expect(() => { assertEntriesActive(auditCtx([{ name: 'a', fiber: { state: FIBER_STATE.ACTIVE, inject: {} } }]), silent) }).not.toThrow()
+  it('reports nothing when every entry is active', () => {
+    expect(auditEntries(auditCtx([{ name: 'a', fiber: { state: FIBER_STATE.ACTIVE, inject: {} } }]), silent)).toEqual([])
   })
 
   it('names import failures, missing services, and other non-active states', () => {
@@ -124,26 +132,50 @@ describe('assertEntriesActive', () => {
       { name: 'broken', fiber: { state: FIBER_STATE.FAILED, inject: {} } },
     ], { present: {} })
 
-    expect(() => { assertEntriesActive(ctx, silent) }).toThrow([
-      'web boot: 4 entries did not activate',
-      'lost: import failed (see console for the import error)',
-      'waiting: pending (waiting for services: a, b)',
-      'opaque: pending (waiting for services: unknown)',
-      'broken: failed',
-    ].join('\n'))
-  })
-
-  it('uses the singular form for one failing entry', () => {
-    expect(() => { assertEntriesActive(auditCtx([{ name: 'lost' }]), silent) }).toThrow('web boot: 1 entry did not activate\n')
+    expect(auditEntries(ctx, silent)).toEqual([
+      { id: 'lost', reason: 'import failed (see console for the import error)' },
+      { id: 'waiting', reason: 'pending (waiting for services: a, b)' },
+      { id: 'opaque', reason: 'pending (waiting for services: unknown)' },
+      { id: 'broken', reason: 'failed' },
+    ])
   })
 
   it('names the recorded import error of a fiberless entry when the module system is supplied', () => {
     const recorded = new Map([['lost', new Error('client-modules: could not load "lost": plugins/??lost/client.js&rev=0: bundle script failed to load')]])
     const modules = { importError: (id: string) => recorded.get(id) }
-    expect(() => { assertEntriesActive(auditCtx([{ name: 'lost' }, { name: 'quiet' }]), modules) }).toThrow([
-      'web boot: 2 entries did not activate',
-      'lost: import failed: client-modules: could not load "lost": plugins/??lost/client.js&rev=0: bundle script failed to load',
-      'quiet: import failed (see console for the import error)',
+    expect(auditEntries(auditCtx([{ name: 'lost' }, { name: 'quiet' }]), modules)).toEqual([
+      {
+        id: 'lost',
+        reason: 'import failed: client-modules: could not load "lost": plugins/??lost/client.js&rev=0: bundle script failed to load',
+      },
+      { id: 'quiet', reason: 'import failed (see console for the import error)' },
+    ])
+  })
+})
+
+describe('startup policy', () => {
+  it('keeps only the entries the shell cannot present without', () => {
+    const failures = [
+      { id: 'ui-conversation', reason: 'import failed' },
+      { id: 'ui-layout', reason: 'failed' },
+      { id: 'ui-skill', reason: 'pending (waiting for service: uiConversation)' },
+    ]
+
+    expect(fatalFailures(failures)).toEqual([{ id: 'ui-layout', reason: 'failed' }])
+    expect([...REQUIRED_CLIENT_ENTRY_IDS].toSorted()).toEqual(['connection', 'ui-layout', 'ui-renderer'])
+  })
+
+  it('renders a required-entry report naming each failure once', () => {
+    expect(requiredFailureReport('web boot', [{ id: 'connection', reason: 'failed' }])).toBe(
+      'web boot: startup failed: 1 required entry did not activate\nconnection: failed',
+    )
+    expect(requiredFailureReport('web boot', [
+      { id: 'connection', reason: 'failed' },
+      { id: 'ui-renderer', reason: 'import failed' },
+    ])).toBe([
+      'web boot: startup failed: 2 required entries did not activate',
+      'connection: failed',
+      'ui-renderer: import failed',
     ].join('\n'))
   })
 })

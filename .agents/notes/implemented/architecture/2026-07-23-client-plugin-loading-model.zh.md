@@ -67,7 +67,7 @@ Host 会快照每个已构建插件入口 bundle，并把每个调度阶段的�
 1. 内核挂载 vendored Loader，在任何 entry 存在之前就把模块系统注入为 `internal`。顺序有讲究：`tree.import` 的裸 import 兜底分支在浏览器里绝不能跑到。
 2. 它统一创建每个 graph row。Import modules row 会返回记忆化的 bootstrap exports，其 `apply()` 读取该树的 `Loader.internal`，把同一个实例提供为 `ctx.modules`；需要该 service 的 row 会保持 PENDING 直至此时，因此 modules row 无需特殊创建位置。渲染组装是由 `dsh-client-ui-renderer` 提供的普通 host graph row；内核不追加组装伪 entry。
 3. Graph 顺序治理同步 factory 可用性；Cordis 激活与之独立，仍经服务等待推进。
-4. `settled` = 每个 entry 已创建 + `loader.await()` 完全停稳 + 一次全 ACTIVE 扫描。扫描列出每个 import 失败、FAILED 或 PENDING 的 fiber 及其缺失的服务。它存在的理由：cordis 的 inject 等待没有超时——这次扫描就是大声失败的兜底线。
+4. `settled` = 每个 entry 已创建 + `loader.await()` 完全停稳 + 一次全 ACTIVE 扫描。扫描列出每个 import 失败、FAILED 或 PENDING 的 fiber 及其缺失的服务。它存在的理由：cordis 的 inject 等待没有超时。扫描只负责报告，不再对每一行拒绝启动，因此应用会在未激活的行之上照常挂载（[client boot degradation](2026-11-17-client-boot-degradation.zh.md)）。
 5. 不依赖框架的 loading 页经 `internal/status` 投影真实 fiber 状态。检查完成后，内核调用 `ctx.uiRenderer.mount(container)`，一次切换到真实 UI。
 
 ### 动态图对账

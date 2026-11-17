@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-client-web` boots the web GUI: it loads the client module system from the Host-provided boot graph, then activates every client plugin before the application mounts, so the full UI appears only when every plugin is up. A framework-free boot page reports per-entry status, so a failing bundle or plugin stays visible instead of a blank screen. It also defines the shared module table (`PLATFORM_MODULES`) that every dynamic bundle resolves its externals against. The model never sees this package.
+`dsh-client-web` boots the web GUI: it loads the client module system from the Host-provided boot graph, then activates the client plugin roster before the application mounts. Only a failure in the connection, the layout, or the renderer stops the mount; every other row is skipped and named in a framework-free startup notice, so a broken plugin cannot take the whole web application down. The framework-free boot page reports per-entry progress while the roster settles. It also defines the shared module table (`PLATFORM_MODULES`) that every dynamic bundle resolves its externals against. The model never sees this package.
 
 ## Table of Contents
 
@@ -35,11 +35,11 @@ Web and Desktop mathematical rendering requires WOFF2 support. The [Web build](.
 
 ### What boot looks like
 
-Boot runs in two stages: the module stage adopts the parser-loaded bootstrap batch, builds the module system from the Host-provided boot graph, and prefetches the `immediately` tier through the shared application-batch URL, which executes once. The plugin stage then activates every graph entry and waits for all of them before handing the marked boot DOM to the UI renderer, which hydrates it and switches to the complete UI.
+Boot runs in two stages: the module stage adopts the parser-loaded bootstrap batch, builds the module system from the Host-provided boot graph, and prefetches the `immediately` tier through the shared application-batch URL, which executes once. The plugin stage then activates every graph entry, waits for the roster to settle, and hands the marked boot DOM to the UI renderer, which hydrates it and switches to the complete UI. An entry that did not activate is skipped unless it provides the connection, the layout, or the renderer.
 
 ### The boot page
 
-The boot page uses plain DOM and local CSS, so bundle and plugin-activation failures remain visible: it shows one spinner node whose CSS arc grows as entries activate, and reports per-entry status. The spinner and its animation phase persist until the full UI replaces the boot page. A plugin that fails import or activation is reported by name with the reason (missing service, import failure, or state) instead of a blank page. The console contains the original import error.
+The boot page uses plain DOM and local CSS, so bundle and plugin-activation failures remain visible: it shows one spinner node whose CSS arc grows as entries activate, and reports per-entry status. The spinner and its animation phase persist until the full UI replaces the boot page. A plugin that fails import or activation does not stop the boot: the startup notice names it with the reason (missing service, import failure, or state) once the application has mounted, and the console keeps the original import error. The boot page renders a fatal report only when a required entry failed.
 
 <a id="the-shared-module-table"></a>
 ### The shared module table
@@ -70,13 +70,13 @@ The kernel owns exactly three things: the module system, the Cordis Loader, and 
 
 ### Two-stage boot
 
-`run()` calls the Host-installed `window.__ModuleLoader__.create({ boot, staticModules, ...seams })`; the facade returns the constructed module system and parsed manifest after adopting the parser-loaded bootstrap batch. The module stage prefetches the `immediately` tier through the one shared application-batch URL. The plugin stage mounts the Loader, assigns `loader.internal = modules`, creates every graph entry uniformly, awaits quiescence, then audits activation: any entry that failed import, stayed pending on a missing service, or landed in another non-active state throws one aggregated error naming every failing entry.
+`run()` calls the Host-installed `window.__ModuleLoader__.create({ boot, staticModules, ...seams })`; the facade returns the constructed module system and parsed manifest after adopting the parser-loaded bootstrap batch. The module stage prefetches the `immediately` tier through the one shared application-batch URL. The plugin stage mounts the Loader, assigns `loader.internal = modules`, creates every graph entry uniformly, awaits quiescence, then audits activation: an entry that failed import, stayed pending on a missing service, or landed in another non-active state is reported without stopping the boot, and only the required ids turn that report into a startup failure.
 
 ### Boot page mechanics
 
 The boot page is plain DOM with local CSS whose fallback fonts and colors match the theme tokens that arrive during loading. `internal/status` events drive one spinner node and per-entry labels; hydration preserves the node and animation phase through the application commit, and `fail()` renders the thrown reason. React mounting, slot rendering, and assembly live in `ui-renderer`; `ui-layout` owns the assembled browser-title projection.
 
-The boot kernel delegates manifest entry creation to Client Modules so live graph synchronization owns the same entry identities after startup. The initial activation audit remains strict; later page-local failures appear in Settings → Plugins → Plugin list.
+The boot kernel delegates manifest entry creation to Client Modules so live graph synchronization owns the same entry identities after startup. Boot reports every non-active entry in the startup notice; later page-local failures appear in Settings → Plugins → Plugin list.
 
 ### Source map
 
@@ -87,6 +87,7 @@ The boot kernel delegates manifest entry creation to Client Modules so live grap
 | [`src/boot-client.ts`](src/boot-client.ts) | `bootClient` / `assertEntriesActive`: Loader mount, one entry per manifest row, activation audit |
 | [`src/mount.ts`](src/mount.ts) | `mountClient`: renderer handoff through a `uiRenderer` dependency fiber |
 | [`src/boot-page.ts`](src/boot-page.ts) | Framework-free boot page: spinner, per-entry status, failure rendering |
+| [`src/boot-notice.ts`](src/boot-notice.ts) | Startup notice outside the React mount point: names every entry that did not activate |
 | [`src/platform.ts`](src/platform.ts) | `PLATFORM_MODULES` / `PRELOADED_CLIENT_EXTERNALS`: the implicit external baseline |
 | [`src/seed.ts`](src/seed.ts) | Static module table handed to the loader at boot |
 | [`src/window-drag/regions.ts`](src/window-drag/regions.ts) | The darwin app-region composition model, and the interactive selector `base.css` subtracts |
@@ -126,7 +127,8 @@ None; this package neither assembles nor sends a provider request.
 
 These limits define what the boot kernel does not support. They are current package constraints, not a task backlog.
 
-- **The application waits for the full roster** — one failed entry keeps the framework-free boot page visible with a per-entry report; partial UI availability is not supported.
+- **A missing required entry still stops the mount** — the connection, the layout, and the renderer have no degraded presentation; when one of them fails, the framework-free boot page keeps the per-entry report and no application mounts.
+- **The startup notice is page-local** — it reports the roster once per page load and does not follow later enable, disable, or retry operations; Settings → Plugins owns those outcomes.
 
 <a id="dev-note"></a>
 ### Dev Note

@@ -70,7 +70,7 @@ describe('bootstrap failure rendering', () => {
     await entry.dispose()
   })
 
-  it.each([false, true])('routes failed plugin activation with carrier presentation=%s', async (carrier) => {
+  it.each([false, true])('mounts over a failed optional plugin with carrier presentation=%s', async (carrier) => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const container = document.createElement('div')
     document.body.append(container)
@@ -88,16 +88,48 @@ describe('bootstrap failure rendering', () => {
     const report = vi.fn<(reason: unknown) => void>()
     try {
       await entry.run(carrier ? report : undefined)
+      // The row is optional, so startup succeeds and reports it in the notice.
+      expect(report).not.toHaveBeenCalled()
+      expect(container.textContent).not.toContain('Failed to load plugins')
+      const notice = document.querySelector('[data-dsh-boot-notice]')
+      expect(notice).not.toBeNull()
+      expect(notice?.textContent).toContain('1 plugin did not start')
+      expect(notice?.textContent).toContain('broken')
+      expect(notice?.textContent).toContain('failed')
+    } finally {
+      await entry.dispose()
+    }
+    expect(document.querySelector('[data-dsh-boot-notice]')).toBeNull()
+  })
+
+  it.each([false, true])('fails startup when a required client row does not activate (carrier=%s)', async (carrier) => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const container = document.createElement('div')
+    document.body.append(container)
+    const target = installFacade()
+    win.__DSH_BOOT__ = {
+      rev: 'graph',
+      entries: [{ id: 'ui-renderer', url: '/renderer.js', rev: '1' }],
+      batches: [{ phase: 'application', url: '/application.js', rev: '1', entries: ['ui-renderer'] }],
+    }
+    const entry = new AppWebEntry(container, {
+      loadBundle: async () => {
+        target.load({ id: 'ui-renderer', factory: () => ({ apply() { throw new Error('renderer failed') } }) })
+      },
+    })
+    const report = vi.fn<(reason: unknown) => void>()
+    try {
+      await entry.run(carrier ? report : undefined)
       if (carrier) {
         expect(report).toHaveBeenCalledOnce()
-        expect(String(report.mock.calls[0]![0])).toContain('broken')
-        expect(container.querySelector('[data-dsh-boot-spinner]')).not.toBeNull()
+        expect(String(report.mock.calls[0]![0])).toContain('ui-renderer')
         expect(container.textContent).not.toContain('Failed to load plugins')
       } else {
         expect(report).not.toHaveBeenCalled()
         expect(container.textContent).toContain('Failed to load plugins')
-        expect(container.textContent).toContain('broken')
+        expect(container.textContent).toContain('ui-renderer')
       }
+      expect(document.querySelector('[data-dsh-boot-notice]')).toBeNull()
     } finally {
       await entry.dispose()
     }
