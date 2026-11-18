@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { fireEvent } from '@testing-library/react'
-import { $createParagraphNode, $createTextNode, $getRoot, createEditor, KEY_ENTER_COMMAND } from 'lexical'
+import { $createParagraphNode, $createTextNode, $getRoot, $isParagraphNode, createEditor, KEY_ENTER_COMMAND } from 'lexical'
 import { registerPlainText } from '@lexical/plain-text'
 import { isMobileDevice } from '@deepseek-ai/dsh-client-ui-primitives'
 import { registerComposerKeymap } from '../src/client/input/editor/keymap.ts'
@@ -10,7 +10,7 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({ isMobileDevice: vi.fn(
 beforeEach(() => vi.mocked(isMobileDevice).mockReturnValue(false))
 
 function bench() {
-  const editor = createEditor({ namespace: 'explicit-enter', onError: e => { throw e } })
+  const editor = createEditor({ namespace: 'explicit-enter', onError: (e) => { throw e } })
   const root = document.createElement('div')
   root.contentEditable = 'true'
   document.body.append(root)
@@ -53,7 +53,7 @@ describe('explicit composer send boundary', () => {
     expect(b.submit).not.toHaveBeenCalled()
     expect(b.editor.getEditorState().read(() => $getRoot().getTextContent())).toBe('first\n\n')
   })
-  it.each([{ ctrlKey: true }, { metaKey: true }])('primary %j sends with normal Queue/Steer policy', modifiers => {
+  it.each([{ ctrlKey: true }, { metaKey: true }])('primary %j sends with normal Queue/Steer policy', (modifiers) => {
     const b = bench(); b.enter(modifiers)
     expect(b.submit).toHaveBeenCalledExactlyOnceWith(false)
   })
@@ -61,7 +61,7 @@ describe('explicit composer send boundary', () => {
     const b = bench(); b.enter({ altKey: true })
     expect(b.submit).toHaveBeenCalledExactlyOnceWith(true)
   })
-  it.each(variants)('mobile Enter %j never sends', modifiers => {
+  it.each(variants)('mobile Enter %j never sends', (modifiers) => {
     vi.mocked(isMobileDevice).mockReturnValue(true)
     const b = bench(); b.enter(modifiers)
     expect(b.submit).not.toHaveBeenCalled()
@@ -84,18 +84,22 @@ describe('explicit composer send boundary', () => {
     b.canSubmit.mockReturnValue(false); b.enter({ ctrlKey: true })
     expect(b.submit).not.toHaveBeenCalled()
   })
-  it.each([false, true])('IME/dictation completion retains all segments, mobile=%s', mobile => {
+  it.each([false, true])('IME/dictation completion retains all segments, mobile=%s', (mobile) => {
     vi.mocked(isMobileDevice).mockReturnValue(mobile)
     vi.useFakeTimers()
-    onTestFinished(() => vi.useRealTimers())
+    onTestFinished(() => { vi.useRealTimers() })
     const b = bench()
     for (const segment of ['第一段', '第二段', '第三段']) {
       fireEvent.compositionStart(b.root)
       b.editor.update(() => {
         const root = $getRoot()
-        const p = root.getFirstChild() ?? $createParagraphNode()
-        if (p.getParent() === null) root.append(p)
-        if ('append' in p) p.append($createTextNode(segment))
+        const first = root.getFirstChild()
+        if (first === null || !$isParagraphNode(first)) {
+          const created = first === null ? $createParagraphNode() : undefined
+          if (created !== undefined) root.append(created)
+        }
+        const paragraph = root.getFirstChild()
+        if (paragraph !== null && $isParagraphNode(paragraph)) paragraph.append($createTextNode(segment))
       }, { discrete: true })
       b.enter({ ctrlKey: true, isComposing: true })
       fireEvent.compositionEnd(b.root, { data: segment })
