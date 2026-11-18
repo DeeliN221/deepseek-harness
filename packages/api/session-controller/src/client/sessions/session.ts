@@ -375,7 +375,7 @@ export class Session implements SessionFace {
         address.parentSessionId,
         'continuable',
       )
-      : await this.remote.session.cancel({ sessionId: this.sessionId })
+      : await this.remote.session.cancel({ sessionId: this.sessionId, cascade: true })
     if (!result.ok) {
       this.promptError = { op: 'stop', error: result.error }
       this.notifier.markDirty()

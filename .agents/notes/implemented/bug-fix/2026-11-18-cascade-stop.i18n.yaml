@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-11-18-cascade-stop.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-11-18-cascade-stop.md
+/agent-note-cascade-a-stopped-turn-into-its-jobs-and-subagents:
+  en: d106c3350cbdb2fd
+  zh: 0dfa774dd1545e09
+/agent-note-cascade-a-stopped-turn-into-its-jobs-and-subagents/problem:
+  en: 9edd14ff47ec10e9
+  zh: fd7339789d689b17
+/agent-note-cascade-a-stopped-turn-into-its-jobs-and-subagents/decision:
+  en: c05d3a3a4bbf9b15
+  zh: f93dcf725a6f1223
+/agent-note-cascade-a-stopped-turn-into-its-jobs-and-subagents/alternatives-considered:
+  en: 9d3dc8dd85d10f0a
+  zh: 3f97f41e1b36e8d2
+/agent-note-cascade-a-stopped-turn-into-its-jobs-and-subagents/consequences:
+  en: 5c056e5b537ee0d9
+  zh: 7a3fe58dcfca835f

@@ -85,16 +85,12 @@ function at<Type extends keyof SessionEventMap>(
   }
 }
 
-function userEvent(seq: number, turn: number, text: string): SessionLiveEventEntry {
+function userEvent(seq: number, text: string): SessionLiveEventEntry {
   return at(seq, 'user/message', {
-    turn,
-    step: 1,
-    message: {
-      id: MessageId(`u-${seq}`),
-      role: 'user',
-      content: [{ type: 'text', text }],
-      source: { kind: 'user' },
-    },
+    id: MessageId(`u-${seq}`),
+    role: 'user',
+    content: [{ type: 'text', text }],
+    source: { kind: 'user' },
   })
 }
 
@@ -134,7 +130,6 @@ function toolResultEvent(seq: number, turn: number, step: number, callId: string
   return at(seq, 'tool/result', {
     turn,
     step,
-    callId: ToolCallId(callId),
     message: {
       id: MessageId(`tr-${seq}`),
       role: 'tool',
@@ -160,7 +155,8 @@ function chatSnapshot(assembler: ConversationNodeAssembler): ChatSnapshot {
 
 function turnProcessNode(snapshot: ChatSnapshot, turn: number): ChatNode<'turn-process'> | undefined {
   return snapshot.nodes.values().find(
-    (node): node is ChatNode<'turn-process'> => node.kind === 'turn-process' && node.data.turn === turn,
+    (node): node is ChatNode<'turn-process'> =>
+      node.kind === 'turn-process' && (node as ChatNode<'turn-process'>).data.turn === turn,
   )
 }
 
@@ -204,7 +200,7 @@ describe('OpenAI Turn process folding projection', () => {
   it('marks completed multi-step OpenAI Turns with a reliable final answer for intermediate reply folding', () => {
     const assembler = createAssembler([
       at(1, 'turn/start', { turn: 1 }),
-      userEvent(2, 1, 'fix the bug'),
+      userEvent(2, 'fix the bug'),
       at(3, 'step/start', { turn: 1, step: 1 }),
       assistantEvent(4, 1, 1, [
         { type: 'text', text: 'Let me inspect the file first.' },
@@ -236,7 +232,7 @@ describe('OpenAI Turn process folding projection', () => {
   it('keeps streaming OpenAI Turns open until turn/end settles', () => {
     const assembler = createAssembler([
       at(1, 'turn/start', { turn: 1 }),
-      userEvent(2, 1, 'hello'),
+      userEvent(2, 'hello'),
       at(3, 'step/start', { turn: 1, step: 1 }),
       assistantEvent(4, 1, 1, [
         { type: 'text', text: 'Checking...' },
@@ -279,7 +275,7 @@ describe('OpenAI Turn process folding projection', () => {
   it('keeps OpenAI Turns always open when there is no reliable final answer boundary, on error, or on abort', () => {
     const assembler = createAssembler([
       at(1, 'turn/start', { turn: 1 }),
-      userEvent(2, 1, 'run tool only'),
+      userEvent(2, 'run tool only'),
       at(3, 'step/start', { turn: 1, step: 1 }),
       assistantEvent(4, 1, 1, [
         { type: 'text', text: 'Running command...' },
@@ -290,13 +286,13 @@ describe('OpenAI Turn process folding projection', () => {
       at(7, 'step/end', { turn: 1, step: 1 }),
       at(8, 'turn/end', { turn: 1, reason: { kind: 'completed' } }),
       at(9, 'turn/start', { turn: 2 }),
-      userEvent(10, 2, 'fail'),
+      userEvent(10, 'fail'),
       at(11, 'step/start', { turn: 2, step: 1 }),
       assistantEvent(12, 2, 1, [{ type: 'text', text: 'Working...' }]),
       at(13, 'step/end', { turn: 2, step: 1 }),
-      at(14, 'turn/end', { turn: 2, reason: { kind: 'error', error: { message: 'boom' } } }),
+      at(14, 'turn/end', { turn: 2, reason: { kind: 'error', error: { code: 'test-error', message: 'boom' } } }),
       at(15, 'turn/start', { turn: 3 }),
-      userEvent(16, 3, 'abort'),
+      userEvent(16, 'abort'),
       at(17, 'step/start', { turn: 3, step: 1 }),
       assistantEvent(18, 3, 1, [{ type: 'text', text: 'Partial' }], undefined, { interrupted: true }),
       at(19, 'step/end', { turn: 3, step: 1 }),
@@ -332,7 +328,7 @@ describe('OpenAI Turn process folding projection', () => {
 
     const head: SessionEventLikeEntry[] = [
       at(1, 'turn/start', { turn: 1 }),
-      userEvent(2, 1, 'question'),
+      userEvent(2, 'question'),
       at(3, 'step/start', { turn: 1, step: 1 }),
       assistantEvent(4, 1, 1, [
         { type: 'text', text: 'Commentary before tool.' },
@@ -361,7 +357,7 @@ describe('OpenAI Turn process folding projection', () => {
   it('does not alter DeepSeek reasoning Turn behavior', () => {
     const assembler = createAssembler([
       at(1, 'turn/start', { turn: 1 }),
-      userEvent(2, 1, 'reason about this'),
+      userEvent(2, 'reason about this'),
       at(3, 'step/start', { turn: 1, step: 1 }),
       assistantEvent(
         4,

@@ -363,6 +363,12 @@ export interface SessionUpdateQueueValue {
 /** Active-turn cancellation request. */
 export interface SessionCancelRequest {
   readonly sessionId: SessionId
+  /**
+   * Also stop everything this turn owns: kill the Session's background jobs and
+   * interrupt every subagent descendant. Omission keeps the earlier
+   * agent-only cancellation.
+   */
+  readonly cascade?: boolean
 }
 
 /** Receipt after cancellation is admitted to the live Agent. */
