@@ -2,7 +2,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useEffect, useRef } from 'react'
 import { cleanup, fireEvent, render } from '@testing-library/react'
+import type { ComponentProps } from 'react'
 import { contextMenuHook, allowAllAccess, bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import type { StandardPropsOf } from '@deepseek-ai/dsh-client-ui-slots'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SessionEventLikeEntry, SessionLiveEventEntry } from '@deepseek-ai/dsh-api-session-controller/client'
 import {
@@ -31,14 +33,15 @@ import { turnMaxTokensDefinition } from '../src/client/conversation-nodes/turn-m
 import { turnTailDefinition } from '../src/client/conversation-nodes/turn-tail.ts'
 import { processEvidenceDefinition, turnProcessDefinition } from '../src/client/conversation-nodes/turn-process.ts'
 import { createChatStore } from '../src/client/stores.ts'
-import { derivePresentationPolicy, type CollapseTiming, type FoldedReplies, type TranscriptViewMode } from '../src/client/presentation-policy.ts'
+import { derivePresentationPolicy, type CollapseTiming, type FoldedReplies } from '../src/client/presentation-policy.ts'
+import type { TranscriptViewMode } from '../src/chat-settings.ts'
 import { en } from '../src/client/locale.ts'
 import { ChatNodeSeat } from '../src/client/chat/ChatNodeSeat.tsx'
 import { TurnProcessNodeView } from '../src/client/chat/TurnProcessNodeView.tsx'
 import { AssistantNodeView } from '../src/client/chat/AssistantNodeView.tsx'
 import { CHAT_NODE_INJECT } from '../src/client/apply.ts'
 import type { ChatNode, ChatSnapshot } from '@deepseek-ai/dsh-client-ui-chat/client'
-import type { ChatFlowSlotProps, ChatNodeHookContext, ChatNodeOwnerProps } from '../src/client/contract/slots.ts'
+import type { ChatFlowSlotProps, ChatNodeHookContext, ChatNodeOwnerProps, ChatNodeViewProps } from '../src/client/contract/slots.ts'
 import { renderReasoningSlot } from './reasoning-component-fixture.tsx'
 
 const DEFINITIONS: readonly ConversationNodeDefinition[] = [
@@ -81,11 +84,9 @@ function at<Type extends keyof SessionEventMap>(
   }
 }
 
-function userEvent(seq: number, turn: number, text: string): SessionLiveEventEntry {
+function userEvent(seq: number, _turn: number, text: string): SessionLiveEventEntry {
   return at(seq, 'user/message', {
-    turn,
-    step: 1,
-    message: { id: MessageId(`u-${seq}`), role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } },
+    id: MessageId(`u-${seq}`), role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' },
   })
 }
 
@@ -112,7 +113,6 @@ function toolResultEvent(seq: number, turn: number, step: number, callId: string
   return at(seq, 'tool/result', {
     turn,
     step,
-    callId: ToolCallId(callId),
     message: {
       id: MessageId(`tr-${seq}`),
       role: 'tool',
@@ -147,50 +147,55 @@ function renderSeats(entries: readonly SessionEventLikeEntry[]) {
     }, [hidden])
     return ref
   }
+  const standardProps = {} as StandardPropsOf<'conversation.chat.node'>
   const renderSlot: ChatFlowSlotProps['renderSlot'] = (slotName, owner, opts) => {
     if (slotName !== 'conversation.chat.node') return null
-    const typed = owner as ChatNodeOwnerProps & { readonly node: ChatNode }
+    const typed = owner as (typeof owner) & ChatNodeOwnerProps & { readonly node: ChatNode }
     const hookContext = opts?.hookContext as ChatNodeHookContext
     if (typed.node.kind === 'turn-process') {
       return (
         <TurnProcessNodeView
-          node={typed.node}
-          turnProcess={typed.turnProcess}
-          t={t}
-          {...allowAllAccess}
+          {...({
+            node: typed.node,
+            turnProcess: typed.turnProcess,
+            useDisclosure: CHAT_NODE_INJECT.hooks.disclosure(standardProps, hookContext),
+            useGroupAction,
+            useTurnData: CHAT_NODE_INJECT.hooks.turnData(standardProps, hookContext),
+            t,
+            ...allowAllAccess,
+          } as ChatNodeViewProps<'turn-process'>)}
         />
       )
     }
     if (typed.node.kind === 'assistant-step') {
       return (
         <AssistantNodeView
-          node={typed.node}
-          groupPart={typed.groupPart}
-          turnProcess={typed.turnProcess}
-          openFile={vi.fn()}
-          loadImage={vi.fn()}
-          fileMentions={() => ({})}
-          resolveFilePath={p => p}
-          useDisclosure={CHAT_NODE_INJECT.hooks.disclosure({}, hookContext)}
-          useGroupAction={useGroupAction}
-          useTurnData={CHAT_NODE_INJECT.hooks.turnData({}, hookContext)}
-          usePresentation={usePresentation}
-          renderSlot={(name, subOwner, subOpts) =>
-            name === 'conversation.chat.message.images'
-              ? null
-              : renderReasoningSlot(name, subOwner, subOpts)}
-          t={t}
-          sessionId={'s1' as SessionId}
-          useContextMenu={() => ({ getTriggerProps })}
-          {...allowAllAccess}
+          {...({
+            node: typed.node,
+            ...(typed.groupPart === undefined ? {} : { groupPart: typed.groupPart }),
+            ...(typed.turnProcess === undefined ? {} : { turnProcess: typed.turnProcess }),
+            openFile: vi.fn(),
+            inspectCall: vi.fn(),
+            forkAt: vi.fn(),
+            loadImage: async () => '',
+            resolveFilePath: (path: string) => path,
+            fileMentions: () => ({ open: () => {}, label: 'file', title: 'file' }),
+            useDisclosure: CHAT_NODE_INJECT.hooks.disclosure(standardProps, hookContext),
+            useGroupAction,
+            useTurnData: CHAT_NODE_INJECT.hooks.turnData(standardProps, hookContext),
+            usePresentation,
+            renderSlot: (name: 'conversation.chat.message.images' | 'conversation.chat.reasoning.body', subOwner: never, subOpts: never) =>
+              name === 'conversation.chat.message.images' ? null : renderReasoningSlot(name, subOwner, subOpts),
+            t,
+            sessionId: 's1' as SessionId,
+            useContextMenu: () => ({ getTriggerProps }),
+            ...allowAllAccess,
+          } as ComponentProps<typeof AssistantNodeView>)}
         />
       )
     }
     if (typed.node.kind === 'tool-call') {
       return <div data-testid={`tool-${typed.node.data.root.name}`}>{typed.node.data.root.name}</div>
-    }
-    if (typed.node.kind === 'user-message') {
-      return <div data-testid="user-msg">user</div>
     }
     return null
   }
@@ -214,7 +219,7 @@ function renderSeats(entries: readonly SessionEventLikeEntry[]) {
           openFile={vi.fn()}
           inspectCall={vi.fn()}
           forkAt={vi.fn()}
-          loadImage={vi.fn()}
+          loadImage={async () => ''}
         />
       ))}
     </div>,

@@ -267,7 +267,7 @@ describe('Android dictation DOM events', () => {
   it('does not isolate non-Android composition', async () => {
     const original = navigator.userAgent
     Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Desktop Chrome' })
-    onTestFinished(() => Object.defineProperty(navigator, 'userAgent', { configurable: true, value: original }))
+    onTestFinished(() => { Object.defineProperty(navigator, 'userAgent', { configurable: true, value: original }) })
     const b = bench()
     b.runtime.setDraft('前文')
     await b.selectDOM(2)
