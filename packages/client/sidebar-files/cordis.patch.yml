@@ -1,0 +1,3 @@
+- insert:
+    - id: sidebar-files
+      name: '@deepseek-ai/dsh-client-sidebar-files'
