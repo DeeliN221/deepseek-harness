@@ -422,6 +422,12 @@
   }
 }
 
+/* Armed stop: the first click arms the control and the second one cancels, so
+   the button shows the warning colour between them. */
+.primary[data-stop-armed] {
+  background: var(--dsw-alias-state-warn-primary);
+}
+
 .primary:disabled {
   opacity: 0.4;
   cursor: default;

@@ -1129,6 +1129,9 @@ describe('running and lock semantics', () => {
     expect(textarea.getAttribute('aria-disabled')).not.toBe('true')
     expect(button.getAttribute('aria-label')).toBe('停止生成')
     fireEvent.click(button)
+    // The first click arms the control; only the second one cancels.
+    expect(stop).not.toHaveBeenCalled()
+    fireEvent.click(button)
     expect(stop).toHaveBeenCalledTimes(1)
 
     writeDraft(shell, '排队消息')
@@ -1150,7 +1153,12 @@ describe('running and lock semantics', () => {
     composerEnter(textarea, { key: 'Enter', ctrlKey: true })
     const sending = view.getByRole('button', { name: '正在发送消息' }) as HTMLButtonElement
     expect(sending.disabled).toBe(true)
-    fireEvent.click(view.getByRole('button', { name: '停止生成' }))
+    const stopButton = view.getByRole('button', { name: '停止生成' })
+    fireEvent.click(stopButton)
+    // The first click arms the control; only the second one cancels.
+    expect(stop).not.toHaveBeenCalled()
+    expect(stopButton.getAttribute('aria-label')).toBe('再点一次停止')
+    fireEvent.click(stopButton)
     expect(stop).toHaveBeenCalledTimes(1)
 
     await act(async () => { settle({ kind: 'success' }) })
@@ -1306,6 +1314,9 @@ describe('running and lock semantics', () => {
     expect(button.getAttribute('aria-label')).toBe('停止生成')
     expect(button.disabled).toBe(false)
     fireEvent.click(button)
+    // The first click arms the control; only the second one cancels.
+    expect(stop).not.toHaveBeenCalled()
+    fireEvent.click(button)
     expect(stop).toHaveBeenCalledTimes(1)
     expect(sink).not.toHaveBeenCalled()
   })
@@ -1387,6 +1398,9 @@ describe('running and lock semantics', () => {
     click.mockRestore()
     fireEvent.click(button)
     expect(sink).toHaveBeenCalledWith('后续消息', [], 'queue', expect.any(AbortSignal), expect.any(Function))
+    fireEvent.click(interruptButton!)
+    // The first click arms the control; only the second one cancels.
+    expect(stop).not.toHaveBeenCalled()
     fireEvent.click(interruptButton!)
     expect(stop).toHaveBeenCalledTimes(1)
   })
@@ -1473,6 +1487,9 @@ describe('running and lock semantics', () => {
     expect(button.getAttribute('aria-label')).toBe('发送消息')
     expect(button.disabled).toBe(true)
     expect(interruptButton?.disabled).toBe(false)
+    fireEvent.click(interruptButton!)
+    // The first click arms the control; only the second one cancels.
+    expect(stop).not.toHaveBeenCalled()
     fireEvent.click(interruptButton!)
     expect(stop).toHaveBeenCalledTimes(1)
   })
