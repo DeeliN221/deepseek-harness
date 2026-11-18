@@ -19,6 +19,7 @@ import { buildForkSeed } from '@deepseek-ai/dsh-session/fork'
 import { SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
+import type {} from '@deepseek-ai/dsh-jobs'
 import { SessionTitleInvalidError } from '@deepseek-ai/dsh-session-title'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import { RemoteError, remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
@@ -457,8 +458,12 @@ export class SessionCommandController {
   }
 
   /**
-   * Cancel one live ordinary Agent while retaining pending inbox work.
-   * @param request - Session whose active Agent turn is cancelled.
+   * Cancel one live ordinary Agent while retaining pending inbox work. With
+   * `cascade`, the same call also kills the Session's background jobs and
+   * interrupts its subagent descendants, so one click stops every output the
+   * turn is producing.
+   * @param request - Session whose active Agent turn is cancelled, and whether
+   *   the cancellation extends to jobs and subagents.
    * @returns acknowledgement that cancellation was requested.
    */
   cancel(request: SessionCancelRequest): SessionCancelValue {
@@ -474,7 +479,40 @@ export class SessionCommandController {
       throw apiSessionSubagentOwnershipError(request.sessionId)
     }
     agent.cancel({ kind: 'user' }, { keepInbox: true })
+    if (request.cascade === true) this.cascadeCancel(request.sessionId)
     return { accepted: true }
+  }
+
+  /**
+   * Stop the work a cancelled turn owns beyond its agent: background jobs
+   * (killed synchronously, so a running shell reports 'requested') and every
+   * subagent descendant, each interrupted under its own direct parent's
+   * authority. A job that settles between listing and killing, or a child that
+   * already finished, is a warning rather than a failed cancellation.
+   * @param sessionId - Session whose jobs and subagents are stopped.
+   */
+  private cascadeCancel(sessionId: SessionId): void {
+    const jobs = this.ctx.get('jobs')
+    for (const job of jobs?.list(sessionId) ?? []) {
+      try {
+        jobs?.kill(job.id, sessionId, 'turn cancelled')
+      } catch (error) {
+        this.ctx.logger.warn('cascade cancel: job %s did not stop', job.id, error)
+      }
+    }
+    const subagents = this.ctx.get('subagents')
+    if (subagents === undefined) return
+    void subagents.listDescendants(sessionId).then((entries) => {
+      for (const entry of entries) {
+        try {
+          subagents.interrupt(entry.id, { kind: 'user', parentSessionId: entry.parentId })
+        } catch (error) {
+          this.ctx.logger.warn('cascade cancel: subagent %s did not interrupt', entry.id, error)
+        }
+      }
+    }).catch((error: unknown) => {
+      this.ctx.logger.warn('cascade cancel: subagent discovery failed', error)
+    })
   }
 
   private async resolveAgent(sessionId: SessionId): Promise<Agent> {

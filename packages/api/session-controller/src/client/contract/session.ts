@@ -117,8 +117,10 @@ export interface ISession {
    */
   updateQueue(itemId: MessageId, action: QueueAction): Promise<RemoteResult<{ accepted: true }>>
   /**
-   * Cancel the running turn. Pending queued work remains and resumes in FIFO
-   * order after the Host reaches cancellation quiescence.
+   * Cancel the running turn and everything it owns: the in-flight model stream,
+   * this Session's background jobs, and its subagent descendants. Pending
+   * queued work remains and resumes in FIFO order after the Host reaches
+   * cancellation quiescence.
    * @returns acceptance, or the business error.
    */
   cancel(): Promise<RemoteResult<{ accepted: true }>>

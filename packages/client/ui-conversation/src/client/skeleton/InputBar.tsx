@@ -41,6 +41,9 @@ import { ContextMeter } from './ContextMeter.tsx'
 import { observeControlRow } from './control-row-layout.ts'
 import css from './InputBar.module.css'
 
+/** How long the first stop click stays armed. */
+const STOP_ARM_WINDOW_MS = 4000
+
 export type InputBarProps = ComposerBarProps
 
 export const InputBar = memo(function InputBar({
@@ -64,6 +67,37 @@ export const InputBar = memo(function InputBar({
   const cancelDenied = useAccess('session/cancel') === false
   const uploadDenied = useAccess('fileUploads/upload') === false
   const stopAction = cancelDenied ? undefined : stop
+  // Two-step stop: the first click arms the control for a few seconds and the
+  // second one cancels, so a misplaced click on a running turn cannot kill its
+  // work. The pending arm clears itself and never survives a remount.
+  const [stopArmed, setStopArmed] = useState(false)
+  const stopArmTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const disarmStop = useCallback(() => {
+    setStopArmed(false)
+    if (stopArmTimer.current !== undefined) {
+      clearTimeout(stopArmTimer.current)
+      stopArmTimer.current = undefined
+    }
+  }, [])
+  useEffect(() => () => {
+    if (stopArmTimer.current !== undefined) {
+      clearTimeout(stopArmTimer.current)
+      stopArmTimer.current = undefined
+    }
+  }, [])
+  const requestStop = useCallback(() => {
+    if (stopAction === undefined) return
+    if (stopArmed) {
+      disarmStop()
+      stopAction()
+      return
+    }
+    setStopArmed(true)
+    stopArmTimer.current = setTimeout(() => {
+      setStopArmed(false)
+      stopArmTimer.current = undefined
+    }, STOP_ARM_WINDOW_MS)
+  }, [disarmStop, stopAction, stopArmed])
   void useLexicon // hook seat stays bound by the inject compartment; text-ref decoration rides the shell's editor transforms
   const commandMenuOpen = useMenuLauncher(source => source === 'command')
   const [activity, setActivity] = useState(false)
@@ -376,7 +410,7 @@ export const InputBar = memo(function InputBar({
         : t('input.send')
   const onPrimary = (): void => {
     if (primaryStops) {
-      stopAction?.()
+      requestStop()
       return
     }
     if (keyboard === undefined) return // absent machine: the button is disabled
@@ -524,14 +558,15 @@ export const InputBar = memo(function InputBar({
               {renderSlot('conversation.input.activity', { locked, onActiveChange: setActivity })}
             </div>}
             {interruptible && !cancelDenied && (
-              <Tooltip label={t('input.stop')} shortcutKeys={stopKeys} side="top" delayMs={500} disabled={stopAction === undefined} portal>
+              <Tooltip label={stopArmed ? t('input.stopConfirm') : t('input.stop')} shortcutKeys={stopKeys} side="top" delayMs={500} disabled={stopAction === undefined} portal>
                 <button
                   type="button"
                   className={css.primary}
-                  aria-label={t('input.stop')}
+                  aria-label={stopArmed ? t('input.stopConfirm') : t('input.stop')}
+                  data-stop-armed={stopArmed ? '' : undefined}
                   disabled={stopAction === undefined}
                   onMouseDown={keepFocus}
-                  onClick={stopAction}
+                  onClick={requestStop}
                 >
                   <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
                     <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
@@ -540,13 +575,14 @@ export const InputBar = memo(function InputBar({
               </Tooltip>
             )}
             {(primaryStops ? cancelDenied : promptDenied) ? null : (
-              <Tooltip label={primaryStops ? t('input.stop') : primaryLabel} shortcutKeys={primaryStops ? stopKeys : undefined} side="top" delayMs={500} disabled={primaryDisabled} portal>
+              <Tooltip label={primaryStops ? (stopArmed ? t('input.stopConfirm') : t('input.stop')) : primaryLabel} shortcutKeys={primaryStops ? stopKeys : undefined} side="top" delayMs={500} disabled={primaryDisabled} portal>
                 <button
                   type="button"
                   className={css.primary}
-                  aria-label={primaryLabel}
+                  aria-label={primaryStops && stopArmed ? t('input.stopConfirm') : primaryLabel}
                   aria-busy={sending}
                   data-sending={sending ? '' : undefined}
+                  data-stop-armed={primaryStops && stopArmed ? '' : undefined}
                   disabled={primaryDisabled}
                   onMouseDown={keepFocus}
                   onClick={onPrimary}
