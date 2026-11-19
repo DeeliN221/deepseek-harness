@@ -1,12 +1,21 @@
 import {describe,it,expect} from 'vitest'
 import type {SessionListState, SessionSummary} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {SessionId} from '@deepseek-ai/dsh-session/types'
-import {sidebarList,sidebarSearch} from '../src/client/sidebar-visibility.ts'
+import {sidebarList,sidebarSearch,mergeSidebarPolicies} from '../src/client/sidebar-visibility.ts'
 import {deriveFlat} from '../src/client/tree.ts'
 const id=(s:string)=>s as SessionId
 const rows=['user','fork','internal','archived-user','archived-internal'].map(s=>({id:id(s),title:s,displayTitle:s,running:false,blank:false,updatedAt:1,retainedBy:{}} satisfies SessionSummary))
 const list:SessionListState={ids:rows.map(r=>r.id),byId:Object.fromEntries(rows.map(r=>[r.id,r])),phase:'ready',projectionsBySession:{}}
 describe('sidebar provenance boundary',()=>{
+  it('holds unclassified rows pending and keeps classified ordinary rows visible',()=>{
+    const initial={hiddenSessionIds:[],coveredSessionIds:[],ready:false}
+    expect(sidebarList(list,initial).phase).toBe('pending')
+    expect(sidebarList(list,initial).ids).toEqual([])
+    const ready={hiddenSessionIds:[id('internal')],coveredSessionIds:[id('user'),id('fork'),id('internal')]}
+    expect(sidebarList(list,ready).ids).toEqual(['user','fork'])
+    expect(mergeSidebarPolicies([ready,initial])).toEqual({hiddenSessionIds:['internal'],coveredSessionIds:[],ready:false})
+    expect(list.ids).toHaveLength(5)
+  })
   it('hides only exact mapped ids without mutating openable sessions or projections',()=>{
     const filtered=sidebarList(list,[id('internal'),id('archived-internal')])
     expect(filtered.ids).toEqual(['user','fork','archived-user'])

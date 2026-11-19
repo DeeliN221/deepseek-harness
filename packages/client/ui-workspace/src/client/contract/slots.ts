@@ -257,7 +257,7 @@ export type WorkspaceBrowserInjected = {
      * saw. Select the field the surface needs (`info => info.home`).
      */
     hostInfo: HostObservable<RemoteHostFacts>
-    sidebarHiddenSessions: HostObservable<readonly SessionId[]>
+    sidebarHiddenSessions: HostObservable<import('../sidebar-visibility.ts').SidebarPolicy>
     workspaceShortcuts: HostObservable<WorkspaceShortcutState>
     shortcuts: HostObservable<readonly ShortcutCatalogEntry[]>
   }

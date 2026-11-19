@@ -22,6 +22,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { DraftInitializationOptions } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { RowToast } from './contract/slots.ts'
+import { mergeSidebarPolicies, type SidebarPolicy } from './sidebar-visibility.ts'
 import { pinOrderAccounts, pinOrderSource } from './pin-order.ts'
 import type { WorkspaceViewStoreActions } from './stores.ts'
 
@@ -39,7 +40,7 @@ export interface StartSessionOptions extends DraftInitializationOptions {
 /** Workspace archive and directory operations consumed by Client UI domains. */
 export interface UiWorkspace {
   /** Register an observable, explicit sidebar exclusion set; does not restrict opening Sessions. */
-  registerSidebarHiddenSessions(source: import('@deepseek-ai/dsh-client-ui-slots').HostObservable<readonly SessionId[]>): () => void
+  registerSidebarHiddenSessions(source: import('@deepseek-ai/dsh-client-ui-slots').HostObservable<SidebarPolicy>): () => void
   /**
    * Select a Session and show its Conversation as one UI navigation action.
    * @param target - known Session identity or durable direct-parent subagent address to display.
@@ -167,13 +168,13 @@ export class DirectoryBrowseError extends Error {
 /** Implements Workspace archive and directory UI operations. */
 class UiWorkspaceService extends Service implements UiWorkspace {
   /** Merged navigation-only policy. Providers own provenance and durability. */
-  readonly sidebarHiddenSessions = createSnapshotStore<readonly SessionId[]>([])
-  private readonly sidebarSources = new Map<symbol, readonly SessionId[]>()
+  readonly sidebarHiddenSessions = createSnapshotStore<SidebarPolicy>([])
+  private readonly sidebarSources = new Map<symbol, SidebarPolicy>()
 
-  registerSidebarHiddenSessions(source: import('@deepseek-ai/dsh-client-ui-slots').HostObservable<readonly SessionId[]>): () => void {
+  registerSidebarHiddenSessions(source: import('@deepseek-ai/dsh-client-ui-slots').HostObservable<SidebarPolicy>): () => void {
     const key = Symbol('sidebar-source')
     const publish = (): void => {
-      this.sidebarHiddenSessions.set([...new Set([...this.sidebarSources.values()].flat())])
+      this.sidebarHiddenSessions.set(mergeSidebarPolicies([...this.sidebarSources.values()]))
     }
     const update = (): void => { this.sidebarSources.set(key, source.getSnapshot()); publish() }
     const stop = source.subscribe(update)
