@@ -70,7 +70,13 @@ describe('bootstrap failure rendering', () => {
     await entry.dispose()
   })
 
-  it.each([false, true])('mounts over a failed optional plugin with carrier presentation=%s', async (carrier) => {
+  it.each([
+    [false, 'en', '1 plugin did not start'],
+    [true, 'en', '1 plugin did not start'],
+    [false, 'zh-CN', '1 个插件未启动'],
+  ] as const)('mounts over a failed optional plugin with carrier=%s and language=%s', async (carrier, language, title) => {
+    const previousLanguage = document.documentElement.lang
+    document.documentElement.lang = language
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const container = document.createElement('div')
     document.body.append(container)
@@ -93,10 +99,11 @@ describe('bootstrap failure rendering', () => {
       expect(container.textContent).not.toContain('Failed to load plugins')
       const notice = document.querySelector('[data-dsh-boot-notice]')
       expect(notice).not.toBeNull()
-      expect(notice?.textContent).toContain('1 plugin did not start')
+      expect(notice?.textContent).toContain(title)
       expect(notice?.textContent).toContain('broken')
       expect(notice?.textContent).toContain('failed')
     } finally {
+      document.documentElement.lang = previousLanguage
       await entry.dispose()
     }
     expect(document.querySelector('[data-dsh-boot-notice]')).toBeNull()

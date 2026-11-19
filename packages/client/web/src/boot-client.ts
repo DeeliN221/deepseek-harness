@@ -24,9 +24,10 @@ export interface ClientBootFailure {
 /**
  * Entry ids without which the shell cannot present an application at all: the
  * Host connection, the layout that contributes `root`, and the renderer that
- * owns the React root. Every other row degrades to a boot notice.
+ * owns the React root. Every other row degrades to a boot notice. Frozen at
+ * runtime so consumers cannot change the startup policy.
  */
-export const REQUIRED_CLIENT_ENTRY_IDS: ReadonlySet<string> = new Set(['connection', 'ui-layout', 'ui-renderer'])
+export const REQUIRED_CLIENT_ENTRY_IDS: readonly string[] = Object.freeze(['connection', 'ui-layout', 'ui-renderer'])
 
 /** Inputs of {@link bootClient}. */
 export interface ClientBootOptions {
@@ -114,7 +115,7 @@ export function auditEntries(ctx: Context, modules: Pick<ClientModuleLoader, 'im
  * @returns only the failures whose entry id is in {@link REQUIRED_CLIENT_ENTRY_IDS}.
  */
 export function fatalFailures(failures: readonly ClientBootFailure[]): ClientBootFailure[] {
-  return failures.filter(failure => REQUIRED_CLIENT_ENTRY_IDS.has(failure.id))
+  return failures.filter(failure => REQUIRED_CLIENT_ENTRY_IDS.includes(failure.id))
 }
 
 /**

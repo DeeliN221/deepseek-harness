@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { renderBootNotice } from '../src/boot-notice.ts'
+
+const originalLanguage = document.documentElement.lang
+
+afterEach(() => {
+  document.body.replaceChildren()
+  document.documentElement.lang = originalLanguage
+})
 
 /** The single notice the shell renders after a degraded boot. */
 function notice(): Element | null {
@@ -8,32 +15,69 @@ function notice(): Element | null {
 }
 
 describe('renderBootNotice', () => {
-  it('names every entry that did not start with its reason', () => {
+  it.each([
+    ['en', '2 plugins did not start', 'The rest of the application keeps running. Settings → Plugins lists installed plugins.'],
+    ['zh-CN', '2 个插件未启动', '应用的其他部分仍可使用。可在设置 → 插件中查看已安装的插件'],
+    ['ZH-tw', '2 个插件未启动', '应用的其他部分仍可使用。可在设置 → 插件中查看已安装的插件'],
+    ['fr', '2 plugins did not start', 'The rest of the application keeps running. Settings → Plugins lists installed plugins.'],
+    ['', '2 plugins did not start', 'The rest of the application keeps running. Settings → Plugins lists installed plugins.'],
+  ])('localizes notice copy for %s while preserving diagnostics', (language, title, hint) => {
+    document.documentElement.lang = language
     const detach = renderBootNotice([
       { id: '@deepseek-ai/dsh-client-ui-skill', reason: 'pending (waiting for service: uiConversation)' },
-      { id: '@deepseek-ai/dsh-message-quotes', reason: 'import failed: bundle script failed to load' },
+      { id: '<broken-plugin>', reason: 'import failed: <script>alert("x")</script>' },
     ], document)
-
-    expect(notice()?.textContent).toContain('2 plugins did not start')
-    expect(notice()?.textContent).toContain('@deepseek-ai/dsh-client-ui-skill')
-    expect(notice()?.textContent).toContain('pending (waiting for service: uiConversation)')
-    expect(notice()?.textContent).toContain('@deepseek-ai/dsh-message-quotes')
-    expect(notice()?.textContent).toContain('import failed: bundle script failed to load')
-    expect(notice()?.getAttribute('role')).toBe('status')
-
-    detach()
+    try {
+      const root = notice()
+      expect(root?.getAttribute('role')).toBe('region')
+      const heading = document.getElementById(root?.getAttribute('aria-labelledby') ?? '')
+      expect(heading?.textContent).toBe(title)
+      const status = root?.querySelector('[role="status"]')
+      expect(status?.getAttribute('aria-live')).toBe('polite')
+      expect(status?.textContent).toContain(title)
+      expect(status?.textContent).toContain(hint)
+      expect(status?.textContent).toContain('@deepseek-ai/dsh-client-ui-skill')
+      expect(status?.textContent).toContain('pending (waiting for service: uiConversation)')
+      expect(status?.textContent).toContain('<broken-plugin>')
+      expect(status?.textContent).toContain('import failed: <script>alert("x")</script>')
+      expect(root?.querySelector('script')).toBeNull()
+      expect(status?.querySelector('button, a, input, [tabindex]')).toBeNull()
+      expect(root?.querySelector('button')?.parentElement).toBe(root)
+    } finally {
+      detach()
+    }
     expect(notice()).toBeNull()
   })
 
-  it('uses the singular title and closes from its own control', () => {
+  it.each([
+    ['en', '1 plugin did not start', 'Dismiss'],
+    ['zh', '1 个插件未启动', '关闭'],
+  ])('uses the singular title and closes from its visible %s control', (language, title, label) => {
+    document.documentElement.lang = language
     const detach = renderBootNotice([{ id: 'broken', reason: 'failed' }], document)
+    try {
+      expect(notice()?.textContent).toContain(title)
+      const dismiss = notice()?.querySelector('button')
+      expect(dismiss?.textContent).toBe(label)
+      expect(dismiss?.hasAttribute('aria-label')).toBe(false)
+      dismiss?.click()
+      expect(notice()).toBeNull()
+    } finally {
+      detach()
+    }
+  })
 
-    expect(notice()?.textContent).toContain('1 plugin did not start')
-    const dismiss = notice()?.querySelector('button')
-    expect(dismiss?.getAttribute('aria-label')).toBe('Dismiss the startup notice')
-    dismiss?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    expect(notice()).toBeNull()
-
-    detach()
+  it('keeps region labels distinct when notices coexist', () => {
+    const first = renderBootNotice([{ id: 'first', reason: 'failed' }], document)
+    const second = renderBootNotice([{ id: 'second', reason: 'pending' }], document)
+    try {
+      const roots = [...document.querySelectorAll('[data-dsh-boot-notice]')]
+      const labels = roots.map(root => root.getAttribute('aria-labelledby'))
+      expect(new Set(labels).size).toBe(2)
+      for (const root of roots) expect(root.contains(document.getElementById(root.getAttribute('aria-labelledby')!))).toBe(true)
+    } finally {
+      first()
+      second()
+    }
   })
 })

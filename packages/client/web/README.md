@@ -66,7 +66,7 @@ This section explains how the boot kernel is built; observable behavior is cover
 
 ### Design concept
 
-The kernel owns exactly three things: the module system, the Cordis Loader, and the boot page. The Host owns the graph, batch preload, and loader facade, so `AppWebEntry` never knows the bootstrap package id or parses the wire format. The dynamic UI renderer receives the mount point only after every client entry activates.
+The kernel owns exactly three things: the module system, the Cordis Loader, and the boot page. The Host owns the graph, batch preload, and loader facade, so `AppWebEntry` never knows the bootstrap package id or parses the wire format. The dynamic UI renderer receives the mount point after the activation audit accepts the client tree.
 
 ### Two-stage boot
 
@@ -76,7 +76,7 @@ The kernel owns exactly three things: the module system, the Cordis Loader, and 
 
 The boot page is plain DOM with local CSS whose fallback fonts and colors match the theme tokens that arrive during loading. `internal/status` events drive one spinner node and per-entry labels; hydration preserves the node and animation phase through the application commit, and `fail()` renders the thrown reason. React mounting, slot rendering, and assembly live in `ui-renderer`; `ui-layout` owns the assembled browser-title projection.
 
-The boot kernel delegates manifest entry creation to Client Modules so live graph synchronization owns the same entry identities after startup. Boot reports every non-active entry in the startup notice; later page-local failures appear in Settings → Plugins → Plugin list.
+The boot kernel delegates manifest entry creation to Client Modules so live graph synchronization owns the same entry identities after startup. Boot reports every non-active entry in the startup notice; later page-local failures appear in Settings → Plugins → Plugin list. The notice uses Chinese for a Chinese document language and English otherwise.
 
 ### Source map
 
@@ -84,7 +84,7 @@ The boot kernel delegates manifest entry creation to Client Modules so live grap
 |---|---|
 | [`src/index.ts`](src/index.ts) | Library entry: `AppWebEntry`, `getStaticModules`, platform tables |
 | [`src/boot.ts`](src/boot.ts) | `AppWebEntry`: module stage, boot page, immediate-tier prefetch, window drag-rect watcher install, then `bootClient` + `mountClient` |
-| [`src/boot-client.ts`](src/boot-client.ts) | `bootClient` / `assertEntriesActive`: Loader mount, one entry per manifest row, activation audit |
+| [`src/boot-client.ts`](src/boot-client.ts) | `bootClient` / `auditEntries`: Loader mount, one entry per manifest row, activation audit |
 | [`src/mount.ts`](src/mount.ts) | `mountClient`: renderer handoff through a `uiRenderer` dependency fiber |
 | [`src/boot-page.ts`](src/boot-page.ts) | Framework-free boot page: spinner, per-entry status, failure rendering |
 | [`src/boot-notice.ts`](src/boot-notice.ts) | Startup notice outside the React mount point: names every entry that did not activate |
