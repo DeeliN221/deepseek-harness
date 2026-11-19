@@ -31,6 +31,12 @@
   --dsh-boot-notice-bg: #15171a;
 }
 
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .title {
   font-size: 13px;
   line-height: 20px;

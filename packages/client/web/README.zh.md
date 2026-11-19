@@ -66,7 +66,7 @@ Web 和 Desktop 的数学公式渲染要求支持 WOFF2。[Web 构建](../../../
 
 ### 设计理念
 
-内核恰好拥有三样东西：模块系统、Cordis Loader 与启动页。Graph、批次 preload 与 loader facade 归 Host 所有，因此 `AppWebEntry` 永不感知 bootstrap 包 id，也不解析协议格式（wire format）。动态 UI 渲染器只在每个客户端 entry 激活后收到挂载点。
+内核恰好拥有三样东西：模块系统、Cordis Loader 与启动页。Graph、批次 preload 与 loader facade 归 Host 所有，因此 `AppWebEntry` 永不感知 bootstrap 包 id，也不解析协议格式（wire format）。动态 UI 渲染器在激活审计接受客户端树后收到挂载点。
 
 ### 两阶段启动
 
@@ -76,7 +76,7 @@ Web 和 Desktop 的数学公式渲染要求支持 WOFF2。[Web 构建](../../../
 
 启动页是原生 DOM 加本地 CSS，其回退字体与颜色匹配加载期间到达的主题 token。`internal/status` 事件驱动一个 spinner 节点与逐 entry 标签；hydrate 会保留该节点与动画相位直到应用提交，`fail()` 渲染抛出的原因。React 挂载、slot 渲染与应用组装位于 `ui-renderer`；`ui-layout` 拥有组装后的浏览器标题投影。
 
-启动内核把清单条目创建交给 Client Modules，使启动后的动态图同步继续持有相同的条目身份。启动审计把每个非 active entry 报进启动提示；后续页面本地失败显示在「设置 → 插件 → 插件列表」。
+启动内核把清单条目创建交给 Client Modules，使启动后的动态图同步继续持有相同的条目身份。启动审计把每个非 active entry 报进启动提示；后续页面本地失败显示在「设置 → 插件 → 插件列表」。文档语言为中文时，提示使用中文；否则使用英文。
 
 ### 源码地图
 
@@ -84,7 +84,7 @@ Web 和 Desktop 的数学公式渲染要求支持 WOFF2。[Web 构建](../../../
 |---|---|
 | [`src/index.ts`](src/index.ts) | 库入口：`AppWebEntry`、`getStaticModules`、平台表 |
 | [`src/boot.ts`](src/boot.ts) | `AppWebEntry`：模块阶段、启动页、immediately 层级预取、安装窗口拖拽矩形 watcher，随后调用 `bootClient` + `mountClient` |
-| [`src/boot-client.ts`](src/boot-client.ts) | `bootClient` / `assertEntriesActive`：挂载 Loader、每个 manifest 行一个 entry、激活审计 |
+| [`src/boot-client.ts`](src/boot-client.ts) | `bootClient` / `auditEntries`：挂载 Loader、每个 manifest 行一个 entry、激活审计 |
 | [`src/mount.ts`](src/mount.ts) | `mountClient`：经 `uiRenderer` 依赖 fiber 完成渲染器交接 |
 | [`src/boot-page.ts`](src/boot-page.ts) | 无框架启动页：spinner、逐 entry 状态、失败渲染 |
 | [`src/boot-notice.ts`](src/boot-notice.ts) | React 挂载点之外的启动提示：按名列出每个未激活的 entry |

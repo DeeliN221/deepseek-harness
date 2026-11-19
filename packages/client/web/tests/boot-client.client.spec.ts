@@ -165,6 +165,18 @@ describe('startup policy', () => {
     expect([...REQUIRED_CLIENT_ENTRY_IDS].toSorted()).toEqual(['connection', 'ui-layout', 'ui-renderer'])
   })
 
+  it('prevents external mutation of the required-entry policy', () => {
+    expect(Object.isFrozen(REQUIRED_CLIENT_ENTRY_IDS)).toBe(true)
+    expect(Reflect.set(REQUIRED_CLIENT_ENTRY_IDS, '0', 'ui-conversation')).toBe(false)
+    expect(Reflect.deleteProperty(REQUIRED_CLIENT_ENTRY_IDS, '1')).toBe(false)
+    expect(Reflect.set(REQUIRED_CLIENT_ENTRY_IDS, 'length', 0)).toBe(false)
+    expect(() => Array.prototype.push.call(REQUIRED_CLIENT_ENTRY_IDS, 'ui-conversation')).toThrow(TypeError)
+
+    const failures = ['connection', 'ui-layout', 'ui-renderer', 'ui-conversation'].map(id => ({ id, reason: 'failed' }))
+    expect(fatalFailures(failures)).toEqual(failures.slice(0, 3))
+    expect([...REQUIRED_CLIENT_ENTRY_IDS]).toEqual(['connection', 'ui-layout', 'ui-renderer'])
+  })
+
   it('renders a required-entry report naming each failure once', () => {
     expect(requiredFailureReport('web boot', [{ id: 'connection', reason: 'failed' }])).toBe(
       'web boot: startup failed: 1 required entry did not activate\nconnection: failed',

@@ -6,6 +6,7 @@
  */
 import type { ClientBootFailure } from './boot-client.ts'
 import css from './boot-notice.module.css'
+import { bootNoticeTranslator } from './locales/boot-notice.ts'
 
 /** Create one div in the notice's document with a class and, optionally, text. */
 function div(doc: Document, className: string | undefined, text?: string): HTMLDivElement {
@@ -23,29 +24,35 @@ function div(doc: Document, className: string | undefined, text?: string): HTMLD
  * @returns disposer detaching the notice.
  */
 export function renderBootNotice(failures: readonly ClientBootFailure[], doc: Document): () => void {
+  const t = bootNoticeTranslator(doc.documentElement.lang)
   const root = div(doc, css.notice)
   root.dataset.dshBootNotice = ''
-  root.setAttribute('role', 'status')
+  root.setAttribute('role', 'region')
 
-  const title = div(doc, css.title, failures.length === 1
-    ? '1 plugin did not start'
-    : `${String(failures.length)} plugins did not start`)
+  const content = div(doc, css.content)
+  content.setAttribute('role', 'status')
+  content.setAttribute('aria-live', 'polite')
+  const title = div(doc, css.title, t(failures.length === 1 ? 'notice.one' : 'notice.many', { count: failures.length }))
+  let titleIndex = 0
+  while (doc.getElementById(`dsh-boot-notice-title-${String(titleIndex)}`) !== null) titleIndex++
+  title.id = `dsh-boot-notice-title-${String(titleIndex)}`
+  root.setAttribute('aria-labelledby', title.id)
   const rows = div(doc, css.rows)
   for (const failure of failures) {
     const row = div(doc, css.row)
     row.append(div(doc, css.id, failure.id), div(doc, css.reason, failure.reason))
     rows.append(row)
   }
-  const hint = div(doc, css.hint, 'The rest of the application keeps running. Settings → Plugins lists installed plugins.')
+  const hint = div(doc, css.hint, t('notice.hint'))
 
   const dismiss = doc.createElement('button')
   dismiss.type = 'button'
   dismiss.className = css.dismiss ?? ''
-  dismiss.textContent = 'Dismiss'
-  dismiss.setAttribute('aria-label', 'Dismiss the startup notice')
+  dismiss.textContent = t('notice.dismiss')
   dismiss.addEventListener('click', () => { root.remove() })
 
-  root.append(title, rows, hint, dismiss)
+  content.append(title, rows, hint)
+  root.append(content, dismiss)
   doc.body.append(root)
   return () => { root.remove() }
 }
