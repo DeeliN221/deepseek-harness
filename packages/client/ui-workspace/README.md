@@ -11,6 +11,8 @@ Desktop product events use the optional [product analytics service](../product-a
 
 ## Summary
 
+Host-integrated plugins may call `uiWorkspace.registerSidebarHiddenSessions(observable)` to exclude explicitly identified execution Sessions from sidebar trees, flat lists and search results. The returned disposer removes that provider. Providers are unioned; exclusion does not archive a Session, modify the shared Session catalog, change its origin, or prevent direct navigation. Plugins own the provenance and freshness of their observable.
+
 This package lets users browse grouped or flat Session lists, choose a Workspace for a new Session, and manage Workspaces and Sessions through add, rename, reorder, search, fork, archive, and Workspace deletion; the Session row menu and its hover buttons are slot lists that client plugins extend. Pending interactions appear as warning dots, and subagent-origin Sessions remain hidden. An idle, unarchived Session row with active scheduled tasks shows a clock mark, and its hover card lists those tasks. Canonically distinct folder paths remain separate Workspaces. Adding a Workspace requires a composed directory picker; without one, adding is unavailable.
 
 ## Table of Contents

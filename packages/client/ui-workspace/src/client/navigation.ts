@@ -38,6 +38,8 @@ export interface StartSessionOptions extends DraftInitializationOptions {
 
 /** Workspace archive and directory operations consumed by Client UI domains. */
 export interface UiWorkspace {
+  /** Register an observable, explicit sidebar exclusion set; does not restrict opening Sessions. */
+  registerSidebarHiddenSessions(source: import('@deepseek-ai/dsh-client-ui-slots').HostObservable<readonly SessionId[]>): () => void
   /**
    * Select a Session and show its Conversation as one UI navigation action.
    * @param target - known Session identity or durable direct-parent subagent address to display.
@@ -164,6 +166,28 @@ export class DirectoryBrowseError extends Error {
 
 /** Implements Workspace archive and directory UI operations. */
 class UiWorkspaceService extends Service implements UiWorkspace {
+  /** Merged navigation-only policy. Providers own provenance and durability. */
+  readonly sidebarHiddenSessions = createSnapshotStore<readonly SessionId[]>([])
+  private readonly sidebarSources = new Map<symbol, readonly SessionId[]>()
+
+  registerSidebarHiddenSessions(source: import('@deepseek-ai/dsh-client-ui-slots').HostObservable<readonly SessionId[]>): () => void {
+    const key = Symbol('sidebar-source')
+    const publish = (): void => {
+      this.sidebarHiddenSessions.set([...new Set([...this.sidebarSources.values()].flat())])
+    }
+    const update = (): void => { this.sidebarSources.set(key, source.getSnapshot()); publish() }
+    const stop = source.subscribe(update)
+    update()
+    let disposed = false
+    return () => {
+      if (disposed) return
+      disposed = true
+      stop()
+      this.sidebarSources.delete(key)
+      publish()
+    }
+  }
+
   /** The latest in-flight connection per Workspace; a request joins it only when both name the same preset. */
   private readonly connecting = new Map<WorkspaceId, {
     readonly agentPreset: string | undefined
