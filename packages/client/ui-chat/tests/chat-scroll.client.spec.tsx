@@ -54,6 +54,7 @@ function mountScroll(deferCompletedTurns = true, initial: Partial<ChatScrollInpu
     loadThrough: vi.fn(async () => {}),
     chatScroll: { read: () => null, save: vi.fn() },
     ...initial,
+    renderOrder: initial.renderOrder ?? initial.order ?? [],
   }
   const callbacks: { motion?: FlowMotionRows; resize?: () => void } = {}
   class Observer implements ResizeObserver {
@@ -85,7 +86,8 @@ function mountScroll(deferCompletedTurns = true, initial: Partial<ChatScrollInpu
     resize: () => { act(() => { callbacks.resize?.() }) },
     grow: (next: number) => { height = next },
     update: (patch: Partial<ChatScrollInput>) => {
-      input = { ...input, ...patch }
+      const renderOrder = patch.renderOrder ?? (patch.order === undefined ? input.renderOrder : patch.order)
+      input = { ...input, ...patch, renderOrder }
       view.rerender(<ScrollHarness input={input} onMotion={onMotion} />)
     },
     startFold: () => {
@@ -116,7 +118,7 @@ function mountRows(heights: readonly number[]) {
   }
   vi.stubGlobal('ResizeObserver', Observer)
   const input: ChatScrollInput = {
-    ready: true, order: [], firstSeq: null, lastKey: null, lastIsUser: false,
+    ready: true, order: [], renderOrder: [], firstSeq: null, lastKey: null, lastIsUser: false,
     steeringId: null, submissionId: null, submissionSteers: false, running: false, deferCompletedTurns: false,
     transcriptView: 'standard', loadedTurns: [], hasMore: false, loadingOlder: false,
     loadOlder: vi.fn(), loadThrough: vi.fn(async () => {}), chatScroll: { read: () => null, save: vi.fn() },
@@ -287,7 +289,7 @@ function mountVisibleFold(test: typeof visibleFoldCases[number], reduced: boolea
   let motion: FlowMotionRows | undefined
   const onMotion = (value: FlowMotionRows): void => { motion = value }
   let input: ChatScrollInput = {
-    ready: false, order: [], firstSeq: null, lastKey: null, lastIsUser: false,
+    ready: false, order: [], renderOrder: [], firstSeq: null, lastKey: null, lastIsUser: false,
     steeringId: null, submissionId: null, submissionSteers: false, running: false, deferCompletedTurns: true,
     transcriptView: 'detailed', loadedTurns: [], hasMore: false, loadingOlder: false,
     loadOlder: vi.fn(), loadThrough: vi.fn(async () => {}), chatScroll: { read: () => null, save: vi.fn() },
@@ -346,7 +348,7 @@ function mountVisibleFold(test: typeof visibleFoldCases[number], reduced: boolea
       inputHeight += height
       input = newSubmission
         ? { ...input, submissionId: 'second-distinct-input' }
-        : { ...input, order: ['new-stream-content'], running: true }
+        : { ...input, order: ['new-stream-content'], renderOrder: ['new-stream-content'], running: true }
       view.rerender(<ScrollHarness input={input} onMotion={onMotion} />)
     },
     cancelReading() {
