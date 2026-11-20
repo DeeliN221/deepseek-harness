@@ -71,8 +71,10 @@ export interface SessionProjectionSnapshot {
 }
 
 interface ProjectionInflight {
-  readonly promise: Promise<void>
+  promise: Promise<void>
   readonly controller: AbortController
+  waiters: number
+  hasUncancellableWaiter: boolean
 }
 
 type ProjectionLoad = Omit<SessionProjectionSnapshot, 'values'>
@@ -140,10 +142,14 @@ export class SessionManager {
   resolveTarget(target: SessionTarget): SessionId {
     const id = typeof target === 'string' ? target : target.childSessionId
     const address = typeof target === 'string' ? this.subagentAddress(id) : target
+    const metadata = this.projectionStores.get(id)?.values().sessionListMetadata
+    const projectedSessionExists = this.projectionLoads.get(id)?.state === 'ready'
+      && typeof metadata?.blank === 'boolean'
     if (typeof target === 'string'
       && !this.sessions.has(id)
       && !this.summaries.some(summary => summary.sessionId === id)
-      && address === undefined) {
+      && address === undefined
+      && !projectedSessionExists) {
       throw new Error(`sessions.retain: unknown session ${id}`)
     }
     if (address !== undefined) this.addresses.set(id, address)
@@ -266,8 +272,11 @@ export class SessionManager {
           session.handleBlank(false)
           session.handleRunning(false)
         } else {
-          // Retained metadata may have notified before this Session existed.
-          session.handleBlank(true)
+          // Retained metadata may have notified before this Session existed. An
+          // exact projection read can also establish the initial blank state
+          // while the full Session catalog is still pending.
+          const metadata = this.projectionStores.get(sessionId)?.values().sessionListMetadata
+          session.handleBlank(metadata?.blank ?? true)
         }
       }
     }
@@ -348,15 +357,19 @@ export class SessionManager {
    * @param sessionId - Session to inspect without opening its conversation.
    * @returns completion of the current or newly started read.
    */
-  refreshProjections(sessionId: SessionId): Promise<void> {
+  refreshProjections(sessionId: SessionId, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted()
     const existing = this.projectionInflight.get(sessionId)
-    if (existing !== undefined) return existing.promise
+    if (existing !== undefined) return this.waitForProjection(sessionId, existing, signal)
     if (this.projectionLoads.get(sessionId)?.state === 'ready') return Promise.resolve()
     const controller = new AbortController()
     const store = this.projectionStore(sessionId)
     const initialValues = store.values()
     this.projectionLoads.set(sessionId, { state: 'loading', error: null })
     this.notifier.markDirty()
+    const inflight: ProjectionInflight = {
+      promise: Promise.resolve(), controller, waiters: 0, hasUncancellableWaiter: false,
+    }
     const operation = (async () => {
       try {
         const result = await this.remote.session.projections({ sessionId }, controller.signal)
@@ -390,14 +403,48 @@ export class SessionManager {
         if (!isRemoteFailure(error)) throw error
         this.projectionLoads.set(sessionId, { state: 'error', error })
       } finally {
-        if (!controller.signal.aborted) {
+        if (this.projectionInflight.get(sessionId) === inflight) {
           this.projectionInflight.delete(sessionId)
-          this.notifier.markDirty()
+          if (controller.signal.aborted && this.projectionLoads.get(sessionId)?.state === 'loading') {
+            this.projectionLoads.set(sessionId, { state: 'idle', error: null })
+          }
         }
+        if (!this.disposed) this.notifier.markDirty()
       }
     })()
-    this.projectionInflight.set(sessionId, { promise: operation, controller })
-    return operation
+    inflight.promise = operation
+    this.projectionInflight.set(sessionId, inflight)
+    return this.waitForProjection(sessionId, inflight, signal)
+  }
+
+  private waitForProjection(
+    sessionId: SessionId,
+    inflight: ProjectionInflight,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (signal === undefined) {
+      inflight.hasUncancellableWaiter = true
+      return inflight.promise
+    }
+    inflight.waiters += 1
+    let waiting = inflight.promise
+    let onAbort: (() => void) | undefined
+    if (signal !== undefined) {
+      const cancelled = new Promise<never>((_resolve, reject) => {
+        onAbort = () => reject(signal.reason)
+        signal.addEventListener('abort', onAbort, { once: true })
+        if (signal.aborted) onAbort()
+      })
+      waiting = Promise.race([inflight.promise, cancelled])
+    }
+    return waiting.finally(() => {
+      if (signal !== undefined && onAbort !== undefined) signal.removeEventListener('abort', onAbort)
+      inflight.waiters -= 1
+      if (signal.aborted && inflight.waiters === 0 && !inflight.hasUncancellableWaiter
+        && this.projectionInflight.get(sessionId) === inflight) {
+        inflight.controller.abort(signal.reason)
+      }
+    })
   }
 
   private agentAvailable(sessionId: SessionId): boolean | undefined {
