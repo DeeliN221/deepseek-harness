@@ -481,7 +481,7 @@ export interface SessionPageRequest {
   /** Hard maximum number of durable events in this page; bounded by MAX_HISTORY_PAGE_EVENTS. */
   readonly maxEvents?: number
   readonly maxMessages?: number
-  /** Stop at a Turn start after both minima, unless an event/message limit or history exhaustion wins. */
+  /** Stop at the first Turn start after both minima; if history ends first, use the message-minimum tail cut unless a hard page limit wins. */
   readonly turnWindow?: {
     /** Minimum append-origin user/assistant messages; must not exceed maxMessages. */
     readonly minMessages: number

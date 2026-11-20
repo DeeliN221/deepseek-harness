@@ -140,6 +140,11 @@ export class ChatNavigation {
       return false
     }
     if (this.landJump(false)) return true
+    const jump = this.jump
+    if (jump?.landing === 'revealing') {
+      // A committed local reveal that still lacks its DOM anchor must resume paging/fallback.
+      jump.landing = 'pending'
+    }
     if (!this.viewport.preserving) return false
     const landing = this.viewport.preserve()
     if (landing === null) return false

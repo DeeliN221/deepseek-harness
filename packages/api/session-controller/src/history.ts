@@ -148,12 +148,15 @@ export function paginate(
   let count = 0
   let turns = 0
   let cut = eventFloor
+  let cutReason: 'floor' | 'turn' | 'message-cap' = 'floor'
+  let rememberedTailCut: SessionLogOffset | null = null
   for (let index = end - 1; index >= eventFloor; index--) {
     const event = events[index] as SessionEvent
     if (turnWindow !== undefined && event.type === 'turn/start') {
       turns++
       if (count >= turnWindow.minMessages && turns >= turnWindow.minTurns) {
         cut = SessionLogOffset(Math.max(index, eventFloor))
+        cutReason = 'turn'
         break
       }
     }
@@ -166,11 +169,16 @@ export function paginate(
         if (source < groupStart) groupStart = source
       }
     }
+    if (turnWindow !== undefined && rememberedTailCut === null && count >= turnWindow.minMessages) {
+      rememberedTailCut = SessionLogOffset(Math.max(groupStart, eventFloor))
+    }
     if (count >= maxMessages) {
       cut = SessionLogOffset(Math.max(groupStart, eventFloor))
+      cutReason = 'message-cap'
       break
     }
   }
+  if (cutReason === 'floor' && rememberedTailCut !== null) cut = rememberedTailCut
   return { events: events.slice(cut, end), hasMore: cut > 0 }
 }
 

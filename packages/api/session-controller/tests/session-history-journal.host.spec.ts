@@ -848,6 +848,55 @@ describe('Session history raw journal', () => {
     expect(visited.every(index => index >= 7)).toBe(true)
   })
 
+  it('falls back to the requested tail when one Turn cannot satisfy the Turn minimum', async () => {
+    const { ctx } = await harness()
+    onTestFinished(() => ctx.fiber.dispose())
+    const remote = await createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    session.append('turn/start', { turn: 1 })
+    const messages = [appendUserText(session, 'long prompt')]
+    for (let step = 1; step <= 80; step++) messages.push(appendAssistantText(session, `reply ${step}`, step))
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    const options = { maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } }
+    const first = await remote.page({
+      address: { kind: 'session', sessionId: session.id },
+      throughSeq: session.seq - 1,
+      ...options,
+    })
+    if (!first.ok) throw new Error('expected a bounded history page')
+    const firstEvents = pageEvents(first.value)
+    const expectedStart = messages.at(-50)!.seq
+    expect(firstEvents[0]?.seq).toBe(expectedStart)
+    expect(firstEvents.filter(event => event.type === 'user/message' || event.type === 'assistant/message')).toHaveLength(50)
+    expect(first.value.hasMore).toBe(true)
+
+    const abort = new AbortController()
+    const stream = remote.follow({
+      address: { kind: 'session', sessionId: session.id },
+      ...options,
+    }, abort.signal)[Symbol.asyncIterator]()
+    try {
+      await expect(stream.next()).resolves.toMatchObject({
+        done: false,
+        value: { type: 'snapshot', records: first.value.records, hasMore: true },
+      })
+    } finally {
+      abort.abort()
+      await stream.return?.()
+    }
+
+    const previous = await remote.page({
+      address: { kind: 'session', sessionId: session.id },
+      beforeSeq: expectedStart,
+      ...options,
+    })
+    if (!previous.ok) throw new Error('expected the preceding history page')
+    const previousEvents = pageEvents(previous.value)
+    expect(previousEvents.at(-1)?.seq).toBe(expectedStart - 1)
+    expect(previousEvents.some(event => event.seq >= expectedStart)).toBe(false)
+    expect(previous.value.hasMore).toBe(false)
+  })
+
   it('hard caps one long Turn even when the message and Turn minima are never met', async () => {
     const { ctx } = await harness()
     onTestFinished(() => ctx.fiber.dispose())

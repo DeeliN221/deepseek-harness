@@ -180,6 +180,13 @@ const userInTurn = (seq: number, text: string, turn: number): ConversationNode =
 const assistant = (seq: number, text: string, turn = 1, step = 1): AssistantMessageNode => ({
   kind: 'assistant', seq, time: seq * 1_000, turn, step, blocks: [{ kind: 'text', text }],
 })
+function longTurn(label: string, turn: number, firstSeq: number, replies: number): ConversationNode[] {
+  const nodes: ConversationNode[] = [userInTurn(firstSeq, `${label} prompt`, turn)]
+  for (let step = 1; step <= replies; step++) {
+    nodes.push(assistant(firstSeq + step, `${label} response ${step}`, turn, step))
+  }
+  return nodes
+}
 const reasoningAssistant = (seq: number, text: string, turn = 1, step = 1): AssistantMessageNode => ({
   kind: 'assistant', seq, time: seq * 1_000, turn, step, blocks: [{ kind: 'reasoning', text }],
 })
@@ -1442,6 +1449,84 @@ describe('ChatView', () => {
     fireEvent.click(view.getByRole('button', { name: '加载更早' }))
     expect(h.loadOlder).toHaveBeenCalledTimes(1)
   }, 20_000)
+
+  it('reveals a loaded turn below the local render floor without paging Host history', async () => {
+    const nodes = [
+      ...longTurn('loaded', 1, 1, 258),
+      userInTurn(260, 'latest prompt', 2), assistant(261, 'latest response', 2),
+    ]
+    const h = makeHarness({ nodes, turnEnds: new Map([[1, 260], [2, 262]]) }, { hasMore: true })
+    const view = render(<h.ChatView {...h.props} />)
+    const first = await view.findByRole('button', { name: '跳转到第 1 轮' })
+    expect(view.queryByText('loaded prompt')).toBeNull()
+    expect(new Set([...view.container.querySelectorAll<HTMLElement>('[data-chat-node-key]:not([data-chat-flow-kind="turn-process"])')]
+      .map(row => row.dataset.chatNodeKey)).size).toBeLessThanOrEqual(240)
+
+    const scroller = view.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    installScrollMetrics(scroller, 2_000, 300)
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.chatAnchorKey === 'fixture:user:1') {
+        const top = 100 - scroller.scrollTop
+        return { top, bottom: top + 40 } as DOMRect
+      }
+      return { top: 0, bottom: 300 } as DOMRect
+    })
+
+    fireEvent.click(first)
+    await waitFor(() => { expect(view.getByText('loaded prompt')).toBeDefined() })
+    await waitFor(() => { expect(first.getAttribute('aria-current')).toBe('true') })
+    expect(first.getAttribute('aria-busy')).toBeNull()
+    expect(new Set([...view.container.querySelectorAll<HTMLElement>('[data-chat-node-key]:not([data-chat-flow-kind="turn-process"])')]
+      .map(row => row.dataset.chatNodeKey)).size).toBeLessThanOrEqual(240)
+    expect(h.loadThrough).not.toHaveBeenCalled()
+  })
+
+  it('pages to a long hidden turn, then reveals it when the loaded page exceeds the render window', async () => {
+    const page = [
+      ...longTurn('paged', 1, 1, 258),
+      userInTurn(260, 'latest prompt', 2), assistant(261, 'latest response', 2),
+    ]
+    const latest = [userInTurn(260, 'latest prompt', 2), assistant(261, 'latest response', 2)]
+    const h = makeHarness({ nodes: latest, turnEnds: new Map([[2, 262]]) }, { hasMore: true })
+    h.setOutline([
+      { turn: 1, seq: 1, prompt: 'paged prompt', response: 'paged response' },
+      { turn: 2, seq: 260, prompt: 'latest prompt', response: 'latest response' },
+    ])
+    let releasePage: (() => void) | undefined
+    h.loadThrough.mockImplementation(() => new Promise<void>((resolve) => { releasePage = resolve }))
+    const view = render(<h.ChatView {...h.props} />)
+    const firstUnloaded = await view.findByRole('button', { name: '加载并跳转到第 1 轮' })
+    expect(view.queryByText('paged prompt')).toBeNull()
+    fireEvent.click(firstUnloaded)
+    expect(h.loadThrough.mock.calls).toEqual([[1]])
+
+    const scroller = view.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    installScrollMetrics(scroller, 2_000, 300)
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.chatAnchorKey === 'fixture:user:1') {
+        const top = 100 - scroller.scrollTop
+        return { top, bottom: top + 40 } as DOMRect
+      }
+      return { top: 0, bottom: 300 } as DOMRect
+    })
+    act(() => { h.setChat({ nodes: page, turnEnds: new Map([[1, 260], [2, 262]]) }) })
+
+    const firstLoaded = await view.findByRole('button', { name: '跳转到第 1 轮' })
+    expect(view.getByText('paged prompt')).toBeDefined()
+    expect(new Set([...view.container.querySelectorAll<HTMLElement>('[data-chat-node-key]:not([data-chat-flow-kind="turn-process"])')]
+      .map(row => row.dataset.chatNodeKey)).size).toBeLessThanOrEqual(240)
+    expect(firstLoaded.getAttribute('aria-current')).toBe('true')
+    expect(firstLoaded.getAttribute('aria-busy')).toBe('true')
+    expect(h.loadThrough.mock.calls).toEqual([[1]])
+
+    await act(async () => { releasePage?.() })
+    await waitFor(() => {
+      expect(view.getByRole('button', { name: '跳转到第 1 轮' }).getAttribute('aria-busy')).toBeNull()
+    })
+    const landed = view.getByRole('button', { name: '跳转到第 1 轮' })
+    expect(landed.getAttribute('aria-current')).toBe('true')
+    expect(h.loadThrough.mock.calls).toEqual([[1]])
+  })
 
   it('keeps a bounded live tail current and resets it for a different Session', async () => {
     const makeTurns = (label: string, first: number, last: number) => {
