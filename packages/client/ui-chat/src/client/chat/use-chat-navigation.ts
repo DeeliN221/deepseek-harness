@@ -12,19 +12,23 @@ export interface ChatNavigationInput extends Pick<ChatViewSlotProps, 'loadOlder'
   readonly firstSeq: ChatNode['anchorSeq'] | null
   readonly hasMore: boolean
   readonly loadingOlder: boolean
+  readonly beforeLoadOlder?: () => void
+  readonly revealEarlier?: () => boolean
+  readonly revealTurn?: (turn: number) => boolean
 }
 
 interface TurnJump {
   readonly turn: number
   readonly seq: SessionSeq
   phase: 'loading' | 'settled'
-  landing: 'pending' | 'landed' | 'interrupted'
+  landing: 'pending' | 'revealing' | 'landed' | 'interrupted'
   repageHead: ChatNavigationInput['firstSeq']
 }
 
 /** Owns one replaceable turn jump and the anchor retained while history loads. */
 export class ChatNavigation {
   private jump: TurnJump | null = null
+  private localLandingTurn: number | null = null
   private settleFrame: number | null = null
 
   constructor(
@@ -59,6 +63,7 @@ export class ChatNavigation {
   private clearTask(): void {
     this.cancelFrame()
     this.jump = null
+    this.localLandingTurn = null
     this.viewport.stopPreserving()
   }
 
@@ -70,7 +75,14 @@ export class ChatNavigation {
     if (item.anchor.kind === 'loaded') {
       this.cancel()
       const landing = this.viewport.scrollToTurn(item.turn)
-      if (landing === null) return
+      if (landing === null) {
+        if (this.input.revealTurn?.(item.turn) === true) {
+          this.localLandingTurn = item.turn
+          this.onBusyTurn(item.turn)
+          this.reading.pauseFollowing()
+        }
+        return
+      }
       this.reading.acceptNavigation(landing)
       if (this.input.loadingOlder) this.viewport.beginPreserving(landing.position)
       return
@@ -95,6 +107,8 @@ export class ChatNavigation {
     this.cancel()
     this.viewport.beginPaging()
     this.reading.pauseFollowing()
+    if (this.input.revealEarlier?.() === true) return
+    this.input.beforeLoadOlder?.()
     this.input.loadOlder()
   }
 
@@ -112,8 +126,21 @@ export class ChatNavigation {
    * @returns whether the retained anchor handled the layout change.
    */
   contentCommitted(): boolean {
-    if (!this.viewport.preserving || this.reading.pending) return false
+    if (this.reading.pending) return false
+    if (this.localLandingTurn !== null) {
+      const landing = this.viewport.scrollToTurn(this.localLandingTurn)
+      this.localLandingTurn = null
+      this.onBusyTurn(null)
+      if (landing !== null) {
+        this.reading.acceptNavigation(landing)
+        return true
+      }
+      // The range committed but its anchor is still unavailable, so allow the
+      // caller's normal reconciliation/fallback path to take over.
+      return false
+    }
     if (this.landJump(false)) return true
+    if (!this.viewport.preserving) return false
     const landing = this.viewport.preserve()
     if (landing === null) return false
     this.reading.preservePosition(landing)
@@ -137,6 +164,7 @@ export class ChatNavigation {
     }
     if (this.input.loadingOlder) return
     if (this.landJump(true)) return
+    if (jump.landing === 'revealing') return
     const uncovered = this.input.firstSeq === null || this.input.firstSeq > jump.seq
     if (uncovered && this.input.hasMore && jump.repageHead !== this.input.firstSeq) {
       jump.repageHead = this.input.firstSeq
@@ -157,7 +185,13 @@ export class ChatNavigation {
       return false
     }
     const landing = this.viewport.scrollToTurn(jump.turn)
-    if (landing === null) return false
+    if (landing === null) {
+      if (this.input.revealTurn?.(jump.turn) === true) {
+        jump.landing = 'revealing'
+        this.onBusyTurn(jump.turn)
+      }
+      return false
+    }
     this.reading.acceptNavigation(landing)
     if (settle) this.cancel()
     else {

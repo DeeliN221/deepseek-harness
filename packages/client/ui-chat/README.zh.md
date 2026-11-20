@@ -10,9 +10,7 @@ kind: "package-reference"
 
 ## 概述
 
-使用本包可在浏览器中渲染已记录的 Session 对话，包括历史图片、本地化操作和滚动位置恢复。工作步骤展示模式控制思考预览与过程显隐，不隐藏 Assistant 回复；完全展开模式保持已完成轮次的过程行可见。本地 transcript（文本记录）与 steering（中途引导）提交会立即显示并保留在原区域，在权威会话记录到达时原子地消失，而排队中的提交始终不进入 Chat。本包不组装或修改模型请求。
-
-文件提及提供方同时接收当前查看的会话 ID 与收尾轮次的属主信息，因此继承历史中的链接可以指向 fork 自身。
+在浏览器中渲染已保存 Session 的 Chat transcript，包括历史图片、本地化操作和滚动位置恢复。不同过程详情模式下均保留 Assistant 回复；transcript 或 steering 提交会立即显示，直到对应 Session 记录到达。有限窗口限制可见 Node key，同时保留已加载历史以支持更早内容展示和轮次导航。本包不组装或修改模型请求。
 
 ## 目录
 
@@ -37,7 +35,7 @@ kind: "package-reference"
 
 已发送的普通文件附件保留草稿中的[文件卡片圆角](../../../docs/ui-radius.zh.md#radius-scale)。
 
-`ChatView` 通过节点列表外围既有的 `MarkdownDelegateProvider` 提供文件及 HTTP(S) 导航，直接传入 `requestOpenFile`、`openExternalLink` 和 `fileImages`。文件打开动作保留 Chat 的失败反馈与重试处理。Assistant Markdown 文件链接在消息落定后可于右侧栏打开，包括未修改文件的引用。相对路径基于当前查看的 Session 工作区解析；绝对路径仍使用同一 Session 的文件系统访问。[支持的 Markdown 行号引用](../ui-primitives/README.zh.md#rendering-agent-output)定位到指定起始行，并复用现有文件标签。文件缺失时显示预览错误状态。
+`ChatView` 通过节点列表外围既有的 `MarkdownDelegateProvider` 提供文件及 HTTP(S) 导航，直接传入 `requestOpenFile`、`openExternalLink` 和 `fileImages`。文件打开动作保留 Chat 的失败反馈与重试处理。Assistant Markdown 文件链接在消息落定后可于右侧栏打开，包括未修改文件的引用。相对路径基于当前查看的 Session 工作区解析；绝对路径仍使用同一 Session 的文件系统访问。[支持的 Markdown 行号引用](../ui-primitives/README.zh.md#rendering-agent-output)定位到指定起始行，并复用现有文件标签。文件缺失时显示预览错误状态。可选的文件提及提供方会同时收到当前查看的 Session ID 与收尾 Turn 的属主信息，因此继承历史中的链接可以指向 fork 自身。
 
 原生消息图片使用独立的用户与输出位置。`conversation.chat.user.content` Factory 声明 `conversation.chat.user.images`，由 `UserContent` 渲染；Assistant 节点注册声明 `conversation.chat.message.images`，由 `AssistantMarkdown` 渲染。两者通过显式 props 接收图片来源、授权 `loadImage` 和布局参数。官方 `MessageImages` 条目调用共享的 root 作用域 `conversation.images.content` Factory。每个位置均可独立替换，无需复制画廊实现。
 
@@ -64,6 +62,8 @@ Assistant 尝试结束且没有可见消息时，Chat 隐藏已发布的 Node，
 ## 指令与失败行
 
 通用指令行在所有生命周期状态中都保留普通指令图标；失败仍通过行状态与摘要表达。每个终止轮次都渲染自己的红点行；欠费失败的行使用中立的 `message.failure.quota` 文案，而不是提供方消息。新追加的 `QUOTA` 或 `ACCOUNT_QUOTA` 产生的瞬时提示来自本包注册在 `shell.overlay` 的全局条目，它不随 Chat 面板消失：该条目把唯一一条实时提示交给 `shell.quota-notice` 链，并在无人接管时回退到自己的警告 Toast，接管该错误码的条目会替换该回退。只有本 Client 已绑定并已物化的 Session 会发布提示；它从未打开的 Session 中的欠费不会发布。更新的提示会替换当前提示，除非认领条目用 `keepOpen()` 保持住当前提示：该调用返回一个由调用方持有、必须在卸载时调用的释放函数，只要存在保持，认领条目就继续挂载，后续提示被丢弃，释放后恢复后续提示但不重放已丢弃的提示。回退 Toast 自身没有延后策略：当 Desktop 账号的不透明原生 Platform 页盖住本页时，它仍会在下方运行，其显示计时器可能在不可见时走完并自行撤下提示，因此只留下持久化失败行。释放只移除自己的保持，因此它在关闭或更新的保持之后执行时不会影响更新的保持。关闭与退出登录会清空所有保持；被丢弃的提示不排队，其对应的持久化失败行仍会渲染。历史替换和分页不会发布提示。中间重试不会创建终止行；输出 token 上限使用琥珀色警告点。重启恢复以 `interrupted` 结束的轮次会渲染本地化的停止行，说明 DSH 进程在轮次中途退出，不显示代码标签，其过程摘要显示“已停止”。
+
+本地 stop 请求待处理时，Chat 将耗时冻结在请求时刻，停止显示运行状态装饰，并提示当前操作正在结束。只有 Host 事件才能确认完成；若 stop 请求被拒绝，Chat 会恢复实时耗时。
 
 Chat 在 `MarkdownDelegateProvider.getTriggerProps` 接入处适配 Markdown 目标。助手节点 Slot 直接获取 `useContextMenu`，向可选的文件引用服务传入路径适配函数；消息流和节点中间层不再携带菜单回调。手势发生时按原始 Session 的当前工作目录解析路径，菜单保留捕获的路径和行号，不受焦点变化影响。未声明的插件链接保留原生行为。
 
@@ -96,7 +96,7 @@ Chat 在 `MarkdownDelegateProvider.getTriggerProps` 接入处适配 Markdown 目
 <a id="turn-process-folding"></a>
 ## 轮次过程折叠
 
-正常在线时，本地 transcript 与 steering 回显在 Inbox 接受与领取期间保持挂载，直到持久消息到达，不会重复触发跟随底部。跨客户端的待处理 steering 遵循 Inbox 顺序，在匹配位置使用本地回显。已入档的本地 steering 还会排除匹配的旧 Inbox 行，直到领取投影到达；没有本地提交身份的 steering 仍按 Inbox 投影显示。重连后，Host 消息替代已有接收回执的本地回显；已领取但尚未入档时，气泡可能短暂消失。
+正常在线时，本地 transcript 与 steering 回显在 Inbox 接受与领取期间保持挂载，直到持久消息到达，不会重复触发跟随底部。跨客户端的待处理 steering 遵循 Inbox 顺序，在匹配位置使用本地回显。已入档的本地 steering 还会排除匹配的旧 Inbox 行，直到领取投影到达；没有本地提交身份的 steering 仍按 Inbox 投影显示。重连后，Host 消息替代已有接收回执的本地回显；已领取但尚未入档时，气泡可能短暂消失。排队中的提交在获准前不会进入 Chat。
 
 Chat 末尾为进行中的 Turn 控制行，且该轮尚无可见输入时，第一条本地 transcript 回显显示在控制行前。其他回显保留在正文末尾。控制行与回显共用一个 keyed 列表，因此控制行到达时不会重新挂载回显。持久输入在同一次渲染中替换匹配的回显。
 
@@ -141,6 +141,8 @@ Chat 节点 slot 为推理与工具注入绑定重置来源的 `useDisclosure` �
 Chat 等待初始历史就绪后，才允许自动内容、滚动或尺寸更新初始化阅读状态。进行中的 Session 先恢复初始显隐和位置，再允许折叠动画。
 
 Chat 会在历史前插与 renderer 重新挂载时恢复语义锚点，并且只在跟随底部时禁用自己滚动区域的浏览器自动锚定。没有读者移动的贴底滚动事件，以及到达底部（容许小于 1px 的取整误差）的读者输入，会立即更新跟随归属，避免后续布局变化使其底部位置失效。其他读者移动即使位于跟随阈值内，也保持待处理直到采样周期或 `scrollend`，防止布局增长抵消小幅滚动操作。采用完成时收起时，提交正文输入或 steering 会立即恢复跟随底部，并清除先前待处理的读者滚动采样。采用下次消息时收起时，没有折叠批次承载的正文输入用一次原生动画落到底部；steering 在两种时机下都立即落到底部，因为运行中的 Turn 仍在其回显上方持续输出。读者跟随底部时，`ResizeObserver` 追随新的底部，并且无需读取行几何就选中最后一个已加载轮次；读者离开底部后，高度变化会保持顶部位置，再由阅读线几何选择活跃轮次。轮次导航预览位于 Markdown 代码块粘性头栏上方，而导航外框始终处于 composer 上方的 transcript 区域内。
+
+渲染器每次最多投影 240 个已加载 Chat node key；Chat snapshot、位置索引、分组输入与轮次导航仍保留完整已加载顺序。首屏先渲染尾部；选择窗口之外的已加载轮次时按需显示本地切片，“更早历史”控件也先逐段展开本地已加载行，再请求 Host 页面。Host 前插后会把原可见头部重新放入投影窗口，滚动归属模块再恢复它的语义位置。分组只渲染当前投影包含的成员。该限制只计 Chat node 数量；单个 node 仍可能展开大量内容或后代，也不限制事件解码字节、折叠计算或实时 Session 保留状态。
 
 轮次轨道与回到底部按钮位于正文裁剪层外。它们相对共享会话滚动容器做 sticky 定位；Chat 自己持有滚动容器时，则相对 Chat 外框做 absolute 定位。正文扣除水平内边距后的可用宽度不超过 900px 时，隐藏轮次轨道；判断依据不是浏览器视口宽度。
 
@@ -209,7 +211,7 @@ Markdown 文件、链接、图片、引用 chip 和工具文件控件将明确�
 
 - **开场回显预测本地顺序**——运行状态更新前连续发出的多条消息可能都留在 Chat。初始排列遵循本地提交顺序，而非 Host 队列顺序；Host 按不同顺序接收请求时，入档可能调整它们的位置。
 
-- **transcript 只反映已加载的 Session 窗口**——只有会话控制器加载前一页事件后，更早的 transcript node 才会出现。轮次导航比窗口更宽：轨道把已加载的轮次与宿主 `turnOutline` 投影合并，每个已开始的轮次都有固定间距刻度（相隔 10px；阶梯高于外框时在框内滚动并以渐变淡出标示可滚方向），激活未加载刻度会先把历史分页拉到该轮次的 `turn/start` seq 再落到它的行上。没有该投影时（未挂载 `dsh-session-turn-outline` 的装配），轨道回退到仅显示已加载轮次。
+- **transcript 仅投影已加载 Session 窗口的一段**——Chat store 中已加载的更早节点会先在本地逐片显示，再由会话控制器读取下一页。轮次导航比渲染切片和已加载窗口都更宽：轨道把全部已加载轮次与宿主 `turnOutline` 投影合并，每个已开始的轮次都有固定间距刻度（相隔 10px；阶梯高于外框时在框内滚动并以渐变淡出标示可滚方向）。点击已加载但隐藏的轮次会展开本地切片；点击尚未加载的刻度会先把历史分页拉到该轮次的 `turn/start` seq 再落到它的行上。没有该投影时（未挂载 `dsh-session-turn-outline` 的装配），轨道回退到仅显示已加载轮次。渲染上限只计 Chat node 数，不限制单个节点扩展内容或后代、事件解码字节或实时保留状态。
 - **导航预览按卡片尺寸截断**——提示词一行（50 字符）、回复至多三行（120 字符），已加载与未加载 Turn 一致；未加载 Turn 的回复要等该轮落定后才随大纲到达，进行中的轮次在此之前只预览提示词（或仅轮次号）。
 
 

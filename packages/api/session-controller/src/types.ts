@@ -465,7 +465,11 @@ export interface SessionWireEvent {
   readonly surfaceOp?: JsonValue
 }
 
-/** One message-aligned backwards-history request. */
+/** Default and maximum durable event counts returned by one history page. */
+export const DEFAULT_MAX_HISTORY_EVENTS = 2_000
+export const MAX_HISTORY_PAGE_EVENTS = 5_000
+
+/** One event-bounded backwards-history request. */
 export interface SessionPageRequest {
   readonly address: SessionAddress
   /**
@@ -474,8 +478,10 @@ export interface SessionPageRequest {
    */
   readonly throughSeq?: number
   readonly beforeSeq?: number
+  /** Hard maximum number of durable events in this page; bounded by MAX_HISTORY_PAGE_EVENTS. */
+  readonly maxEvents?: number
   readonly maxMessages?: number
-  /** Stop at a Turn start after both minima, unless maxMessages or history exhaustion wins. */
+  /** Stop at a Turn start after both minima, unless an event/message limit or history exhaustion wins. */
   readonly turnWindow?: {
     /** Minimum append-origin user/assistant messages; must not exceed maxMessages. */
     readonly minMessages: number
@@ -485,7 +491,7 @@ export interface SessionPageRequest {
 }
 
 /** One live event request for a durable Session address. */
-export interface SessionFollowRequest extends Pick<SessionPageRequest, 'maxMessages' | 'turnWindow'> {
+export interface SessionFollowRequest extends Pick<SessionPageRequest, 'maxEvents' | 'maxMessages' | 'turnWindow'> {
   readonly address: SessionAddress
   /** Request background activation; omission leaves the read passive. */
   readonly activate?: boolean

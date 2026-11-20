@@ -13,6 +13,8 @@ export interface ChatScrollInput extends ChatNavigationInput {
   readonly chatScroll: ChatViewSlotProps['chatScroll']
   readonly ready: boolean
   readonly order: readonly string[]
+  /** Rendered Chat suffix/slice; `order` remains the complete paging/navigation authority. */
+  readonly renderOrder: readonly string[]
   readonly lastKey: string | null
   readonly lastIsUser: boolean
   readonly steeringId: string | null
@@ -46,14 +48,18 @@ interface ChatScrollState extends ChatReadingState {
  */
 export function useChatScroll(input: ChatScrollInput): ChatScrollState {
   const {
-    ready, order, firstSeq, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running,
-    deferCompletedTurns, loadedTurns, chatScroll, hasMore, loadingOlder, loadOlder, loadThrough, transcriptView,
+    ready, order, renderOrder, firstSeq, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running,
+    deferCompletedTurns, loadedTurns, chatScroll, hasMore, loadingOlder, loadOlder, loadThrough,
+    beforeLoadOlder, revealEarlier, revealTurn, transcriptView,
   } = input
   const { viewport, listRef, columnRef } = useChatViewport()
   const { reading, state } = useChatReading(viewport, chatScroll, loadedTurns.at(-1)?.turn ?? null)
   const navigationInput = useMemo(() => ({
     firstSeq, loadingOlder, hasMore, loadOlder, loadThrough,
-  }), [firstSeq, loadingOlder, hasMore, loadOlder, loadThrough])
+    ...(beforeLoadOlder === undefined ? {} : { beforeLoadOlder }),
+    ...(revealEarlier === undefined ? {} : { revealEarlier }),
+    ...(revealTurn === undefined ? {} : { revealTurn }),
+  }), [firstSeq, loadingOlder, hasMore, loadOlder, loadThrough, beforeLoadOlder, revealEarlier, revealTurn])
   const { navigation, busyTurn } = useChatNavigation(viewport, reading, navigationInput)
   const content = useRef<{ input: ChatScrollInput; applied: ChatScrollInput | null; opened: boolean }>({
     input, applied: null, opened: false,
@@ -141,7 +147,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
   useLayoutEffect(() => {
     const previous = content.current.input
     content.current.input = {
-      ready, order, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running, loadedTurns,
+      ready, order, renderOrder, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running, loadedTurns,
       chatScroll, deferCompletedTurns, transcriptView, ...navigationInput,
     }
     if (!deferCompletedTurns) {
@@ -149,13 +155,13 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
       reading.interruptFollow()
     }
     viewport.updateTurns(loadedTurns)
-    const layoutChanged = previous.order !== order || previous.ready !== ready
+    const layoutChanged = previous.order !== order || previous.renderOrder !== renderOrder || previous.ready !== ready
     if (layoutChanged) viewport.invalidate()
     viewport.reclaimBelow()
     processContent()
     if (layoutChanged && content.current.opened) reading.refreshActiveTurn()
   }, [
-    viewport, reading, processContent, navigationInput, ready, order, lastKey, lastIsUser,
+    viewport, reading, processContent, navigationInput, ready, order, renderOrder, lastKey, lastIsUser,
     steeringId, submissionId, submissionSteers, running, loadedTurns, chatScroll, deferCompletedTurns, transcriptView,
     cancelPendingFollow,
   ])

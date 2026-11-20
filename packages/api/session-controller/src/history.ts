@@ -14,6 +14,7 @@ import type {
 import type { SessionObservation } from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-subagent'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
+import { DEFAULT_MAX_HISTORY_EVENTS, MAX_HISTORY_PAGE_EVENTS } from './types.ts'
 import type {
   SessionAddress,
   SessionEventEntry,
@@ -27,10 +28,14 @@ export const DEFAULT_MAX_MESSAGES = 50
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
 
 /**
- * Reject an invalid message budget or turn window.
+ * Reject an invalid event/message budget or turn window.
  * @param request - history window fields.
  */
-export function validateHistoryWindow(request: Pick<SessionPageRequest, 'maxMessages' | 'turnWindow'>): void {
+export function validateHistoryWindow(request: Pick<SessionPageRequest, 'maxEvents' | 'maxMessages' | 'turnWindow'>): void {
+  if (request.maxEvents !== undefined
+    && (!Number.isSafeInteger(request.maxEvents) || request.maxEvents <= 0 || request.maxEvents > MAX_HISTORY_PAGE_EVENTS)) {
+    throw new RemoteError('gateway/bad-request', `maxEvents must be a positive safe integer no greater than ${MAX_HISTORY_PAGE_EVENTS}`, {})
+  }
   if (request.maxMessages !== undefined
     && (!Number.isSafeInteger(request.maxMessages) || request.maxMessages <= 0)) {
     throw new RemoteError('gateway/bad-request', 'maxMessages must be a positive safe integer', {})
@@ -127,7 +132,8 @@ export function rejectNotFound(address: SessionAddress): never {
  * @param maxMessages - message budget.
  * @param throughSeq - inclusive log cut.
  * @param turnWindow - optional turn-boundary stop rule.
- * @returns the page events and whether older events remain.
+ * @param maxEvents - hard maximum event count, defaulting to the shared history-page limit.
+ * @returns the bounded page events and whether older events remain.
  */
 export function paginate(
   events: readonly SessionEvent[],
@@ -135,17 +141,19 @@ export function paginate(
   maxMessages: number,
   throughSeq: SessionSeqCursor,
   turnWindow?: SessionPageRequest['turnWindow'],
+  maxEvents: number = DEFAULT_MAX_HISTORY_EVENTS,
 ): { readonly events: SessionEvent[]; readonly hasMore: boolean } {
   const end = SessionLogOffset(Math.min(throughSeq + 1, beforeSeq ?? throughSeq + 1))
+  const eventFloor = SessionLogOffset(Math.max(0, end - maxEvents))
   let count = 0
   let turns = 0
-  let cut = SessionLogOffset(0)
-  for (let index = end - 1; index >= 0; index--) {
+  let cut = eventFloor
+  for (let index = end - 1; index >= eventFloor; index--) {
     const event = events[index] as SessionEvent
     if (turnWindow !== undefined && event.type === 'turn/start') {
       turns++
       if (count >= turnWindow.minMessages && turns >= turnWindow.minTurns) {
-        cut = SessionLogOffset(index)
+        cut = SessionLogOffset(Math.max(index, eventFloor))
         break
       }
     }
@@ -159,7 +167,7 @@ export function paginate(
       }
     }
     if (count >= maxMessages) {
-      cut = SessionLogOffset(groupStart)
+      cut = SessionLogOffset(Math.max(groupStart, eventFloor))
       break
     }
   }

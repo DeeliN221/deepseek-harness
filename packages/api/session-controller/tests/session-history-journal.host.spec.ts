@@ -8,6 +8,8 @@ import SessionStore from '@deepseek-ai/dsh-session'
 import { LlmAttemptId, ToolCallId, createMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import { SessionSeq } from '@deepseek-ai/dsh-session/types'
+import { paginate } from '../src/history.ts'
 import { HistoryController } from '../src/history/controller.ts'
 import { WebController } from '../src/web/controller.ts'
 import type { SessionFollowFrame, SessionPage, SessionWireEvent } from '@deepseek-ai/dsh-api-session-controller/types'
@@ -823,6 +825,80 @@ describe('Session history raw journal', () => {
         await stream.return?.()
       }
     }
+  })
+
+  it('does not inspect events older than the event ceiling floor', () => {
+    const visited: number[] = []
+    const source = Array.from({ length: 10 }, (_, index) => ({
+      type: 'request/context',
+      seq: SessionSeq(index),
+      time: index,
+      data: { provider: 'p', model: 'm' },
+    }) as unknown as SessionEvent)
+    const events = new Proxy(source, {
+      get(target, property, receiver) {
+        if (typeof property === 'string' && /^\d+$/.test(property)) visited.push(Number(property))
+        return Reflect.get(target, property, receiver)
+      },
+    })
+
+    const page = paginate(events, undefined, 1, SessionSeq(9), undefined, 3)
+    expect(page.events.map(event => event.seq)).toEqual([7, 8, 9])
+    expect(page.hasMore).toBe(true)
+    expect(visited.every(index => index >= 7)).toBe(true)
+  })
+
+  it('hard caps one long Turn even when the message and Turn minima are never met', async () => {
+    const { ctx } = await harness()
+    onTestFinished(() => ctx.fiber.dispose())
+    const remote = await createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    session.append('turn/start', { turn: 1 })
+    for (let index = 0; index < 2_300; index++) {
+      session.append('request/context', { provider: 'p', model: 'm' })
+    }
+    appendUserText(session, 'tail prompt')
+
+    const response = await remote.page({
+      address: { kind: 'session', sessionId: session.id },
+      maxEvents: 128,
+      maxMessages: 500,
+      turnWindow: { minMessages: 50, minTurns: 2 },
+    })
+    if (!response.ok) throw new Error('expected a bounded history page')
+    const page = pageEvents(response.value)
+    expect(page).toHaveLength(128)
+    expect(page[0]?.seq).toBe(session.seq - 128)
+    expect(page.at(-1)?.type).toBe('user/message')
+    expect(response.value.hasMore).toBe(true)
+  })
+
+  it('lets the event ceiling win when source alignment would exceed the page', async () => {
+    const { ctx } = await harness()
+    onTestFinished(() => ctx.fiber.dispose())
+    const remote = await createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const source = session.append('request/context', { provider: 'p', model: 'm' })
+    const laterSource = session.append('request/context', { provider: 'p', model: 'm' })
+    const message = session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'with source' }], source: { kind: 'user' },
+    }), { sourceEventSeqs: [source.seq, laterSource.seq], surfaceOp: 'append' })
+
+    const response = await remote.page({
+      address: { kind: 'session', sessionId: session.id },
+      throughSeq: message.seq,
+      maxEvents: 2,
+      maxMessages: 1,
+    })
+    if (!response.ok) throw new Error('expected a bounded source page')
+    expect(pageEvents(response.value).map(event => event.seq)).toEqual([laterSource.seq, message.seq])
+    expect(response.value.hasMore).toBe(true)
+
+    const invalid = await remote.page({
+      address: { kind: 'session', sessionId: session.id },
+      maxEvents: 5_001,
+    })
+    expect(invalid).toMatchObject({ ok: false, error: { code: 'gateway/bad-request' } })
   })
 
   it('counts only append-origin messages toward maxMessages and keeps each compaction summary with its replacement', async () => {

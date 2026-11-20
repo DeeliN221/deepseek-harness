@@ -24,7 +24,7 @@ function isTranscriptEcho(item: PendingInput): boolean {
 
 /** Render the flow without adding a DOM parent or changing keyed row positions. */
 export const ChatFlow = memo(function ChatFlow({
-  entries, pendingInputs, lastInputTurn, deferCollapse,
+  entries, visibleNodeKeys, pendingInputs, lastInputTurn, deferCollapse,
   useSession, useChat, useChatNode, useChatNodeBottom, useChatNodeProcess, useChatGroup, usePresentation, useConnectionState,
   useStore, actions, renderSlot, renderFactorySlot, t, useGroupAction, useGroupHeaderAction,
   cwd, openFile, inspectCall, forkAt, loadImage,
@@ -50,13 +50,32 @@ export const ChatFlow = memo(function ChatFlow({
     useStore, actions, renderSlot, t, useGroupAction, deferCollapse,
     cwd, openFile, inspectCall, forkAt, loadImage,
   }
-  const rows = entries.map((entry) => {
+  let visibleEntries = entries
+  if (visibleNodeKeys !== undefined) {
+    const visibleTurns = new Set<number>()
+    for (const key of visibleNodeKeys) {
+      const location = nodeStore.get(key)?.location
+      if (location?.kind === 'turn' || location?.kind === 'step') visibleTurns.add(location.turn.turn)
+    }
+    visibleEntries = entries.filter((entry) => {
+      if (entry.kind === 'group' || visibleNodeKeys.has(entry.key)) return true
+      const node = nodeStore.get(entry.key)
+      const location = node?.location
+      // Turn process controls sit outside the ordered Chat node list, but remain structural rows
+      // for any Turn represented in the bounded projection.
+      return node?.kind === 'turn-process'
+        && location?.kind === 'turn'
+        && visibleTurns.has(location.turn.turn)
+    })
+  }
+  const rows = visibleEntries.map((entry) => {
     switch (entry.kind) {
       case 'node':
         return <ChatNodeSeat {...seatProps} key={chatRenderKey(entry)} nodeKey={entry.key}
           {...entry.groupPart === undefined ? {} : { groupPart: entry.groupPart }} />
       case 'group':
         return <ChatGroupSeat {...seatProps} key={chatRenderKey(entry)} groupKey={entry.key}
+          {...visibleNodeKeys === undefined ? {} : { visibleNodeKeys }}
           useChatGroup={useChatGroup} useGroupHeaderAction={useGroupHeaderAction} />
       default:
         return assertNever(entry)
@@ -81,7 +100,7 @@ export const ChatFlow = memo(function ChatFlow({
     else if (isTranscriptEcho(item)) openingRows.push(row)
     else pendingRows.push(row)
   }
-  const tail = entries.at(-1)
+  const tail = visibleEntries.at(-1)
   const node = tail?.kind === 'node' ? nodeStore.get(tail.key) : undefined
   // An empty opening control follows the echoes that lead its Turn.
   // All rows share this keyed list so inserting the control keeps the echoes mounted.

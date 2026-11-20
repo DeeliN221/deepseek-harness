@@ -240,6 +240,7 @@ export class SessionEventStream extends RemoteJournalStream<
     request: ClientSessionPageRequest,
   ): ClientSessionPageRequest {
     return {
+      ...(request.maxEvents === undefined ? {} : { maxEvents: request.maxEvents }),
       ...(request.maxMessages === undefined ? {} : { maxMessages: request.maxMessages }),
       ...(request.turnWindow === undefined ? {} : { turnWindow: request.turnWindow }),
     }

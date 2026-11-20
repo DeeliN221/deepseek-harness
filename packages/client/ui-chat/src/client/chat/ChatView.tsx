@@ -1,7 +1,7 @@
 // An enclosing `[data-conversation-scroll]` owns scrolling when present;
 // otherwise this view owns it. Each row subscribes to one stable node key.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type {
   NodeKey, RenderEntry,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -17,6 +17,10 @@ import { TurnNavigator } from './TurnNavigator.tsx'
 import { mergeTurnRailItems } from './turn-rail-items.ts'
 import { useTextInteraction } from './text-interaction.ts'
 import { useChatScroll } from './use-chat-scroll.ts'
+import {
+  CHAT_RENDER_WINDOW_NODES, anchoredRenderWindow, earlierRenderWindow, renderWindowAnchor, resolveRenderWindow,
+} from './render-window.ts'
+import type { ChatRenderWindowAnchor } from './render-window.ts'
 import { fileMediaUrl, resolveWorkspacePath, sessionFileAddress } from '@deepseek-ai/dsh-util-workspace-path'
 import css from './ChatView.module.css'
 
@@ -81,6 +85,18 @@ export function ChatView({
   const entries = useMemo<readonly RenderEntry[]>(() => groupedEntries
     ?? order.map(key => ({ kind: 'node', key: key as NodeKey })), [groupedEntries, order])
   const nodeStore = useChat(s => s.nodes)
+  const [renderWindow, setRenderWindow] = useState<ChatRenderWindowAnchor | null>(null)
+  const renderBounds = useMemo(
+    () => resolveRenderWindow(order, sessionId, renderWindow), [order, renderWindow, sessionId],
+  )
+  const renderOrder = useMemo(
+    () => renderBounds.start === 0 && renderBounds.end === order.length
+      ? order
+      : order.slice(renderBounds.start, renderBounds.end),
+    [order, renderBounds.end, renderBounds.start],
+  )
+  const visibleNodeKeys = useMemo(() => new Set(renderOrder), [renderOrder])
+  const pendingRemoteAnchor = useRef<{ readonly sessionId: string; readonly key: string } | null>(null)
   const deferCompletedTurns = usePresentation(policy => policy.collapseTiming === 'next-input')
   const transcriptView = usePresentation(policy => policy.mode)
   // The rail's items are accumulated in the Chat snapshot, so this selector is
@@ -195,13 +211,45 @@ export function ChatView({
 
   const firstKey = order[0]
   const firstSeq = firstKey === undefined ? null : nodeStore.get(firstKey)?.anchorSeq ?? null
+  const renderControlState = useRef({ order, renderBounds, renderOrder, sessionId, turnNavigationItems })
+  renderControlState.current = { order, renderBounds, renderOrder, sessionId, turnNavigationItems }
+  const revealEarlier = useCallback((): boolean => {
+    const { order: currentOrder, renderBounds: currentBounds, sessionId: currentSession } = renderControlState.current
+    const next = earlierRenderWindow(currentOrder.length, currentBounds)
+    if (next === null) return false
+    const anchor = renderWindowAnchor(currentOrder, currentSession, next)
+    if (anchor === null) return false
+    setRenderWindow(anchor)
+    return true
+  }, [])
+  const revealTurn = useCallback((turn: number): boolean => {
+    const { order: currentOrder, renderBounds: currentBounds, sessionId: currentSession,
+      turnNavigationItems: currentTurns } = renderControlState.current
+    const anchorKey = currentTurns.find(item => item.turn === turn)?.anchorKey
+    if (anchorKey === undefined) return false
+    const index = currentOrder.indexOf(anchorKey)
+    if (index < 0 || (index >= currentBounds.start && index < currentBounds.end)) return false
+    const next = anchoredRenderWindow(currentOrder.length, index, CHAT_RENDER_WINDOW_NODES,
+      Math.floor(CHAT_RENDER_WINDOW_NODES / 3))
+    const anchor = renderWindowAnchor(currentOrder, currentSession, next)
+    if (anchor === null) return false
+    setRenderWindow(anchor)
+    return true
+  }, [])
+  const beforeLoadOlder = useCallback(() => {
+    const { renderOrder: currentRenderOrder, sessionId: currentSession } = renderControlState.current
+    const key = currentRenderOrder[0]
+    if (key !== undefined) pendingRemoteAnchor.current = { sessionId: currentSession, key }
+  }, [])
+  const hasMoreForUi = hasMore || renderBounds.start > 0
   const lastKey = order.at(-1) ?? null
   const latestSteering = pendingInputs.findLast(item => 'source' in item)
   const steeringId = latestSteering?.source.kind === 'user' && 'rpcId' in latestSteering.source
     ? latestSteering.source.rpcId : latestSteering?.id ?? null
   const scroll = useChatScroll({
     ready: openState === 'open',
-    order, firstSeq, lastKey, running, loadingOlder, hasMore, chatScroll, loadOlder, loadThrough, deferCompletedTurns,
+    order, renderOrder, firstSeq, lastKey, running, loadingOlder, hasMore, loadOlder, loadThrough,
+    revealEarlier, revealTurn, beforeLoadOlder, chatScroll, deferCompletedTurns,
     lastIsUser: lastKey !== null && nodeStore.get(lastKey)?.kind === 'user',
     steeringId,
     submissionId: visibleSubmissions.at(-1)?.requestId ?? null,
@@ -209,6 +257,45 @@ export function ChatView({
     loadedTurns: turnNavigationItems,
     transcriptView,
   })
+  const previousHistory = useRef({ sessionId, firstSeq, loadingOlder })
+  useLayoutEffect(() => {
+    const previous = previousHistory.current
+    let rangeUpdated = false
+    if (previous.sessionId !== sessionId) {
+      pendingRemoteAnchor.current = null
+      setRenderWindow(null)
+      rangeUpdated = true
+    } else {
+      const pending = pendingRemoteAnchor.current
+      if (pending !== null && pending.sessionId !== sessionId) {
+        pendingRemoteAnchor.current = null
+      } else if (pending !== null && firstSeq !== previous.firstSeq) {
+        const index = order.indexOf(pending.key)
+        if (index >= 0) {
+          const next = anchoredRenderWindow(order.length, index, CHAT_RENDER_WINDOW_NODES,
+            Math.floor(CHAT_RENDER_WINDOW_NODES * 0.75))
+          if (next.start > 0 || next.end < order.length) {
+            setRenderWindow(renderWindowAnchor(order, sessionId, next))
+            rangeUpdated = true
+          }
+        }
+        pendingRemoteAnchor.current = null
+      } else if (pending !== null && previous.loadingOlder && !loadingOlder) {
+        pendingRemoteAnchor.current = null
+      }
+    }
+    previousHistory.current = { sessionId, firstSeq, loadingOlder }
+
+    if (rangeUpdated || openState !== 'open') return
+    if (scroll.followingTail) {
+      if (renderWindow !== null && renderWindow.sessionId === sessionId) setRenderWindow(null)
+    } else if ((renderWindow === null || renderWindow.sessionId !== sessionId) && renderOrder.length > 0) {
+      setRenderWindow(renderWindowAnchor(order, sessionId, renderBounds))
+    }
+  }, [
+    firstSeq, loadingOlder, openState, order, renderBounds, renderOrder.length, renderWindow,
+    scroll.followingTail, sessionId,
+  ])
   const interactionSurfaceRef = useRef<HTMLDivElement>(null)
   const interactionIds = useInteractionIds(ids => ids)
   const textInteraction = useTextInteraction(scroll.columnRef, interactionSurfaceRef, dispatchInteraction, interactionIds)
@@ -236,7 +323,7 @@ export function ChatView({
                 {t('chat.loadError', { message: openError.message, code: openError.code })}
               </div>
             )}
-            {hasMore && (
+            {hasMoreForUi && (
               <div className={css.older}>
                 <button type="button" disabled={loadingOlder} onClick={scroll.loadEarlier}>
                   {loadingOlder ? t('loading') : t('chat.loadOlder')}
@@ -250,7 +337,7 @@ export function ChatView({
               fileImages={fileImages}
             >
               {renderSlot('conversation.chat.flow', {
-                entries, pendingInputs, lastInputTurn, deferCollapse,
+                entries, visibleOrder: renderOrder, visibleNodeKeys, pendingInputs, lastInputTurn, deferCollapse,
                 cwd, openFile: requestOpenFile, inspectCall, forkAt, loadImage,
               }, { hookContext: flowContext })}
             </MarkdownDelegateProvider>

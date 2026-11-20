@@ -369,6 +369,10 @@ export type ChatFlowDataInjected = Pick<ChatViewInjected, 'keyedHooks'> & {
 /** Ordered rows and reconciled local echoes rendered inside one Chat viewport. */
 export interface ChatFlowOwnerProps extends Pick<ChatNodeOwnerProps,
   'cwd' | 'openFile' | 'inspectCall' | 'forkAt' | 'loadImage'> {
+  /** Current bounded transcript projection; the Chat store retains the complete loaded order. */
+  readonly visibleOrder?: readonly string[]
+  /** Node keys admitted to the current transcript projection, including grouped members. */
+  readonly visibleNodeKeys?: ReadonlySet<string>
   readonly entries: readonly RenderEntry[]
   readonly pendingInputs: readonly (PendingSubmission | InboxState['next-step'][number])[]
   readonly lastInputTurn: number | undefined

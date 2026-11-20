@@ -1405,6 +1405,84 @@ describe('ChatView', () => {
     expect(preview.textContent).toContain('first response')
   })
 
+  it('renders a bounded tail and reveals locally loaded history before requesting another page', async () => {
+    const nodes: ConversationNode[] = []
+    const turnEnds = new Map<number, number>()
+    for (let turn = 1; turn <= 130; turn++) {
+      const userSeq = (turn - 1) * 2 + 1
+      nodes.push(userInTurn(userSeq, `prompt ${turn}`, turn), assistant(userSeq + 1, `response ${turn}`, turn))
+      turnEnds.set(turn, userSeq + 2)
+    }
+    const snapshot = chatSnapshotFixture({ nodes, turnEnds })
+    const h = makeHarness({}, { hasMore: true }, snapshot)
+    const view = render(<h.ChatView {...h.props} />)
+    await view.findByRole('navigation', { name: '轮次导航' })
+    const scroller = view.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    Object.defineProperty(scroller, 'scrollHeight', { value: 2_000, writable: true })
+    Object.defineProperty(scroller, 'clientHeight', { value: 200, writable: true })
+    readerScroll(scroller, 100)
+
+    expect(view.container.querySelectorAll('[data-chat-flow-key]').length).toBe(240)
+    expect(view.queryByText('prompt 1')).toBeNull()
+    expect(view.getByText('prompt 130')).toBeDefined()
+    let visibleKeys = new Set([...view.container.querySelectorAll<HTMLElement>('[data-chat-flow-key]')]
+      .map(row => row.dataset.chatFlowKey))
+
+    for (let slice = 0; slice < 4 && view.queryByText('prompt 1') === null; slice++) {
+      fireEvent.click(view.getByRole('button', { name: '加载更早' }))
+      expect(h.loadOlder).not.toHaveBeenCalled()
+      const nextKeys = [...view.container.querySelectorAll<HTMLElement>('[data-chat-flow-key]')]
+        .map(row => row.dataset.chatFlowKey)
+      expect(nextKeys.some(key => key !== undefined && !visibleKeys.has(key))).toBe(true)
+      expect(nextKeys.length).toBe(240)
+      visibleKeys = new Set(nextKeys)
+    }
+    expect(view.getByText('prompt 1')).toBeDefined()
+
+    fireEvent.click(view.getByRole('button', { name: '加载更早' }))
+    expect(h.loadOlder).toHaveBeenCalledTimes(1)
+  }, 20_000)
+
+  it('keeps a bounded live tail current and resets it for a different Session', async () => {
+    const makeTurns = (label: string, first: number, last: number) => {
+      const nodes: ConversationNode[] = []
+      const turnEnds = new Map<number, number>()
+      for (let turn = first; turn <= last; turn++) {
+        const userSeq = (turn - 1) * 2 + 1
+        nodes.push(userInTurn(userSeq, `${label} prompt ${turn}`, turn),
+          assistant(userSeq + 1, `${label} response ${turn}`, turn))
+        turnEnds.set(turn, userSeq + 2)
+      }
+      return { nodes, turnEnds }
+    }
+    const initial = makeTurns('session A', 1, 130)
+    let snapshot = chatSnapshotFixture(initial)
+    const h = makeHarness({}, { hasMore: true }, snapshot)
+    const view = render(<h.ChatView {...h.props} />)
+    await view.findByRole('navigation', { name: '轮次导航' })
+    expect(view.container.querySelectorAll('[data-chat-flow-key]')).toHaveLength(240)
+    expect(view.getByText('session A prompt 130')).toBeDefined()
+    expect(view.queryByText('session A prompt 1')).toBeNull()
+
+    const appended = makeTurns('session A', 131, 131)
+    snapshot = chatSnapshotFixture({
+      nodes: [...initial.nodes, ...appended.nodes],
+      turnEnds: new Map([...initial.turnEnds, ...appended.turnEnds]),
+    }, snapshot)
+    act(() => { h.set({ chat: snapshot }) })
+    expect(view.container.querySelectorAll('[data-chat-flow-key]')).toHaveLength(240)
+    expect(view.getByText('session A prompt 131')).toBeDefined()
+    expect(view.queryByText('session A prompt 1')).toBeNull()
+
+    const replacement = makeTurns('session B', 1, 130)
+    act(() => { h.set({ chat: chatSnapshotFixture(replacement, snapshot) }) })
+    view.rerender(<h.ChatView {...h.props} sessionId={'s2' as SessionId} />)
+    expect(view.container.querySelectorAll('[data-chat-flow-key]')).toHaveLength(240)
+    expect(view.getByText('session B prompt 130')).toBeDefined()
+    expect(view.queryByText('session B prompt 1')).toBeNull()
+    expect(view.queryByText('session A prompt 131')).toBeNull()
+  }, 20_000)
+
   it('jumps to a turn anchor and reflows stable marks after an older page arrives', async () => {
     const later = [
       userInTurn(4, 'second prompt', 2), assistant(5, 'second response', 2),
