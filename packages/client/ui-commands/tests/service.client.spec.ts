@@ -228,6 +228,25 @@ describe('registration', () => {
 })
 
 describe('candidates', () => {
+  it('limits the add launcher while preserving slash candidates and hidden command dispatch', async () => {
+    const b = await bench({ commands: async () => ({ commands: [
+      ...S1_CMDS, ...['feedback', 'compact', 'permission', 'model', 'export', 'custom'].map(name => ({ name, description: name })),
+    ] }) })
+    const fileAction = vi.fn()
+    const removeFile = b.command.register(themeContribution({ name: 'file', ui: { kind: 'action', run: fileAction } }))
+    const launched = await b.source.candidates(proj('s1'), { ...req(''), origin: 'launcher' })
+    expect(launched.map(row => row.name)).toEqual(['file', 'goal', 'plan'])
+    expect(launched.every(row => row.section === undefined)).toBe(true)
+    const typed = await b.source.candidates(proj('s1'), req(''))
+    expect(typed.map(row => row.name)).toEqual(expect.arrayContaining(['feedback', 'compact', 'permission', 'model', 'export', 'custom']))
+    menuPick(b.source, 'file', proj('s1'))
+    expect(fileAction).toHaveBeenCalledOnce()
+    menuPick(b.source, 'compact', proj('s1'))
+    await vi.waitFor(() => { expect(b.executeCalls.some(call => call.line === '/compact')).toBe(true) })
+    removeFile()
+    expect((await b.source.candidates(proj('s1'), { ...req(''), origin: 'launcher' })).map(row => row.name)).toEqual(['goal', 'plan'])
+  })
+
   it('waits for initial history and retains the Session until the catalog RPC settles', async () => {
     const opened = Promise.withResolvers<undefined>()
     const response = Promise.withResolvers<{ commands: CommandDescriptor[] }>()

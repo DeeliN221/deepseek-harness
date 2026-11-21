@@ -20,6 +20,18 @@ const SECTION_ROWS: Readonly<Record<MenuSection, readonly string[]>> = {
   commands: ['compact', 'permission', 'model', 'export'],
 }
 
+/** The composer add menu is intentionally narrower than the slash command directory. */
+const ADD_MENU_ROWS = ['file', 'goal', 'plan'] as const
+
+/** Keep available add actions in the requested order, without section headings. */
+export function addMenuRows(rows: readonly InputTriggerCandidate[]): readonly InputTriggerCandidate[] {
+  const byName = new Map(rows.map(row => [row.name, row]))
+  return ADD_MENU_ROWS.flatMap(name => {
+    const row = byName.get(name)
+    return row === undefined ? [] : [row]
+  })
+}
+
 /** The dictionary keys and glyph of one built-in Host command's client face. */
 interface HostFace {
   readonly label: CommandKey

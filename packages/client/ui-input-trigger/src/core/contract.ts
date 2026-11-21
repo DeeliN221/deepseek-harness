@@ -10,6 +10,8 @@ import type { InputTriggerCandidate, TriggerChar, TriggerGuard, TriggerPosition 
 /** A detected trigger token under the caret. */
 export interface TriggerHit {
   readonly trigger: TriggerChar
+  /** Set only for a programmatically opened menu; preserved through refreshes. */
+  readonly origin?: 'launcher'
   /** Text between the trigger char and the caret, live-filtered. */
   readonly query: string
   /** True only for an open quoted `@file` token. */

@@ -196,12 +196,13 @@ export class InputTriggerController {
       return
     }
     this.stopFetch()
-    this.hit = hit
+    const launchedHit: TriggerHit = { ...hit, origin: 'launcher' }
+    this.hit = launchedHit
     this.launcher.set(source)
     this.menu.set(seedGroups(this.menu.getSnapshot(), [match]))
-    this.reduce({ type: 'hit', hit })
-    this.refreshHeaders(hit, [match])
-    this.fetchCandidates(hit, [match])
+    this.reduce({ type: 'hit', hit: launchedHit })
+    this.refreshHeaders(launchedHit, [match])
+    this.fetchCandidates(launchedHit, [match])
   }
 
   /**
@@ -545,6 +546,7 @@ export class InputTriggerController {
     for (const source of roster) {
       void source
         .candidates(projection, {
+          ...(hit.origin === undefined ? {} : { origin: hit.origin }),
           query: hit.query,
           quoted: hit.quoted,
           position: hit.position,
