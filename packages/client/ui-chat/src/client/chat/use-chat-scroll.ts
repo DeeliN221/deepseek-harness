@@ -48,19 +48,26 @@ interface ChatScrollState extends ChatReadingState {
  */
 export function useChatScroll(input: ChatScrollInput): ChatScrollState {
   const {
-    ready, order, renderOrder, firstSeq, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running,
+    sessionId, ready, order, renderOrder, firstSeq, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running,
     deferCompletedTurns, loadedTurns, chatScroll, hasMore, loadingOlder, loadOlder, loadThrough,
-    beforeLoadOlder, revealEarlier, revealTurn, transcriptView,
+    beforeLoadOlder, revealEarlier, revealTurn, revealThrough, transcriptView,
   } = input
   const { viewport, listRef, columnRef } = useChatViewport()
   const { reading, state } = useChatReading(viewport, chatScroll, loadedTurns.at(-1)?.turn ?? null)
   const navigationInput = useMemo(() => ({
-    firstSeq, loadingOlder, hasMore, loadOlder, loadThrough,
+    sessionId, firstSeq, loadingOlder, hasMore, loadOlder, loadThrough,
     ...(beforeLoadOlder === undefined ? {} : { beforeLoadOlder }),
     ...(revealEarlier === undefined ? {} : { revealEarlier }),
     ...(revealTurn === undefined ? {} : { revealTurn }),
-  }), [firstSeq, loadingOlder, hasMore, loadOlder, loadThrough, beforeLoadOlder, revealEarlier, revealTurn])
+    ...(revealThrough === undefined ? {} : { revealThrough }),
+  }), [sessionId, firstSeq, loadingOlder, hasMore, loadOlder, loadThrough, beforeLoadOlder, revealEarlier, revealTurn, revealThrough])
   const { navigation, busyTurn } = useChatNavigation(viewport, reading, navigationInput)
+  const navigationSession = useRef(sessionId)
+  useLayoutEffect(() => {
+    if (navigationSession.current === sessionId) return
+    navigationSession.current = sessionId
+    navigation.reset()
+  }, [navigation, sessionId])
   const content = useRef<{ input: ChatScrollInput; applied: ChatScrollInput | null; opened: boolean }>({
     input, applied: null, opened: false,
   })

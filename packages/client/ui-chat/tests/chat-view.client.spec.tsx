@@ -1456,6 +1456,10 @@ describe('ChatView', () => {
       userInTurn(260, 'latest prompt', 2), assistant(261, 'latest response', 2),
     ]
     const h = makeHarness({ nodes, turnEnds: new Map([[1, 260], [2, 262]]) }, { hasMore: true })
+    h.setOutline([
+      { turn: 1, seq: 1, prompt: 'loaded prompt', response: 'loaded response' },
+      { turn: 2, seq: 260, prompt: 'latest prompt', response: 'latest response' },
+    ])
     const view = render(<h.ChatView {...h.props} />)
     const first = await view.findByRole('button', { name: '跳转到第 1 轮' })
     expect(view.queryByText('loaded prompt')).toBeNull()
@@ -1526,6 +1530,43 @@ describe('ChatView', () => {
     const landed = view.getByRole('button', { name: '跳转到第 1 轮' })
     expect(landed.getAttribute('aria-current')).toBe('true')
     expect(h.loadThrough.mock.calls).toEqual([[1]])
+  })
+
+  it('cancels a pending turn jump when the same ChatView switches Sessions', async () => {
+    const h = makeHarness({
+      nodes: [userInTurn(20, 'old session latest prompt', 2), assistant(21, 'old session latest response', 2)],
+      turnEnds: new Map([[2, 22]]),
+    }, { hasMore: true })
+    h.setOutline([
+      { turn: 1, seq: 1, prompt: 'old prompt', response: '' },
+      { turn: 2, seq: 20, prompt: 'old session latest prompt', response: 'old session latest response' },
+    ])
+    let releasePage: (() => void) | undefined
+    h.loadThrough.mockImplementation(() => new Promise<void>((resolve) => { releasePage = resolve }))
+    const view = render(<h.ChatView {...h.props} />)
+    const unloaded = await view.findByRole('button', { name: '加载并跳转到第 1 轮' })
+    fireEvent.click(unloaded)
+    expect(unloaded.getAttribute('aria-busy')).toBe('true')
+
+    act(() => {
+      h.setChat({
+        nodes: [
+          userInTurn(4, 'new session prompt', 1), assistant(5, 'new session response', 1),
+          userInTurn(7, 'new session latest prompt', 2), assistant(8, 'new session latest response', 2),
+        ],
+        turnEnds: new Map([[1, 6], [2, 9]]),
+      })
+      h.setOutline([
+        { turn: 1, seq: 4, prompt: 'new session prompt', response: 'new session response' },
+        { turn: 2, seq: 7, prompt: 'new session latest prompt', response: 'new session latest response' },
+      ])
+    })
+    view.rerender(<h.ChatView {...h.props} sessionId={'s2' as SessionId} />)
+
+    const loaded = view.getByRole('button', { name: '跳转到第 1 轮' })
+    expect(loaded.getAttribute('aria-busy')).toBeNull()
+    await act(async () => { releasePage?.() })
+    expect(view.getByRole('button', { name: '跳转到第 1 轮' }).getAttribute('aria-busy')).toBeNull()
   })
 
   it('keeps a bounded live tail current and resets it for a different Session', async () => {

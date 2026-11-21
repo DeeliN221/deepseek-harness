@@ -7,6 +7,7 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { InboxState } from '@deepseek-ai/dsh-agent/types'
 import type { PendingSubmission } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionSeq } from '@deepseek-ai/dsh-session/types'
 import {
   Button, IconChevronDownOutlineRegular, MarkdownDelegateProvider, Modal, type MarkdownMenuTarget,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -211,8 +212,8 @@ export function ChatView({
 
   const firstKey = order[0]
   const firstSeq = firstKey === undefined ? null : nodeStore.get(firstKey)?.anchorSeq ?? null
-  const renderControlState = useRef({ order, renderBounds, renderOrder, sessionId, turnNavigationItems })
-  renderControlState.current = { order, renderBounds, renderOrder, sessionId, turnNavigationItems }
+  const renderControlState = useRef({ order, renderBounds, renderOrder, sessionId, turnNavigationItems, railItems })
+  renderControlState.current = { order, renderBounds, renderOrder, sessionId, turnNavigationItems, railItems }
   const revealEarlier = useCallback((): boolean => {
     const { order: currentOrder, renderBounds: currentBounds, sessionId: currentSession } = renderControlState.current
     const next = earlierRenderWindow(currentOrder.length, currentBounds)
@@ -225,9 +226,23 @@ export function ChatView({
   const revealTurn = useCallback((turn: number): boolean => {
     const { order: currentOrder, renderBounds: currentBounds, sessionId: currentSession,
       turnNavigationItems: currentTurns } = renderControlState.current
-    const anchorKey = currentTurns.find(item => item.turn === turn)?.anchorKey
-    if (anchorKey === undefined) return false
-    const index = currentOrder.indexOf(anchorKey)
+    const target = currentTurns.find(item => item.turn === turn)
+    if (target === undefined) return false
+    const index = currentOrder.indexOf(target.anchorKey)
+    if (index < 0 || (index >= currentBounds.start && index < currentBounds.end)) return false
+    const next = anchoredRenderWindow(currentOrder.length, index, CHAT_RENDER_WINDOW_NODES,
+      Math.floor(CHAT_RENDER_WINDOW_NODES / 3))
+    const anchor = renderWindowAnchor(currentOrder, currentSession, next)
+    if (anchor === null) return false
+    setRenderWindow(anchor)
+    return true
+  }, [])
+  const revealThrough = useCallback((turn: number, seq: SessionSeq): boolean => {
+    const { order: currentOrder, renderBounds: currentBounds, sessionId: currentSession,
+      railItems: currentRailItems } = renderControlState.current
+    const target = currentRailItems.find(item => item.turn === turn)
+    if (target === undefined || target.anchor.kind !== 'loaded' || target.anchor.seq !== seq) return false
+    const index = currentOrder.indexOf(target.anchor.key)
     if (index < 0 || (index >= currentBounds.start && index < currentBounds.end)) return false
     const next = anchoredRenderWindow(currentOrder.length, index, CHAT_RENDER_WINDOW_NODES,
       Math.floor(CHAT_RENDER_WINDOW_NODES / 3))
@@ -247,9 +262,10 @@ export function ChatView({
   const steeringId = latestSteering?.source.kind === 'user' && 'rpcId' in latestSteering.source
     ? latestSteering.source.rpcId : latestSteering?.id ?? null
   const scroll = useChatScroll({
+    sessionId,
     ready: openState === 'open',
     order, renderOrder, firstSeq, lastKey, running, loadingOlder, hasMore, loadOlder, loadThrough,
-    revealEarlier, revealTurn, beforeLoadOlder, chatScroll, deferCompletedTurns,
+    revealEarlier, revealTurn, revealThrough, beforeLoadOlder, chatScroll, deferCompletedTurns,
     lastIsUser: lastKey !== null && nodeStore.get(lastKey)?.kind === 'user',
     steeringId,
     submissionId: visibleSubmissions.at(-1)?.requestId ?? null,

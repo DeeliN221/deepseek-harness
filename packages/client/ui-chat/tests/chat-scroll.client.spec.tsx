@@ -36,6 +36,7 @@ function ScrollHarness({ input, onMotion }: {
 
 function mountScroll(deferCompletedTurns = true, initial: Partial<ChatScrollInput> = {}) {
   let input: ChatScrollInput = {
+    sessionId: 'session-1',
     ready: true,
     order: [],
     firstSeq: null,
@@ -118,6 +119,7 @@ function mountRows(heights: readonly number[]) {
   }
   vi.stubGlobal('ResizeObserver', Observer)
   const input: ChatScrollInput = {
+    sessionId: 'session-1',
     ready: true, order: [], renderOrder: [], firstSeq: null, lastKey: null, lastIsUser: false,
     steeringId: null, submissionId: null, submissionSteers: false, running: false, deferCompletedTurns: false,
     transcriptView: 'standard', loadedTurns: [], hasMore: false, loadingOlder: false,
@@ -289,6 +291,7 @@ function mountVisibleFold(test: typeof visibleFoldCases[number], reduced: boolea
   let motion: FlowMotionRows | undefined
   const onMotion = (value: FlowMotionRows): void => { motion = value }
   let input: ChatScrollInput = {
+    sessionId: 'session-1',
     ready: false, order: [], renderOrder: [], firstSeq: null, lastKey: null, lastIsUser: false,
     steeringId: null, submissionId: null, submissionSteers: false, running: false, deferCompletedTurns: true,
     transcriptView: 'detailed', loadedTurns: [], hasMore: false, loadingOlder: false,

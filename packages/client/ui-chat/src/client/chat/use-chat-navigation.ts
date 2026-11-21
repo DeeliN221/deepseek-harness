@@ -9,12 +9,16 @@ import type { ChatViewport } from './use-chat-viewport.ts'
 
 /** History availability and loading operations for the committed Chat window. */
 export interface ChatNavigationInput extends Pick<ChatViewSlotProps, 'loadOlder' | 'loadThrough'> {
+  readonly sessionId: string
   readonly firstSeq: ChatNode['anchorSeq'] | null
   readonly hasMore: boolean
   readonly loadingOlder: boolean
   readonly beforeLoadOlder?: () => void
   readonly revealEarlier?: () => boolean
+  /** Key-based fallback when no durable outline sequence is available. */
   readonly revealTurn?: (turn: number) => boolean
+  /** Reveal a loaded Turn after matching its durable outline sequence. */
+  readonly revealThrough?: (turn: number, seq: SessionSeq) => boolean
 }
 
 interface TurnJump {
@@ -76,11 +80,15 @@ export class ChatNavigation {
       this.cancel()
       const landing = this.viewport.scrollToTurn(item.turn)
       if (landing === null) {
-        if (this.input.revealTurn?.(item.turn) === true) {
+        this.viewport.beginPreserving()
+        const revealed = (item.anchor.seq !== undefined
+          && this.input.revealThrough?.(item.turn, item.anchor.seq) === true)
+          || this.input.revealTurn?.(item.turn) === true
+        if (revealed) {
           this.localLandingTurn = item.turn
           this.onBusyTurn(item.turn)
           this.reading.pauseFollowing()
-        }
+        } else this.viewport.stopPreserving()
         return
       }
       this.reading.acceptNavigation(landing)
@@ -97,6 +105,13 @@ export class ChatNavigation {
       landing: 'pending',
       repageHead: null,
     }
+    this.localLandingTurn = jump.turn
+    if (this.input.revealThrough?.(jump.turn, jump.seq) === true
+      || this.input.revealTurn?.(jump.turn) === true) {
+      this.onBusyTurn(jump.turn)
+      return
+    }
+    this.localLandingTurn = null
     this.jump = jump
     this.onBusyTurn(jump.turn)
     this.request(jump)
@@ -128,16 +143,17 @@ export class ChatNavigation {
   contentCommitted(): boolean {
     if (this.reading.pending) return false
     if (this.localLandingTurn !== null) {
-      const landing = this.viewport.scrollToTurn(this.localLandingTurn)
+      const turn = this.localLandingTurn
+      const landing = this.viewport.scrollToTurn(turn)
       this.localLandingTurn = null
       this.onBusyTurn(null)
       if (landing !== null) {
         this.reading.acceptNavigation(landing)
         return true
       }
-      // The range committed but its anchor is still unavailable, so allow the
-      // caller's normal reconciliation/fallback path to take over.
-      return false
+      const fallback = this.viewport.scrollToTurnAtOrAfter(turn)
+      if (fallback !== null) this.reading.acceptNavigation(fallback)
+      return fallback !== null
     }
     if (this.landJump(false)) return true
     const jump = this.jump
@@ -191,7 +207,8 @@ export class ChatNavigation {
     }
     const landing = this.viewport.scrollToTurn(jump.turn)
     if (landing === null) {
-      if (this.input.revealTurn?.(jump.turn) === true) {
+      if (this.input.revealThrough?.(jump.turn, jump.seq) === true
+        || this.input.revealTurn?.(jump.turn) === true) {
         jump.landing = 'revealing'
         this.onBusyTurn(jump.turn)
       }
