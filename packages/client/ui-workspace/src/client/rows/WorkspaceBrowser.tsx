@@ -1237,8 +1237,8 @@ export function WorkspaceBrowser({
               className={clsx(css.search, searchExpanded && css.searchExpanded)}
               onClick={() => {
                 closeAddWorkspace()
-                changeSearchExpanded(true)
-                searchInput.current?.focus()
+                if (!searchExpanded) requestSearch()
+                else searchInput.current?.focus()
               }}
             >
               <Tooltip label={t('search')} shortcutKeys={searchShortcut?.keys} side="bottom" delayMs={500} disabled={searchExpanded} portal>
@@ -1248,7 +1248,9 @@ export function WorkspaceBrowser({
                   aria-label={t('search.sessions.aria')}
                   aria-keyshortcuts={searchShortcut?.aria}
                   aria-expanded={searchExpanded}
-                  onClick={() => {
+                  onClick={(event) => {
+                    // The outer native-search container must not open as well.
+                    event.stopPropagation()
                     requestSearch()
                   }}
                 >

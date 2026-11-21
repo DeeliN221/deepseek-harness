@@ -167,6 +167,18 @@ function rerender(b: ReturnType<typeof mount>, overrides: Partial<WorkspaceBrows
 }
 
 describe('WorkspaceBrowser', () => {
+  it('routes magnifier and collapsed container once without expanding native search', () => {
+    const requestSearch = vi.fn()
+    mount({ requestSearch })
+    const button = screen.getByRole('button', { name: '搜索会话' })
+    fireEvent.click(button)
+    expect(requestSearch).toHaveBeenCalledOnce()
+    expect(button.getAttribute('aria-expanded')).toBe('false')
+    // The surrounding hit area must share the same routing policy.
+    fireEvent.click(button.closest('[class*="search"]')?.parentElement ?? button)
+    expect(requestSearch).toHaveBeenCalledTimes(2)
+    expect(button.getAttribute('aria-expanded')).toBe('false')
+  })
   it.each(['workspace', 'flat', 'ungrouped'] as const)('keeps %s recency independent of arrival order and saved manual positions', (mode) => {
     localStorage.clear()
     const preferences = createWorkspaceViewStore().create()

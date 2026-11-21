@@ -11,6 +11,9 @@ Desktop product events use the optional [product analytics service](../product-a
 
 ## Summary
 
+Search providers may call `uiWorkspace.registerSearchHandler(() => boolean)` in a Cordis effect. The shared Workspace magnifier, search-container click, and `session.search` shortcut call the latest registered provider once. Return `true` only when its overlay is ready to open; `false`, no provider, or a thrown exception preserves native search. Dispose the returned callback on unload (idempotent, safe when replacing providers). The API supplies no captured Session or Workspace: global providers start in all-workspace scope; scoped providers must resolve their current target at invocation. No DOM interception is needed.
+
+
 Host-integrated plugins may call `uiWorkspace.registerSidebarHiddenSessions(observable)` to exclude explicitly identified execution Sessions from sidebar trees, flat lists and search results. The returned disposer removes that provider. Providers are unioned; exclusion does not archive a Session, modify the shared Session catalog, change its origin, or prevent direct navigation. Plugins own the provenance and freshness of their observable.
 
 This package lets users browse grouped or flat Session lists, choose a Workspace for a new Session, and manage Workspaces and Sessions through add, rename, reorder, search, fork, archive, and Workspace deletion; the Session row menu and its hover buttons are slot lists that client plugins extend. Pending interactions appear as warning dots, and subagent-origin Sessions remain hidden. An idle, unarchived Session row with active scheduled tasks shows a clock mark, and its hover card lists those tasks. Canonically distinct folder paths remain separate Workspaces. Adding a Workspace requires a composed directory picker; without one, adding is unavailable.
@@ -259,3 +262,7 @@ These limits cover search, navigation, archival, and folder selection.
 None.
 
 </details>
+
+## Agent Note — 2026-11-22
+
+Added a small service-owned search registration seam for external search dialogs. Fixed magnifier bubbling into the native search container, which otherwise opened both interfaces and stole return focus. Scope is limited to this package; no new global listener or command. Verified provider replacement/disposal/fallback, existing shortcuts, package typecheck, and real assembled desktop/mobile browser interaction. Native fallback remains available without a ready provider.

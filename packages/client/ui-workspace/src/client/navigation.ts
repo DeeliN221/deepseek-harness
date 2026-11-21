@@ -24,6 +24,7 @@ import type { DraftInitializationOptions } from '@deepseek-ai/dsh-client-ui-conv
 import type { RowToast } from './contract/slots.ts'
 import { mergeSidebarPolicies, type SidebarPolicy } from './sidebar-visibility.ts'
 import { pinOrderAccounts, pinOrderSource } from './pin-order.ts'
+import { createWorkspaceSearchHandler } from './search-handler.ts'
 import type { WorkspaceViewStoreActions } from './stores.ts'
 
 interface MainSelection {
@@ -39,6 +40,11 @@ export interface StartSessionOptions extends DraftInitializationOptions {
 
 /** Workspace archive and directory operations consumed by Client UI domains. */
 export interface UiWorkspace {
+  /** Register a synchronous search opener. Only the latest provider is called.
+   * Return true only after accepting the request; false or a throw uses native search.
+   * Dispose the returned callback on plugin unload. Disposing twice is safe.
+   */
+  registerSearchHandler(handler: () => boolean): () => void
   /** Register an observable, explicit sidebar exclusion set; does not restrict opening Sessions. */
   registerSidebarHiddenSessions(source: import('@deepseek-ai/dsh-client-ui-slots').HostObservable<SidebarPolicy>): () => void
   /**
@@ -167,6 +173,12 @@ export class DirectoryBrowseError extends Error {
 
 /** Implements Workspace archive and directory UI operations. */
 class UiWorkspaceService extends Service implements UiWorkspace {
+  /** Private routing shared by the native shortcut and pointer controls. */
+  readonly searchHandler = createWorkspaceSearchHandler()
+
+  registerSearchHandler(handler: () => boolean): () => void {
+    return this.searchHandler.register(handler)
+  }
   /** Merged navigation-only policy. Providers own provenance and durability. */
   readonly sidebarHiddenSessions = createSnapshotStore<SidebarPolicy>([])
   private readonly sidebarSources = new Map<symbol, SidebarPolicy>()
