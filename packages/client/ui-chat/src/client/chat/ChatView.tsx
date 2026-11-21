@@ -326,6 +326,10 @@ export function ChatView({
     loadedTurns: turnNavigationItems,
     transcriptView,
   })
+  const returnToBottom = useCallback(() => {
+    scroll.returnToBottom()
+    if (savedAnchor.current?.sessionId === sessionId) savedAnchor.current = { sessionId, key: null }
+  }, [scroll.returnToBottom, sessionId])
   const previousHistory = useRef({ sessionId, firstSeq, loadingOlder })
   useLayoutEffect(() => {
     const previous = previousHistory.current
@@ -431,7 +435,7 @@ export function ChatView({
             type="button"
             className={css.toBottom}
             aria-label={t('chat.toBottom')}
-            onClick={scroll.returnToBottom}
+            onClick={returnToBottom}
           >
             <IconChevronDownOutlineRegular />
           </button>

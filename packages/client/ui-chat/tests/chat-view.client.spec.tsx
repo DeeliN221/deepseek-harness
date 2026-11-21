@@ -4976,6 +4976,10 @@ describe('ChatView', () => {
     expect(view.queryByText('prompt 1')).toBeNull()
     expect(view.getByText('prompt 151')).toBeDefined()
     expect(view.getByLabelText('回到底部')).toBeTruthy()
+
+    fireEvent.click(view.getByLabelText('回到底部'))
+    expect(view.getByText('prompt 700')).toBeDefined()
+    expect(view.queryByText('prompt 151')).toBeNull()
     geometry.rectangle.mockRestore()
   })
 
