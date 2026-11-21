@@ -11,6 +11,10 @@ English | [中文](README.zh.md)
 
 This package gives an `official` client build the DeepSeek Harness mark and name in the sidebar. Other build profiles keep the shell's fish mark and local-build label, while the conversation hero always uses the animated fish. Choose it for deployments branded as DeepSeek Harness; deployments with another identity should provide a replacement brand package. It has no runtime state and does not affect model requests.
 
+### NAS compact brand overlay
+
+The `0.2.2-rc.1-zzl.1` fork deliberately occupies `sidebar.brand.name` with a component returning `null`, suppressing both the long wordmark and the shell fallback. It preserves `sidebar.brand.mark`, the host's accessible New Session action, and all registration/unload behavior. Pair with the matching compact sidebar overlay to remove the empty name's layout gap and reduce the header height. The upstream descriptions below describe the original wordmark behavior; this fork changes only that visible name.
+
 ## Table of Contents
 
 - [Use this package](#use-this-package)

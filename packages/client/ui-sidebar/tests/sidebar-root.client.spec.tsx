@@ -50,7 +50,8 @@ function makeHeaderProps(): HeaderLeadingControlsProps {
   }
 }
 
-function mountShell({ collapsed = false, width = 300, drawer = false, shortcuts = [], content }: {
+function mountShell({ collapsed = false, width = 300, drawer = false, shortcuts = [], content, brandName = <span data-testid="custom-brand-name">Custom Brand</span> }: {
+  brandName?: ReactNode
   collapsed?: boolean
   width?: number
   drawer?: boolean
@@ -64,7 +65,6 @@ function mountShell({ collapsed = false, width = 300, drawer = false, shortcuts 
   let settingsOwner: SidebarSettingsOwnerProps | undefined
   let footerActionOwner: SidebarFooterActionOwnerProps | undefined
   const brandMark = <span data-testid="custom-brand-mark">M</span>
-  const brandName = <span data-testid="custom-brand-name">Custom Brand</span>
   let current = { collapsed, width, drawer }
   const root = () => (
     <SidebarRoot
@@ -122,6 +122,16 @@ function mountShell({ collapsed = false, width = 300, drawer = false, shortcuts 
 }
 
 describe('SidebarRoot shell', () => {
+  it.each([false, true])('keeps mark-only navigation accessible with drawer=%s', (drawer) => {
+    const b = mountShell({ drawer, brandName: null })
+    expect(screen.queryByTestId('custom-brand-name')).toBeNull()
+    const markButton = screen.getByTestId('custom-brand-mark').closest('button')!
+    expect(markButton.getAttribute('aria-label')).toBe('New session')
+    fireEvent.click(markButton)
+    expect(b.startSession).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
+    expect(b.toggleSidebar).toHaveBeenCalledOnce()
+  })
   it('advertises the effective new-session binding', () => {
     const shortcut: ShortcutCatalogEntry = { id: 'session.new' as ShortcutCommandId, label: 'New', aliases: [],
       binding: null, modified: true, conflicts: [], issue: null, keys: ['Ctrl', 'N'], aria: 'Control+N' }

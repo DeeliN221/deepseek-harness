@@ -1,4 +1,4 @@
-import { BrandWordmark, FishLogo } from '@deepseek-ai/dsh-client-ui-primitives'
+import { FishLogo } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SidebarBrandMarkOwnerProps } from '@deepseek-ai/dsh-client-ui-sidebar/client'
 
 /**
@@ -11,9 +11,10 @@ export function OfficialBrandMark({ size }: SidebarBrandMarkOwnerProps) {
 }
 
 /**
- * Render the official name artwork without its independently slotted mark.
- * @returns the official name wordmark.
+ * Occupy the name slot without a wordmark for the compact NAS navigation.
+ * The host retains the mark's New Session action and accessible name.
+ * @returns no visible name; occupying the slot suppresses the local-build fallback.
  */
 export function OfficialBrandName() {
-  return <BrandWordmark includeMark={false} />
+  return null
 }

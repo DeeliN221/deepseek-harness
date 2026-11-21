@@ -13,6 +13,12 @@ Desktop product events use the optional [product analytics service](../product-a
 
 The dsh web client sidebar lets users recognize the active build, start a new session, collapse navigation to a 56px rail, browse Workspaces and Sessions, and open Settings. It preserves a bottom-pinned Settings entry and hides idle scrollbars without moving browser rows. New Session uses an explicitly selected Workspace, then the current Session's Workspace, then the most recently active Workspace; if none exists, it opens a blank New Session page. Deployments can replace the brand mark or name while retaining the navigation controls and rail geometry.
 
+### NAS compact brand overlay
+
+The `0.2.2-rc.1-zzl.1` build accommodates a brand-name occupant that returns `null`. The empty name wrapper leaves the flex layout; its header becomes 52px tall and the mark keeps a 44px action target. Touch pointers also get a 44px collapse control. Named occupants and local-build fallbacks retain their existing layout. This uses component-scoped CSS, with no text matching or runtime DOM manipulation. It recognizes both a directly empty name and the renderer's empty `data-slot="sidebar.brand.name"` wrapper without nesting `:has()`. Browsers without `:has()` still omit the wordmark and keep the original header geometry.
+
+The NAS profile resolves this package through `/data/dsh/local-packages/dsh-client-ui-sidebar`, which carries a pre-existing minimal-navigation patch absent from this source branch. For that installation, build the CSS here, then run `node scripts/build-compact-overlay.mjs <deployed-client.js> <expected-sha256> <built-client.js> <output-client.js>`. The script reuses the deployed CSS module names, refuses any unrelated stylesheet difference, and preserves every non-CSS byte. Deploy that composed output, not the full baseline-source sidebar bundle. Keep the original package backup and its digest beside the output for reproducibility and rollback.
+
 ## Table of Contents
 
 - [Use this package](#use-this-package)
