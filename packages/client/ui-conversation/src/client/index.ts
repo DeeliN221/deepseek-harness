@@ -50,7 +50,7 @@ export type {
 } from './contract/conversation.ts'
 export { EMPTY_CONVERSATION_SNAPSHOT, conversationPhase } from './contract/snapshot.ts'
 export type {
-  ConversationPhase, ConversationSnapshot,
+  ConversationHistoryWindow, ConversationPhase, ConversationSnapshot,
 } from './contract/snapshot.ts'
 export type {
   AssistantBlock, AssistantMessageNode, AssistantProviderMetadataView, AssistantRequestConfig,

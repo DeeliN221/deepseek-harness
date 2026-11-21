@@ -18,6 +18,9 @@ The Session Controller owns the contiguous loaded logical-event window. Each `Se
 | View Definition | A target package creates one incremental builder per Session and owns the final snapshot type for that target. |
 | Group Definition | A business package derives one target's root references and group snapshots from materialized Nodes; it owns membership, segmentation, summaries, and incremental caches. |
 | View | A Slot entry such as Chat or Trajectory reads only its target snapshot and renders target-owned nodes. |
+| Local history window | The Session binding exposes a reader-driven floor over target-node materialization; it can admit older loaded Contexts or reveal through a verified loaded Turn start without trimming the Session event window. |
+
+The initial target projection keeps the newest 24 Turns and at most 512 target Contexts; the Context limit may cut within one oversized Turn, and the Turn-count limit is disabled when 48 or fewer Turns are loaded. Each older page admits up to 20 Turns or 512 Contexts, whichever exposes fewer. `expandOlder()` admits one local page. `revealThrough(turn, seq)` verifies that `seq` is the loaded `turn/start` and admits one page only while that start remains below the materialized floor. Chat retries after each committed page before requesting `Session.loadThrough(seq)`. The local floor bounds target-node materialization only: Session events and assembler Context indexes remain resident for the complete Host-loaded window.
 
 Chat and Trajectory may recognize the same durable event family, but each keeps its own Definition State and final node payload. Shared target-neutral machinery is limited to identity routing, ordered replay, Location data, predecessor dependencies, and publication cadence.
 

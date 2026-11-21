@@ -445,8 +445,8 @@ describe('SessionManager query lifetime', () => {
     remote.session.projections.mockImplementation((_request, signal) => {
       if (signal === undefined) throw new Error('session projection read did not receive an AbortSignal')
       hostSignal = signal
-      return new Promise(resolve => {
-        signal.addEventListener('abort', () => resolve(ok(null)), { once: true })
+      return new Promise((resolve) => {
+        signal.addEventListener('abort', () => { resolve(ok(null)) }, { once: true })
       })
     })
     const firstRead = manager.refreshProjections(S1, first.signal)
@@ -966,7 +966,7 @@ describe('subagent catalogs', () => {
           mode: 'continuable',
         },
         activate: true, assistantStream: true,
-        maxMessages: 500,
+        maxEvents: 2000, maxMessages: 500,
         turnWindow: { minMessages: 50, minTurns: 2 },
       },
     ])

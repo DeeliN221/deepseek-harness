@@ -18,6 +18,9 @@ Session Controller 拥有连续的已加载逻辑 event window。每个 `Session
 | View Definition | Target 包为每个 Session 创建一个增量 builder，并拥有该 target 的最终 snapshot 类型。 |
 | Group Definition | 业务包从物化后的 Node 派生一个目标的根引用和组快照，拥有成员归属、分段、摘要及增量缓存。 |
 | View | Chat 或 Trajectory 等 Slot entry 只读取自身 target snapshot，并渲染 target 自有 node。 |
+| Local history window | Session binding 提供由阅读操作推进的 target node 物化边界；它可以纳入已加载的更早 Context，或揭示经验证且已加载的 Turn 起点，不会裁剪 Session event window。 |
+
+初始 target 投影保留最新 24 个 Turn 和至多 512 个目标 Context；若单个 Turn 超大，Context 上限可以在轮次中间截断；已加载 Turn 不超过 48 个时停用 Turn 数量上限。每次更早分页最多纳入 20 个 Turn 或 512 个 Context，取暴露 Context 更少的边界。`expandOlder()` 纳入一个本地页。`revealThrough(turn, seq)` 验证 `seq` 是已加载的 `turn/start`，仅当起点仍位于物化边界之前时才纳入一页。Chat 在每页提交后重试，再请求 `Session.loadThrough(seq)`。本地边界只限制 target node 物化：完整 Host 已加载窗口中的 Session event 和 assembler Context 索引仍会保留。
 
 Chat 与 Trajectory 可以识别同一个持久 event family，但各自保留自己的 Definition State 与最终 node payload。共享的 target-neutral 机制只包括 identity routing、有序 replay、Location data、predecessor dependency 与 publication cadence。
 

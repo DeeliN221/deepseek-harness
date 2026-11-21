@@ -13,7 +13,7 @@ import type {
   ConversationPublication, ConversationViewSnapshotMap,
   ConversationViewSnapshotStore,
 } from '../contract/conversation.ts'
-import type { ConversationSnapshot } from '../contract/snapshot.ts'
+import type { ConversationHistoryWindow, ConversationSnapshot } from '../contract/snapshot.ts'
 import type {
   ConversationPromptSnapshot, RequestPromptInspection, SystemPromptNode,
 } from '../contract/request-inspection.ts'
@@ -56,8 +56,10 @@ class BoundConversation implements ConversationBinding {
   readonly snapshot: SnapshotStore<ConversationSnapshot>
   readonly openTurn: SnapshotStore<number | undefined>
   private readonly viewStore: ConversationViewSnapshotStore
+  private readonly historyWindow: ConversationHistoryWindow
   private readonly targetSources = new Map<string, ObservableSnapshot<unknown>>()
   private revision = -1
+  private historyRevision = 0
   private frame: number | undefined
   private disposeFeed: () => void = () => {}
 
@@ -66,6 +68,21 @@ class BoundConversation implements ConversationBinding {
     private readonly assembler: ConversationNodeAssembler,
   ) {
     this.viewStore = assembler
+    this.historyRevision = assembler.windowRevision()
+    this.historyWindow = {
+      get revision() { return assembler.windowRevision() },
+      get pending() { return assembler.windowPending() },
+      expandOlder: () => {
+        if (!assembler.expandOlder()) return false
+        this.publish('immediate')
+        return true
+      },
+      revealThrough: (turn, seq) => {
+        if (!assembler.revealThrough(turn, seq)) return false
+        this.publish('immediate')
+        return true
+      },
+    }
     this.snapshot = createSnapshotStore(this.currentSnapshot())
     this.openTurn = createSnapshotStore(assembler.openTurn())
     this.replace(feed.getSnapshot())
@@ -94,7 +111,10 @@ class BoundConversation implements ConversationBinding {
   }
 
   activate(target: string): void {
-    if (this.assembler.activateTarget(target)) this.snapshot.set(this.currentSnapshot())
+    if (this.assembler.activateTarget(target)) {
+      this.historyRevision = this.assembler.windowRevision()
+      this.snapshot.set(this.currentSnapshot())
+    }
     this.openTurn.set(this.assembler.openTurn())
   }
 
@@ -166,7 +186,12 @@ class BoundConversation implements ConversationBinding {
   }
 
   private flush(): void {
-    if (this.assembler.flush()) this.snapshot.set(this.currentSnapshot())
+    const viewsChanged = this.assembler.flush()
+    const historyRevision = this.assembler.windowRevision()
+    if (viewsChanged || historyRevision !== this.historyRevision) {
+      this.historyRevision = historyRevision
+      this.snapshot.set(this.currentSnapshot())
+    }
     this.openTurn.set(this.assembler.openTurn())
   }
 
@@ -174,6 +199,7 @@ class BoundConversation implements ConversationBinding {
     return {
       views: this.viewStore,
       activeTargets: this.assembler.activityTargets(),
+      historyWindow: this.historyWindow,
     }
   }
 }

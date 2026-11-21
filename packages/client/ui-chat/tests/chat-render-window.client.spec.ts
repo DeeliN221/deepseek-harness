@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  CHAT_RENDER_WINDOW_NODES, anchoredRenderWindow, earlierRenderWindow, renderWindowAnchor,
-  resolveRenderWindow, tailRenderWindow,
+  CHAT_RENDER_WINDOW_NODES, anchoredRenderWindow, earlierRenderWindow, laterRenderWindow, renderWindowAnchor,
+  resolveRenderWindow, savedAnchorIndex, tailRenderWindow,
 } from '../src/client/chat/render-window.ts'
 
 describe('bounded Chat render window', () => {
@@ -29,6 +29,19 @@ describe('bounded Chat render window', () => {
     expect(earlier?.start).toBeGreaterThan(0)
     expect(earlier?.end).toBeLessThan(1_000)
     expect(earlierRenderWindow(1_000, { start: 0, end: 240 })).toBeNull()
+  })
+
+  it('advances an older bounded slice without treating its floor as the global tail', () => {
+    expect(laterRenderWindow(1_000, { start: 580, end: 820 })).toEqual({ start: 640, end: 880 })
+    expect(laterRenderWindow(1_000, { start: 760, end: 1_000 })).toBeNull()
+  })
+
+  it('resolves saved exact and split-node anchors before restore', () => {
+    const order = ['node-a', 'node-b', 'node-c']
+    expect(savedAnchorIndex(order, 'node-b')).toBe(1)
+    expect(savedAnchorIndex(order, JSON.stringify(['node-b', 'assistant'] ))).toBe(1)
+    expect(savedAnchorIndex(order, 'missing')).toBe(-1)
+    expect(savedAnchorIndex(order, '[invalid')).toBe(-1)
   })
 
   it('renders empty and short sessions completely despite a stale anchor', () => {

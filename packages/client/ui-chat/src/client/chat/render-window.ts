@@ -74,3 +74,27 @@ export function earlierRenderWindow(
   if (current.start <= 0) return null
   return anchoredRenderWindow(length, current.start, limit, Math.floor(limit * 0.75))
 }
+
+/** Move a bounded local slice toward newer rows without declaring the global tail followed. */
+export function laterRenderWindow(
+  length: number,
+  current: ChatRenderWindowBounds,
+  limit = CHAT_RENDER_WINDOW_NODES,
+): ChatRenderWindowBounds | null {
+  if (current.end >= length) return null
+  const nextStart = Math.min(current.start + Math.max(1, Math.floor(limit / 4)), Math.max(0, length - limit))
+  if (nextStart <= current.start) return null
+  return { start: nextStart, end: Math.min(length, nextStart + Math.max(1, limit)) }
+}
+
+/** Resolve a stored row or split-node anchor into the complete Chat order. */
+export function savedAnchorIndex(order: readonly string[], anchorKey: string): number {
+  const exact = order.indexOf(anchorKey)
+  if (exact >= 0 || !anchorKey.startsWith('[')) return exact
+  try {
+    const parts: unknown = JSON.parse(anchorKey)
+    return Array.isArray(parts) && typeof parts[0] === 'string' ? order.indexOf(parts[0]) : -1
+  } catch {
+    return -1
+  }
+}

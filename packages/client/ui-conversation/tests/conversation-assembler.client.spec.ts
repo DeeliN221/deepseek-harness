@@ -219,6 +219,45 @@ describe('ConversationNodeAssembler', () => {
     }
   })
 
+  it('pages a large single Turn by Context count and reveals its loaded start locally', () => {
+    const definition: ConversationNodeDefinition<number> = {
+      kind: 'window-probe',
+      target: 'test',
+      match: event => event.type === 'assistant/message'
+        ? { id: String(event.seq), role: 'start' }
+        : null,
+      start: () => 1,
+      update: context => context.state,
+      buildViewNode: context => node(context, context.state),
+    }
+    const assembler = new ConversationNodeAssembler(
+      new TestEventDefinitions([definition]), new TestViewDefinitions([testView()]),
+    )
+    const entries = [
+      input(at(SessionSeq(1), 'turn/start', { turn: 1 })),
+      ...Array.from({ length: 1_300 }, (_, index) => input(at(
+        SessionSeq(index + 2), 'assistant/message', {
+          turn: 1, step: index + 1, message: { role: 'assistant', content: [] }, stream: [],
+        },
+      ))),
+    ]
+
+    assembler.replaceWindow(entries, false)
+    assembler.flush()
+    expect(testSnapshot(assembler)?.nodes.size).toBe(512)
+    expect(assembler.windowPending()).toBe(true)
+
+    expect(assembler.revealThrough(1, SessionSeq(1))).toBe(true)
+    assembler.flush()
+    expect(testSnapshot(assembler)?.nodes.size).toBe(1_024)
+    expect(assembler.revealThrough(1, SessionSeq(1))).toBe(true)
+    assembler.flush()
+    expect(testSnapshot(assembler)?.nodes.size).toBe(1_300)
+    expect(assembler.windowPending()).toBe(false)
+    expect(assembler.revealThrough(1, SessionSeq(1))).toBe(false)
+    expect(assembler.expandOlder()).toBe(false)
+  })
+
   it('resolves nonconsecutive Steps without searching the Turn timeline on each delta', () => {
     const index = new ConversationLocationIndex()
     const turnStart = at(SessionSeq(1), 'turn/start', { turn: 4 })

@@ -580,7 +580,8 @@ function makeHarness(
     session.set(sessionUpdate)
   }
   return {
-    set, setSession: session.set, setChat: chatSource.set, ChatView, props,
+    set, setSession: session.set, setChat: chatSource.set,
+    setConversation: (value: ConversationSnapshot) => { conversation.set(value) }, ChatView, props,
     setConnection: (state: ConnectionState) => { connection.set(state) },
     openFile, openUserFile, loadOlder, loadThrough, openView,
     setOutline: (value: unknown) => { outlineValue = value },
@@ -707,6 +708,50 @@ function installScrollMetrics(element: HTMLElement, initialHeight: number, clien
     setLayout: (height: number, top: number) => {
       scrollHeight = height
       scrollTop = Math.max(0, Math.min(top, scrollHeight - clientHeight))
+    },
+  }
+}
+
+function installIndexedUserGeometry(
+  container: HTMLElement, scroller: HTMLElement, initialNodes: readonly UserMessageNode[], rowHeight = 4,
+) {
+  let indexByKey = new Map(initialNodes.map((node, index) => [`fixture:user:${node.seq}`, index]))
+  const rectangle = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    if (this === scroller) return new DOMRect(0, 0, 500, scroller.clientHeight)
+    const index = indexByKey.get(this.dataset.chatNodeKey ?? '')
+    if (index === undefined) return new DOMRect(0, 0, 500, rowHeight)
+    const first = [...container.querySelectorAll<HTMLElement>('[data-chat-node-key]')]
+      .find(row => indexByKey.has(row.dataset.chatNodeKey ?? ''))
+    const firstIndex = first === undefined ? 0 : indexByKey.get(first.dataset.chatNodeKey ?? '') ?? 0
+    const top = (index - firstIndex) * rowHeight - scroller.scrollTop
+    return new DOMRect(0, top, 500, rowHeight)
+  })
+  return {
+    rectangle,
+    setNodes(nodes: readonly UserMessageNode[]) {
+      indexByKey = new Map(nodes.map((node, index) => [`fixture:user:${node.seq}`, index]))
+    },
+  }
+}
+
+function installIndexedConversationGeometry(
+  container: HTMLElement, scroller: HTMLElement, initialNodes: readonly ConversationNode[], rowHeight = 4,
+) {
+  let indexByKey = new Map(initialNodes.map((node, index) => [`fixture:${node.kind}:${node.seq}`, index]))
+  const rectangle = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    if (this === scroller) return new DOMRect(0, 0, 500, scroller.clientHeight)
+    const index = indexByKey.get(this.dataset.chatNodeKey ?? '')
+    if (index === undefined) return new DOMRect(0, 0, 500, rowHeight)
+    const first = [...container.querySelectorAll<HTMLElement>('[data-chat-node-key]')]
+      .find(row => indexByKey.has(row.dataset.chatNodeKey ?? ''))
+    const firstIndex = first === undefined ? 0 : indexByKey.get(first.dataset.chatNodeKey ?? '') ?? 0
+    const top = (index - firstIndex) * rowHeight - scroller.scrollTop
+    return new DOMRect(0, top, 500, rowHeight)
+  })
+  return {
+    rectangle,
+    setNodes(nodes: readonly ConversationNode[]) {
+      indexByKey = new Map(nodes.map((node, index) => [`fixture:${node.kind}:${node.seq}`, index]))
     },
   }
 }
@@ -1422,6 +1467,23 @@ describe('ChatView', () => {
     }
     const snapshot = chatSnapshotFixture({ nodes, turnEnds })
     const h = makeHarness({}, { hasMore: true }, snapshot)
+    let historyRevision = 0
+    let historyPending = true
+    let expanded = false
+    const historyWindow = {
+      get revision() { return historyRevision },
+      get pending() { return historyPending },
+      expandOlder: vi.fn(() => {
+        if (expanded) return false
+        expanded = true
+        historyRevision++
+        historyPending = false
+        h.setConversation({ ...EMPTY_CONVERSATION_SNAPSHOT, historyWindow })
+        return true
+      }),
+      revealThrough: vi.fn(() => false),
+    }
+    h.setConversation({ ...EMPTY_CONVERSATION_SNAPSHOT, historyWindow })
     const view = render(<h.ChatView {...h.props} />)
     await view.findByRole('navigation', { name: '轮次导航' })
     const scroller = view.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
@@ -1447,8 +1509,32 @@ describe('ChatView', () => {
     expect(view.getByText('prompt 1')).toBeDefined()
 
     fireEvent.click(view.getByRole('button', { name: '加载更早' }))
+    expect(historyWindow.expandOlder).toHaveBeenCalledTimes(1)
+    expect(h.loadOlder).not.toHaveBeenCalled()
+    fireEvent.click(view.getByRole('button', { name: '加载更早' }))
     expect(h.loadOlder).toHaveBeenCalledTimes(1)
   }, 20_000)
+
+  it('advances from a bounded slice floor while preserving the reader anchor without following the global tail', () => {
+    const nodes = Array.from({ length: 1_000 }, (_, index) => user(index + 1, `prompt ${index + 1}`))
+    const h = makeHarness({ nodes })
+    h.chatScroll.save({ anchorKey: 'fixture:user:661', anchorTop: 0, scrollTop: 400 })
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    installScrollMetrics(scroller, 960, 200)
+    const geometry = installIndexedUserGeometry(view.container, scroller, nodes)
+
+    readerScroll(scroller, 760)
+
+    const anchor = view.container.querySelector<HTMLElement>('[data-chat-node-key="fixture:user:771"]')
+    expect(anchor).not.toBeNull()
+    expect(anchor!.getBoundingClientRect().top).toBe(0)
+    expect(h.chatScroll.read()?.anchorKey).toBe('fixture:user:771')
+    expect(view.queryByText('prompt 581')).toBeNull()
+    expect(view.queryByText('prompt 999')).toBeNull()
+    expect(view.getByLabelText('回到底部')).toBeTruthy()
+    geometry.rectangle.mockRestore()
+  })
 
   it('reveals a loaded turn below the local render floor without paging Host history', async () => {
     const nodes = [
@@ -1482,6 +1568,94 @@ describe('ChatView', () => {
     expect(first.getAttribute('aria-busy')).toBeNull()
     expect(new Set([...view.container.querySelectorAll<HTMLElement>('[data-chat-node-key]:not([data-chat-flow-kind="turn-process"])')]
       .map(row => row.dataset.chatNodeKey)).size).toBeLessThanOrEqual(240)
+    expect(h.loadThrough).not.toHaveBeenCalled()
+  })
+
+  it('retains a local turn landing through a later layout commit while history is loading', async () => {
+    const nodes = [
+      ...longTurn('loaded', 1, 1, 258),
+      userInTurn(260, 'latest prompt', 2), assistant(261, 'latest response', 2),
+    ]
+    const h = makeHarness({ nodes, turnEnds: new Map([[1, 260], [2, 262]]) }, {
+      hasMore: true, loadingOlder: true,
+    })
+    h.setOutline([
+      { turn: 1, seq: 1, prompt: 'loaded prompt', response: 'loaded response' },
+      { turn: 2, seq: 260, prompt: 'latest prompt', response: 'latest response' },
+    ])
+    h.chatScroll.save({ anchorKey: 'fixture:user:260', anchorTop: 0, scrollTop: 0 })
+    const view = render(<h.ChatView {...h.props} />)
+    const first = await view.findByRole('button', { name: '跳转到第 1 轮' })
+    const scroller = view.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    installScrollMetrics(scroller, 960, 300)
+    const geometry = installIndexedConversationGeometry(view.container, scroller, nodes)
+
+    readerScroll(scroller, 312)
+    const interruptedAnchor = h.chatScroll.read()?.anchorKey
+    expect(interruptedAnchor).not.toBe('fixture:user:1')
+    fireEvent.click(first)
+    await waitFor(() => { expect(view.getByText('loaded prompt')).toBeDefined() })
+    await waitFor(() => { expect(first.getAttribute('aria-current')).toBe('true') })
+    expect(h.chatScroll.read()?.anchorKey).toBe('fixture:user:1')
+    const landingTop = scroller.scrollTop
+
+    const laterNodes = [...nodes, assistant(262, 'layout growth', 2)]
+    act(() => {
+      geometry.setNodes(laterNodes)
+      h.setChat({ nodes: laterNodes, turnEnds: new Map([[1, 260], [2, 263]]) })
+    })
+
+    expect(h.chatScroll.read()?.anchorKey).toBe('fixture:user:1')
+    expect(scroller.scrollTop).toBe(landingTop)
+    expect(view.queryByText('loaded prompt')).toBeDefined()
+    geometry.rectangle.mockRestore()
+  })
+
+  it('reveals a loaded but locally hidden outline Turn across Conversation pages before Host paging', async () => {
+    const older = [userInTurn(1, 'Conversation local prompt', 1), assistant(2, 'Conversation local answer', 1)]
+    const latest = [userInTurn(3, 'latest prompt', 2), assistant(4, 'latest response', 2)]
+    const middle = [userInTurn(5, 'intermediate prompt', 3), assistant(6, 'intermediate response', 3)]
+    const h = makeHarness({ nodes: latest, turnEnds: new Map([[2, 5]]) }, { hasMore: true })
+    h.setOutline([
+      { turn: 1, seq: 1, prompt: 'Conversation local prompt', response: 'Conversation local answer' },
+      { turn: 2, seq: 3, prompt: 'latest prompt', response: 'latest response' },
+    ])
+    let historyRevision = 0
+    let historyPending = true
+    let pages = 0
+    const historyWindow = {
+      get revision() { return historyRevision },
+      get pending() { return historyPending },
+      expandOlder: vi.fn(() => false),
+      revealThrough: vi.fn((turn: number, seq: SessionSeq) => {
+        if (turn !== 1 || seq !== SessionSeq(1) || pages >= 2) return false
+        pages++
+        historyRevision++
+        historyPending = pages < 2
+        h.setChat(pages === 1
+          ? { nodes: [...latest, ...middle], turnEnds: new Map([[2, 5], [3, 7]]) }
+          : { nodes: [...older, ...latest, ...middle], turnEnds: new Map([[1, 3], [2, 5], [3, 7]]) })
+        h.setConversation({ ...EMPTY_CONVERSATION_SNAPSHOT, historyWindow })
+        return true
+      }),
+    }
+    h.setConversation({ ...EMPTY_CONVERSATION_SNAPSHOT, historyWindow })
+    const view = render(<h.ChatView {...h.props} />)
+    const unloaded = await view.findByRole('button', { name: '加载并跳转到第 1 轮' })
+    const scroller = view.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    installScrollMetrics(scroller, 2_000, 300)
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.chatAnchorKey === 'fixture:user:1') {
+        const top = 100 - scroller.scrollTop
+        return { top, bottom: top + 40 } as DOMRect
+      }
+      return { top: 0, bottom: 300 } as DOMRect
+    })
+
+    fireEvent.click(unloaded)
+    expect(historyWindow.revealThrough).toHaveBeenCalledTimes(2)
+    expect(view.getByText('Conversation local prompt')).toBeDefined()
+    await waitFor(() => { expect(view.getByRole('button', { name: '跳转到第 1 轮' }).getAttribute('aria-busy')).toBeNull() })
     expect(h.loadThrough).not.toHaveBeenCalled()
   })
 
@@ -1835,6 +2009,43 @@ describe('ChatView', () => {
     const view = render(<h.ChatView {...h.props} />)
     expect(view.getByTestId('tool-seat-w1')).toBeTruthy()
     expect(h.toolOwners[0]).toMatchObject({ callId: 'w1', toolName: '' })
+  })
+
+  it('keeps a reader anchor through a delayed prepend after paging a bounded slice to its head', () => {
+    let nodes = Array.from({ length: 1_000 }, (_, index) => user(1_001 + index, `prompt ${index}`))
+    const h = makeHarness({ nodes }, { hasMore: true })
+    h.chatScroll.save({ anchorKey: 'fixture:user:1101', anchorTop: 0, scrollTop: 320 })
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    installScrollMetrics(scroller, 960, 200)
+    const geometry = installIndexedUserGeometry(view.container, scroller, nodes)
+
+    readerScroll(scroller, 320)
+    fireEvent.click(view.getByText('加载更早'))
+    expect(h.loadOlder).not.toHaveBeenCalled()
+    fireEvent.click(view.getByText('加载更早'))
+    expect(h.loadOlder).toHaveBeenCalledTimes(1)
+    act(() => { h.set({ loadingOlder: true }) })
+
+    // The user replaces the click-time head with a later semantic anchor.
+    readerScroll(scroller, 350)
+    readerScroll(scroller, 400)
+    expect(h.chatScroll.read()?.anchorKey).toBe('fixture:user:1101')
+
+    const older = Array.from({ length: 500 }, (_, index) => user(index + 1, `older ${index + 1}`))
+    nodes = [...older, ...nodes]
+    act(() => {
+      geometry.setNodes(nodes)
+      h.set({ nodes, loadingOlder: false })
+    })
+
+    const anchor = view.container.querySelector<HTMLElement>('[data-chat-node-key="fixture:user:1101"]')
+    expect(anchor).not.toBeNull()
+    expect(anchor!.getBoundingClientRect().top).toBe(0)
+    expect(scroller.scrollTop).toBe(720)
+    expect(h.chatScroll.read()?.anchorKey).toBe('fixture:user:1101')
+    expect(view.getByText('prompt 100')).toBeDefined()
+    geometry.rectangle.mockRestore()
   })
 
   it('prepend keeps the reader\'s latest pending-request scroll position anchored', () => {
@@ -4744,6 +4955,28 @@ describe('ChatView', () => {
       rect.mockRestore()
       host.remove()
     }
+  })
+
+  it('waits for a saved semantic anchor to materialize before restoring an initially empty long view', () => {
+    const nodes = Array.from({ length: 700 }, (_, index) => user(index + 1, `prompt ${index + 1}`))
+    const h = makeHarness()
+    h.chatScroll.save({ anchorKey: 'fixture:user:151', anchorTop: 30, scrollTop: 123 })
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    installScrollMetrics(scroller, 960, 300)
+    const geometry = installIndexedUserGeometry(view.container, scroller, nodes)
+
+    expect(scroller.scrollTop).toBe(0)
+    act(() => { h.set({ nodes }) })
+
+    const anchor = view.container.querySelector<HTMLElement>('[data-chat-node-key="fixture:user:151"]')
+    expect(anchor).not.toBeNull()
+    expect(anchor!.getBoundingClientRect().top).toBe(30)
+    expect(scroller.scrollTop).toBe(290)
+    expect(view.queryByText('prompt 1')).toBeNull()
+    expect(view.getByText('prompt 151')).toBeDefined()
+    expect(view.getByLabelText('回到底部')).toBeTruthy()
+    geometry.rectangle.mockRestore()
   })
 
   it('normalizes a semantic restore clamped to the bottom before an immediate remount', () => {

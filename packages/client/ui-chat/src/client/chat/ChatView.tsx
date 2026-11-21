@@ -12,14 +12,15 @@ import {
   Button, IconChevronDownOutlineRegular, MarkdownDelegateProvider, Modal, type MarkdownMenuTarget,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { isAtOrOutside } from '../contract/group-tree.ts'
-import type { ChatFlowHookContext, ChatViewSlotProps, OpenFileOptions } from '../contract/slots.ts'
+import type { ChatFlowHookContext, ChatScrollPosition, ChatViewSlotProps, OpenFileOptions } from '../contract/slots.ts'
 import type { ChatSnapshot } from '../contract/snapshot.ts'
 import { TurnNavigator } from './TurnNavigator.tsx'
 import { mergeTurnRailItems } from './turn-rail-items.ts'
 import { useTextInteraction } from './text-interaction.ts'
 import { useChatScroll } from './use-chat-scroll.ts'
 import {
-  CHAT_RENDER_WINDOW_NODES, anchoredRenderWindow, earlierRenderWindow, renderWindowAnchor, resolveRenderWindow,
+  CHAT_RENDER_WINDOW_NODES, anchoredRenderWindow, earlierRenderWindow, laterRenderWindow,
+  renderWindowAnchor, resolveRenderWindow, savedAnchorIndex,
 } from './render-window.ts'
 import type { ChatRenderWindowAnchor } from './render-window.ts'
 import { fileMediaUrl, resolveWorkspacePath, sessionFileAddress } from '@deepseek-ai/dsh-util-workspace-path'
@@ -83,12 +84,29 @@ export function ChatView({
   }), [getTriggerProps, resolveFilePath, sessionId])
   const order = useChat(s => s.order)
   const groupedEntries = useConversation(snapshot => snapshot.views.grouped('chat')?.entries)
+  const historyWindow = useConversation(snapshot => snapshot.historyWindow)
+  const historyRevision = useConversation(snapshot => snapshot.historyWindow?.revision ?? 0)
   const entries = useMemo<readonly RenderEntry[]>(() => groupedEntries
     ?? order.map(key => ({ kind: 'node', key: key as NodeKey })), [groupedEntries, order])
   const nodeStore = useChat(s => s.nodes)
   const [renderWindow, setRenderWindow] = useState<ChatRenderWindowAnchor | null>(null)
+  const savedPosition = chatScroll.read()
+  const savedAnchor = useRef<{ readonly sessionId: string; readonly key: string | null } | null>(null)
+  if (savedAnchor.current?.sessionId !== sessionId) {
+    savedAnchor.current = { sessionId, key: savedPosition?.anchorKey ?? null }
+  }
+  const savedAnchorKey = savedAnchor.current.key
+  const savedWindow = useMemo(() => {
+    if (order.length <= CHAT_RENDER_WINDOW_NODES || savedAnchorKey === null) return null
+    const index = savedAnchorIndex(order, savedAnchorKey)
+    if (index < 0) return null
+    const bounds = anchoredRenderWindow(order.length, index, CHAT_RENDER_WINDOW_NODES,
+      Math.floor(CHAT_RENDER_WINDOW_NODES / 3))
+    return renderWindowAnchor(order, sessionId, bounds)
+  }, [order, savedAnchorKey, sessionId])
+  const activeRenderWindow = renderWindow?.sessionId === sessionId ? renderWindow : savedWindow ?? renderWindow
   const renderBounds = useMemo(
-    () => resolveRenderWindow(order, sessionId, renderWindow), [order, renderWindow, sessionId],
+    () => resolveRenderWindow(order, sessionId, activeRenderWindow), [activeRenderWindow, order, sessionId],
   )
   const renderOrder = useMemo(
     () => renderBounds.start === 0 && renderBounds.end === order.length
@@ -212,16 +230,24 @@ export function ChatView({
 
   const firstKey = order[0]
   const firstSeq = firstKey === undefined ? null : nodeStore.get(firstKey)?.anchorSeq ?? null
-  const renderControlState = useRef({ order, renderBounds, renderOrder, sessionId, turnNavigationItems, railItems })
-  renderControlState.current = { order, renderBounds, renderOrder, sessionId, turnNavigationItems, railItems }
+  const renderControlState = useRef({
+    order, renderBounds, renderOrder, sessionId, turnNavigationItems, railItems, historyWindow, historyRevision,
+  })
+  renderControlState.current = {
+    order, renderBounds, renderOrder, sessionId, turnNavigationItems, railItems, historyWindow, historyRevision,
+  }
   const revealEarlier = useCallback((): boolean => {
-    const { order: currentOrder, renderBounds: currentBounds, sessionId: currentSession } = renderControlState.current
+    const { order: currentOrder, renderBounds: currentBounds, sessionId: currentSession,
+      historyWindow: currentHistoryWindow } = renderControlState.current
     const next = earlierRenderWindow(currentOrder.length, currentBounds)
-    if (next === null) return false
-    const anchor = renderWindowAnchor(currentOrder, currentSession, next)
-    if (anchor === null) return false
-    setRenderWindow(anchor)
-    return true
+    if (next !== null) {
+      const anchor = renderWindowAnchor(currentOrder, currentSession, next)
+      if (anchor !== null) {
+        setRenderWindow(anchor)
+        return true
+      }
+    }
+    return currentHistoryWindow?.expandOlder() ?? false
   }, [])
   const revealTurn = useCallback((turn: number): boolean => {
     const { order: currentOrder, renderBounds: currentBounds, sessionId: currentSession,
@@ -239,33 +265,60 @@ export function ChatView({
   }, [])
   const revealThrough = useCallback((turn: number, seq: SessionSeq): boolean => {
     const { order: currentOrder, renderBounds: currentBounds, sessionId: currentSession,
-      railItems: currentRailItems } = renderControlState.current
+      railItems: currentRailItems, historyWindow: currentHistoryWindow } = renderControlState.current
     const target = currentRailItems.find(item => item.turn === turn)
-    if (target === undefined || target.anchor.kind !== 'loaded' || target.anchor.seq !== seq) return false
-    const index = currentOrder.indexOf(target.anchor.key)
-    if (index < 0 || (index >= currentBounds.start && index < currentBounds.end)) return false
-    const next = anchoredRenderWindow(currentOrder.length, index, CHAT_RENDER_WINDOW_NODES,
-      Math.floor(CHAT_RENDER_WINDOW_NODES / 3))
-    const anchor = renderWindowAnchor(currentOrder, currentSession, next)
-    if (anchor === null) return false
-    setRenderWindow(anchor)
-    return true
+    if (target === undefined || target.anchor.seq !== seq) return false
+    if (target.anchor.kind === 'loaded') {
+      const index = currentOrder.indexOf(target.anchor.key)
+      if (index >= currentBounds.start && index < currentBounds.end) return false
+      if (index >= 0) {
+        const next = anchoredRenderWindow(currentOrder.length, index, CHAT_RENDER_WINDOW_NODES,
+          Math.floor(CHAT_RENDER_WINDOW_NODES / 3))
+        const anchor = renderWindowAnchor(currentOrder, currentSession, next)
+        if (anchor !== null) {
+          setRenderWindow(anchor)
+          return true
+        }
+      }
+    }
+    return currentHistoryWindow?.revealThrough(turn, seq) ?? false
   }, [])
   const beforeLoadOlder = useCallback(() => {
     const { renderOrder: currentRenderOrder, sessionId: currentSession } = renderControlState.current
     const key = currentRenderOrder[0]
     if (key !== undefined) pendingRemoteAnchor.current = { sessionId: currentSession, key }
   }, [])
-  const hasMoreForUi = hasMore || renderBounds.start > 0
+  const readerPositionChanged = useCallback((position: ChatScrollPosition | null) => {
+    const pending = pendingRemoteAnchor.current
+    if (pending === null) return
+    if (pending.sessionId !== sessionId || position === null) {
+      pendingRemoteAnchor.current = null
+      return
+    }
+    pendingRemoteAnchor.current = { sessionId, key: position.anchorKey }
+  }, [sessionId])
+  const advanceRenderWindow = useCallback((): boolean => {
+    const { order: currentOrder, renderBounds: currentBounds, sessionId: currentSession } = renderControlState.current
+    const next = laterRenderWindow(currentOrder.length, currentBounds)
+    if (next === null) return false
+    const anchor = renderWindowAnchor(currentOrder, currentSession, next)
+    if (anchor === null) return false
+    setRenderWindow(anchor)
+    return true
+  }, [])
+  const hasMoreForUi = hasMore || historyWindow?.pending === true || renderBounds.start > 0
   const lastKey = order.at(-1) ?? null
   const latestSteering = pendingInputs.findLast(item => 'source' in item)
   const steeringId = latestSteering?.source.kind === 'user' && 'rpcId' in latestSteering.source
     ? latestSteering.source.rpcId : latestSteering?.id ?? null
+  const waitingForSavedAnchor = savedPosition !== null && order.length === 0
   const scroll = useChatScroll({
     sessionId,
-    ready: openState === 'open',
-    order, renderOrder, firstSeq, lastKey, running, loadingOlder, hasMore, loadOlder, loadThrough,
-    revealEarlier, revealTurn, revealThrough, beforeLoadOlder, chatScroll, deferCompletedTurns,
+    ready: openState === 'open' && !waitingForSavedAnchor,
+    order, renderOrder, firstSeq, lastKey, running, loadingOlder, hasMore, historyRevision, loadOlder, loadThrough,
+    revealEarlier, revealTurn, revealThrough, beforeLoadOlder, readerPositionChanged, chatScroll, deferCompletedTurns,
+    renderedGlobalTail: renderBounds.end === order.length,
+    advanceRenderWindow,
     lastIsUser: lastKey !== null && nodeStore.get(lastKey)?.kind === 'user',
     steeringId,
     submissionId: visibleSubmissions.at(-1)?.requestId ?? null,

@@ -56,6 +56,8 @@ function mountScroll(deferCompletedTurns = true, initial: Partial<ChatScrollInpu
     chatScroll: { read: () => null, save: vi.fn() },
     ...initial,
     renderOrder: initial.renderOrder ?? initial.order ?? [],
+    renderedGlobalTail: initial.renderedGlobalTail ?? true,
+    advanceRenderWindow: initial.advanceRenderWindow ?? (() => false),
   }
   const callbacks: { motion?: FlowMotionRows; resize?: () => void } = {}
   class Observer implements ResizeObserver {
@@ -120,7 +122,8 @@ function mountRows(heights: readonly number[]) {
   vi.stubGlobal('ResizeObserver', Observer)
   const input: ChatScrollInput = {
     sessionId: 'session-1',
-    ready: true, order: [], renderOrder: [], firstSeq: null, lastKey: null, lastIsUser: false,
+    ready: true, order: [], renderOrder: [], renderedGlobalTail: true, advanceRenderWindow: () => false,
+    firstSeq: null, lastKey: null, lastIsUser: false,
     steeringId: null, submissionId: null, submissionSteers: false, running: false, deferCompletedTurns: false,
     transcriptView: 'standard', loadedTurns: [], hasMore: false, loadingOlder: false,
     loadOlder: vi.fn(), loadThrough: vi.fn(async () => {}), chatScroll: { read: () => null, save: vi.fn() },
@@ -292,7 +295,8 @@ function mountVisibleFold(test: typeof visibleFoldCases[number], reduced: boolea
   const onMotion = (value: FlowMotionRows): void => { motion = value }
   let input: ChatScrollInput = {
     sessionId: 'session-1',
-    ready: false, order: [], renderOrder: [], firstSeq: null, lastKey: null, lastIsUser: false,
+    ready: false, order: [], renderOrder: [], renderedGlobalTail: true, advanceRenderWindow: () => false,
+    firstSeq: null, lastKey: null, lastIsUser: false,
     steeringId: null, submissionId: null, submissionSteers: false, running: false, deferCompletedTurns: true,
     transcriptView: 'detailed', loadedTurns: [], hasMore: false, loadingOlder: false,
     loadOlder: vi.fn(), loadThrough: vi.fn(async () => {}), chatScroll: { read: () => null, save: vi.fn() },

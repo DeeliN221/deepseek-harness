@@ -15,6 +15,8 @@ export interface ChatScrollInput extends ChatNavigationInput {
   readonly order: readonly string[]
   /** Rendered Chat suffix/slice; `order` remains the complete paging/navigation authority. */
   readonly renderOrder: readonly string[]
+  readonly renderedGlobalTail: boolean
+  readonly advanceRenderWindow: () => boolean
   readonly lastKey: string | null
   readonly lastIsUser: boolean
   readonly steeringId: string | null
@@ -48,19 +50,25 @@ interface ChatScrollState extends ChatReadingState {
  */
 export function useChatScroll(input: ChatScrollInput): ChatScrollState {
   const {
-    sessionId, ready, order, renderOrder, firstSeq, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running,
-    deferCompletedTurns, loadedTurns, chatScroll, hasMore, loadingOlder, loadOlder, loadThrough,
+    sessionId, ready, order, renderOrder, renderedGlobalTail, advanceRenderWindow,
+    firstSeq, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running,
+    deferCompletedTurns, loadedTurns, chatScroll, hasMore, historyRevision, loadingOlder, loadOlder, loadThrough,
     beforeLoadOlder, revealEarlier, revealTurn, revealThrough, transcriptView,
   } = input
   const { viewport, listRef, columnRef } = useChatViewport()
-  const { reading, state } = useChatReading(viewport, chatScroll, loadedTurns.at(-1)?.turn ?? null)
+  const { reading, state } = useChatReading(
+    viewport, chatScroll, loadedTurns.at(-1)?.turn ?? null, renderedGlobalTail, advanceRenderWindow,
+  )
   const navigationInput = useMemo(() => ({
     sessionId, firstSeq, loadingOlder, hasMore, loadOlder, loadThrough,
+    ...(historyRevision === undefined ? {} : { historyRevision }),
     ...(beforeLoadOlder === undefined ? {} : { beforeLoadOlder }),
     ...(revealEarlier === undefined ? {} : { revealEarlier }),
     ...(revealTurn === undefined ? {} : { revealTurn }),
     ...(revealThrough === undefined ? {} : { revealThrough }),
-  }), [sessionId, firstSeq, loadingOlder, hasMore, loadOlder, loadThrough, beforeLoadOlder, revealEarlier, revealTurn, revealThrough])
+    ...(input.readerPositionChanged === undefined ? {} : { readerPositionChanged: input.readerPositionChanged }),
+  }), [sessionId, firstSeq, loadingOlder, hasMore, historyRevision, loadOlder, loadThrough, beforeLoadOlder,
+    revealEarlier, revealTurn, revealThrough, input.readerPositionChanged])
   const { navigation, busyTurn } = useChatNavigation(viewport, reading, navigationInput)
   const navigationSession = useRef(sessionId)
   useLayoutEffect(() => {
@@ -121,6 +129,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
       scroll: (event) => {
         if (!content.current.opened) return
         if (!event.movedByReader && viewport.motion.foldActive()) return
+        navigation.readerMoved(event.movedByReader)
         reading.onScroll(event)
       },
       scrollEnd: (outer) => {
@@ -154,7 +163,8 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
   useLayoutEffect(() => {
     const previous = content.current.input
     content.current.input = {
-      ready, order, renderOrder, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running, loadedTurns,
+      ready, order, renderOrder, renderedGlobalTail, advanceRenderWindow,
+      lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running, loadedTurns,
       chatScroll, deferCompletedTurns, transcriptView, ...navigationInput,
     }
     if (!deferCompletedTurns) {
@@ -168,7 +178,8 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
     processContent()
     if (layoutChanged && content.current.opened) reading.refreshActiveTurn()
   }, [
-    viewport, reading, processContent, navigationInput, ready, order, renderOrder, lastKey, lastIsUser,
+    viewport, reading, processContent, navigationInput, ready, order, renderOrder,
+    renderedGlobalTail, advanceRenderWindow, lastKey, lastIsUser,
     steeringId, submissionId, submissionSteers, running, loadedTurns, chatScroll, deferCompletedTurns, transcriptView,
     cancelPendingFollow,
   ])

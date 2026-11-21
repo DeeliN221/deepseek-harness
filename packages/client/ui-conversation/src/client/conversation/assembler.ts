@@ -70,6 +70,11 @@ const PUBLICATION_RANK: Record<ConversationPublication, number> = {
 }
 
 const LOCATION_DATA_SCOPES: readonly ConversationLocationDataScope[] = ['step', 'turn']
+const INITIAL_WINDOW_TURNS = 24
+const HISTORY_PAGE_TURNS = 20
+const MIN_WINDOW_TURNS = 48
+const INITIAL_WINDOW_CONTEXTS = 512
+const HISTORY_PAGE_CONTEXTS = 512
 
 function emptyLocationData(): Record<ConversationLocationDataScope, ConversationLocationData | null> {
   return { step: null, turn: null }
@@ -190,6 +195,12 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
   private readonly matchedDefinitions: ConversationNodeDefinition[] = []
   private readonly matchedResults: ConversationMatchResult[] = []
   private hasMore = false
+  private turnFloor: number | undefined
+  private windowSeqFloor: number | undefined
+  private windowRevisionValue = 0
+  private windowOpened = false
+  private windowCompleted = false
+  private windowWasPaged = false
   private replacePending = true
   private timelineDirty = true
 
@@ -217,6 +228,150 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     return turn?.status === 'open' && turn.start !== undefined ? turn.turn : undefined
   }
 
+  /** @returns revision of the currently materialized local-history window. */
+  windowRevision(): number { return this.windowRevisionValue }
+
+  /** @returns whether older Contexts from the loaded event window remain hidden. */
+  windowPending(): boolean { return this.windowSeqFloor !== undefined }
+
+  /** Materialize one older local page, returning false when the loaded window is complete. */
+  expandOlder(): boolean {
+    const floor = this.windowSeqFloor
+    if (floor === undefined) return false
+    this.admitOlder(floor, this.olderWindowFloor(HISTORY_PAGE_TURNS))
+    return true
+  }
+
+  /**
+   * Reveal one local page only when the matching Turn start is already loaded.
+   * @param turn - outline Turn number.
+   * @param seq - durable Turn-start sequence from the outline.
+   * @returns whether one older page was materialized locally.
+   */
+  revealThrough(turn: number, seq: number): boolean {
+    if (!this.inputs.has(seq)) return false
+    if (this.locationIndex.snapshot().turns.get(turn)?.start?.seq !== seq) return false
+    return this.windowSeqFloor !== undefined && seq < this.windowSeqFloor && this.expandOlder()
+  }
+
+  private initialTurnFloor(): number | undefined {
+    const order = this.locationIndex.snapshot().turnOrder
+    if (order.length <= MIN_WINDOW_TURNS) return undefined
+    return order[Math.max(0, order.length - INITIAL_WINDOW_TURNS)]
+  }
+
+  private contextLocation(context: InternalContext): ConversationMatch['location'] | undefined {
+    return (context.start ?? context.matches[0])?.location
+  }
+
+  private contextSeq(context: InternalContext): number | undefined {
+    return context.startSeq ?? context.matches[0]?.event.seq
+  }
+
+  private windowContexts(): InternalContext[] {
+    return [...this.contexts.values()]
+      .filter(context => context.definition.target !== undefined
+        && this.contextLocation(context)?.kind !== 'session'
+        && this.contextLocation(context)?.kind !== 'unresolved'
+        && this.contextSeq(context) !== undefined)
+      .sort((left, right) => (this.contextSeq(left) as number) - (this.contextSeq(right) as number))
+  }
+
+  private maxFloor(left: number | undefined, right: number | undefined): number | undefined {
+    if (left === undefined) return right
+    if (right === undefined) return left
+    return Math.max(left, right)
+  }
+
+  private turnStartSeq(turn: number): number | undefined {
+    return this.locationIndex.snapshot().turns.get(turn)?.start?.seq
+  }
+
+  private floorTurn(seq: number | undefined): number | undefined {
+    if (seq === undefined) return undefined
+    const context = this.windowContexts().find(candidate => (this.contextSeq(candidate) as number) >= seq)
+    const location = context === undefined ? undefined : this.contextLocation(context)
+    if (location !== undefined && location.kind !== 'session' && location.kind !== 'unresolved') {
+      return location.turn.turn
+    }
+    return this.locationIndex.snapshot().turnOrder.at(-1)
+  }
+
+  private initialWindowFloor(): number | undefined {
+    const turnFloor = this.initialTurnFloor()
+    const turnSeq = turnFloor === undefined ? undefined : this.turnStartSeq(turnFloor)
+    const contexts = this.windowContexts()
+    const context = contexts.length > INITIAL_WINDOW_CONTEXTS
+      ? contexts[contexts.length - INITIAL_WINDOW_CONTEXTS]
+      : undefined
+    const contextSeq = context === undefined ? undefined : this.contextSeq(context)
+    return this.maxFloor(turnSeq, contextSeq)
+  }
+
+  private olderTurnFloor(turns: number): number | undefined {
+    const current = this.turnFloor
+    if (current === undefined) return undefined
+    const order = this.locationIndex.snapshot().turnOrder
+    const index = order.indexOf(current)
+    if (index <= 0) return undefined
+    const turn = order[Math.max(0, index - Math.max(1, turns))]
+    return turn === undefined ? undefined : this.turnStartSeq(turn)
+  }
+
+  private olderNodeFloor(contexts: number): number | undefined {
+    const current = this.windowSeqFloor
+    if (current === undefined) return undefined
+    const nodes = this.windowContexts()
+    const index = nodes.findIndex(context => (this.contextSeq(context) as number) >= current)
+    if (index <= 0 || index <= Math.max(1, contexts)) return undefined
+    const context = nodes[index - Math.max(1, contexts)]
+    return context === undefined ? undefined : this.contextSeq(context)
+  }
+
+  private olderWindowFloor(turns: number): number | undefined {
+    return this.maxFloor(this.olderTurnFloor(turns), this.olderNodeFloor(HISTORY_PAGE_CONTEXTS))
+  }
+
+  private setWindowFloor(seq: number | undefined): void {
+    const nextTurn = this.floorTurn(seq)
+    if (this.windowSeqFloor === seq && this.turnFloor === nextTurn) return
+    this.windowSeqFloor = seq
+    this.turnFloor = nextTurn
+    this.windowRevisionValue++
+  }
+
+  private preservedWindowFloor(): number | undefined {
+    if (this.windowCompleted && this.windowWasPaged) return undefined
+    const floor = this.windowSeqFloor
+    if (floor === undefined) return this.initialWindowFloor()
+    return this.windowContexts().some(context => (this.contextSeq(context) as number) >= floor)
+      ? floor
+      : this.initialWindowFloor()
+  }
+
+  private admitOlder(previousFloor: number, nextFloor: number | undefined): void {
+    const wasCompleted = this.windowCompleted
+    this.windowWasPaged = true
+    this.setWindowFloor(nextFloor)
+    this.windowCompleted = nextFloor === undefined
+    for (const context of this.contexts.values()) {
+      const seq = this.contextSeq(context)
+      if (seq === undefined) continue
+      const wasVisible = wasCompleted || seq >= previousFloor
+      const isVisible = nextFloor === undefined || seq >= nextFloor
+      if (!wasVisible && isVisible) this.markDirty(context)
+    }
+  }
+
+  private inWindow(context: InternalContext): boolean {
+    const floor = this.windowSeqFloor
+    if (floor === undefined) return true
+    const location = this.contextLocation(context)
+    if (location === undefined || location.kind === 'session' || location.kind === 'unresolved') return true
+    const seq = this.contextSeq(context)
+    return seq === undefined || seq >= floor
+  }
+
   /**
    * Replace the complete loaded window after open, resync, or gap repair.
    * @param entries - complete contiguous window.
@@ -242,6 +397,12 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     this.replayDependencies()
     this.revised.clear()
     for (const context of this.contexts.values()) this.markDirty(context)
+    const floor = this.windowOpened ? this.preservedWindowFloor() : this.initialWindowFloor()
+    this.setWindowFloor(floor)
+    this.windowCompleted = floor === undefined
+    if (floor !== undefined) this.windowWasPaged = true
+    else if (this.windowContexts().length <= INITIAL_WINDOW_CONTEXTS) this.windowWasPaged = false
+    this.windowOpened = true
     this.replacePending = true
     return 'immediate'
   }
@@ -975,6 +1136,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
   ): ConversationViewNode[] {
     const nodes: ConversationViewNode[] = []
     for (const context of contexts ?? []) {
+      if (!this.inWindow(context)) continue
       const node = this.buildNode(context, target)
       context.current.set(target, node)
       if (node !== null) nodes.push(node)
@@ -988,6 +1150,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
   ): ConversationViewNode[] {
     const upserts: ConversationViewNode[] = []
     for (const context of contexts ?? []) {
+      if (!this.inWindow(context)) continue
       const previous = context.current.get(target) ?? null
       const node = this.buildNode(context, target)
       if (node === null && previous !== null) {
