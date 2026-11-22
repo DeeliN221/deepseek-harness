@@ -1,0 +1,1657 @@
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -9,7 +9,7 @@
+ 		let _deepseek_ai_dsh_client_store = require("@deepseek-ai/dsh-client-store");
+ 		let _deepseek_ai_cordis = require("@deepseek-ai/cordis");
+ 		let react_jsx_runtime = require("react/jsx-runtime");
+-		//#region lib/types/client/session-actions/SessionMenu.js
++		//#region src/client/session-actions/SessionMenu.tsx
+ 		/** Legacy external Session contributions shared by the row, header, and More trigger. */
+ 		/** @param props - captured Session and the existing extension position. @returns legacy component contributions. */
+ 		function SessionMenu({ target, dismiss, renderSlot }) {
+@@ -20,7 +20,7 @@
+ 			return renderSlot("sidebar.workspaces.session.menu.item", target.value, { hookContext });
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/contract/slots.js
++		//#region src/client/contract/slots.ts
+ 		/**
+ 		* Bind the row's render occurrence into the entries' `useMenuOpenState` hook:
+ 		* the owner supplies its open-state pair as the occurrence's `hookContext`,
+@@ -31,12 +31,12 @@
+ 		*/
+ 		const menuOpenStateFactory = (_standard, state) => () => state;
+ 		//#endregion
+-		//#region lib/types/client/shortcuts.js
++		//#region src/client/shortcuts.ts
+ 		/**
+ 		* Create the private browser request source shared by commands and controls.
+ 		* @returns observable state and its complete mutation callbacks.
+ 		*/
+-		function createWorkspaceShortcutControls() {
++		function createWorkspaceShortcutControls(handleSearch = () => false) {
+ 			const state = (0, _deepseek_ai_dsh_client_store.createSnapshotStore)({
+ 				searchRequest: 0,
+ 				addRequested: false,
+@@ -46,6 +46,7 @@
+ 			return {
+ 				state,
+ 				search: () => {
++					if (handleSearch()) return;
+ 					state.set({
+ 						...state.getSnapshot(),
+ 						searchRequest: state.getSnapshot().searchRequest + 1
+@@ -198,7 +199,7 @@
+ 			});
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/sidebar-visibility.js
++		//#region src/client/sidebar-visibility.ts
+ 		function policySets(policy) {
+ 			if ("hiddenSessionIds" in policy) return {
+ 				hidden: new Set(policy.hiddenSessionIds),
+@@ -1287,7 +1288,7 @@
+ 			return owner;
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/stores.js
++		//#region src/client/stores.ts
+ 		/**
+ 		* The workspace browser's viewing store: the session-list grouping mode,
+ 		* persisted across reloads. Module level exports the factory only (a
+@@ -1357,7 +1358,7 @@
+ 			});
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/pin-order.js
++		//#region src/client/pin-order.ts
+ 		/**
+ 		* Every account's complete membership: each Workspace, Ungrouped, and the flat list.
+ 		* @param workspaces - current Host Workspaces.
+@@ -1387,7 +1388,32 @@
+ 			return [owningGroupKey(workspaces, sessionId), FLAT_SESSION_ORDER_KEY];
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/navigation.js
++		//#region src/client/search-handler.ts
++		/** One active search provider, owned by the Workspace UI service lifetime. */
++		function createWorkspaceSearchHandler() {
++			const handlers = /* @__PURE__ */ new Map();
++			return {
++				register(handler) {
++					const key = Symbol("workspace-search");
++					handlers.set(key, handler);
++					return () => {
++						handlers.delete(key);
++					};
++				},
++				dispatch() {
++					const handler = [...handlers.values()].at(-1);
++					if (!handler) return false;
++					try {
++						return handler() === true;
++					} catch (error) {
++						console.warn("Workspace search provider failed; using native search", error);
++						return false;
++					}
++				}
++			};
++		}
++		//#endregion
++		//#region src/client/navigation.ts
+ 		/** Workspace archive and directory UI capability. */
+ 		/** Structured directory failure exposed to directory UI consumers. */
+ 		var DirectoryBrowseError = class extends Error {
+@@ -1406,6 +1432,11 @@
+ 			sessions;
+ 			view;
+ 			notify;
++			/** Private routing shared by the native shortcut and pointer controls. */
++			searchHandler = createWorkspaceSearchHandler();
++			registerSearchHandler(handler) {
++				return this.searchHandler.register(handler);
++			}
+ 			/** Merged navigation-only policy. Providers own provenance and durability. */
+ 			sidebarHiddenSessions = (0, _deepseek_ai_dsh_client_store.createSnapshotStore)([]);
+ 			sidebarSources = /* @__PURE__ */ new Map();
+@@ -1846,7 +1877,7 @@
+ 			return selected;
+ 		}
+ 		//#endregion
+-		//#region ../../../node_modules/.pnpm/clsx@2.1.1/node_modules/clsx/dist/clsx.mjs
++		//#region ../../../../../../betterdsh-20261120/session-loading/deepseek-harness/node_modules/.pnpm/clsx@2.1.1/node_modules/clsx/dist/clsx.mjs
+ 		function r(e) {
+ 			var t, f, n = "";
+ 			if ("string" == typeof e || "number" == typeof e) n += e;
+@@ -1861,8 +1892,8 @@
+ 			return n;
+ 		}
+ 		//#endregion
+-		//#region \0dsh-css:/data/workspace/state/betterdsh-20261120/session-loading/deepseek-harness/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.module.css.mjs
+-		const css$2 = ".-_QcMW_root{--dsh-session-list-edge-inset:var(--dsh-sidebar-inline-padding);--dsh-session-list-scrollbar-width:5px;--dsh-session-list-scrollbar-offset:2px;box-sizing:border-box;min-height:0;padding-right:var(--dsh-session-list-edge-inset);flex-direction:column;flex:1;display:flex}.-_QcMW_root.-_QcMW_rail{padding-right:0}.-_QcMW_iconButton{border-radius:var(--dsw-radius-sm);cursor:pointer;width:28px;height:28px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.-_QcMW_iconButton:focus-visible,.-_QcMW_searchButton:focus-visible,.-_QcMW_clearButton:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:-2px}@media (hover:hover){.-_QcMW_iconButton:hover{background:var(--dsw-alias-interactive-bg-hover)}}.-_QcMW_viewOptionsMenu{min-width:200px}.-_QcMW_sectionHeader{height:36px;padding-left:var(--dsh-sidebar-row-padding);box-sizing:border-box;border-radius:var(--dsw-radius-md);color:var(--dsw-alias-label-tertiary);flex:none;justify-content:flex-end;align-items:center;gap:4px;margin-bottom:4px;display:flex;overflow:hidden}.-_QcMW_root:not(.-_QcMW_rail) .-_QcMW_sectionHeader{margin-top:2px;margin-right:-4px}.-_QcMW_root:not(.-_QcMW_rail) .-_QcMW_sectionHeader.-_QcMW_searchSpacingMotion{transition:margin-right .18s var(--ds-ease-in-out), padding-inline .18s var(--ds-ease-in-out), gap .18s var(--ds-ease-in-out)}.-_QcMW_root:not(.-_QcMW_rail) .-_QcMW_sectionHeader:not(:has(.-_QcMW_searchExpanded)){padding-right:1px}.-_QcMW_sectionLabel{white-space:nowrap;opacity:1;visibility:visible;min-width:0;max-width:45%;transition:max-width .18s var(--ds-ease-in-out), margin-right .18s var(--ds-ease-in-out), opacity .12s var(--ds-ease-in-out), transform .18s var(--ds-ease-in-out), visibility 0s linear;flex:none;line-height:20px;position:relative;left:-1px;overflow:hidden}.-_QcMW_sectionLabelHidden{opacity:0;visibility:hidden;max-width:0;margin-right:-4px;transition-delay:0s,0s,0s,0s,.18s;transform:translate(-4px)}.-_QcMW_searchSlot{box-sizing:border-box;min-width:0;max-width:28px;transition:max-width .18s var(--ds-ease-in-out), padding-left .18s var(--ds-ease-in-out);flex:1;align-items:center;margin-left:auto;padding-left:0;display:flex}.-_QcMW_searchSlotExpanded{max-width:100%;padding-left:0}.-_QcMW_headerActions{opacity:1;visibility:visible;max-width:60px;transition:max-width .18s var(--ds-ease-in-out), opacity .12s var(--ds-ease-in-out), transform .18s var(--ds-ease-in-out), visibility 0s linear;flex:none;align-items:center;gap:4px;display:flex;overflow:hidden}.-_QcMW_headerActionsHidden{opacity:0;visibility:hidden;pointer-events:none;max-width:0;transition-delay:0s,0s,0s,.18s;transform:translate(4px)}.-_QcMW_search{box-sizing:border-box;border-radius:var(--dsw-radius-sm);cursor:text;width:100%;height:28px;color:var(--dsw-alias-label-secondary);transition:width .18s var(--ds-ease-in-out), padding .18s var(--ds-ease-in-out), border-color .18s var(--ds-ease-in-out), background-color .18s var(--ds-ease-in-out);background:0 0;border:none;flex:none;align-items:center;gap:0;margin:0;padding:0;display:flex;overflow:hidden}.-_QcMW_root:not(.-_QcMW_rail) .-_QcMW_sectionHeader:has(.-_QcMW_searchExpanded){padding-inline:calc(var(--dsh-sidebar-paint-inset) + 1px);gap:0;margin-right:0}.-_QcMW_sectionHeader:has(.-_QcMW_searchExpanded) .-_QcMW_sectionLabelHidden{margin-right:0}.-_QcMW_searchExpanded{border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-md);width:100%;height:32px;color:var(--dsw-alias-label-caption);background:0 0;margin-inline:0;padding:0 4px 0 0}.-_QcMW_searchButton{border-radius:var(--dsw-radius-sm);cursor:pointer;width:28px;height:28px;color:inherit;background:0 0;border:none;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.-_QcMW_searchExpanded .-_QcMW_searchButton{width:28px;height:32px}@media (hover:hover){.-_QcMW_searchButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.-_QcMW_searchExpanded .-_QcMW_searchButton:hover{background:0 0}}.-_QcMW_searchInput{opacity:0;pointer-events:none;width:0;min-width:0;color:var(--dsw-alias-label-primary);transition:opacity .12s var(--ds-ease-in-out);background:0 0;border:none;outline:none;flex:1;font-size:13px;line-height:18px}.-_QcMW_searchExpanded .-_QcMW_searchInput{opacity:1;pointer-events:auto;margin-left:-2px}.-_QcMW_searchInput::placeholder{color:var(--dsw-alias-label-tertiary)}.-_QcMW_clearButton{border-radius:var(--dsw-radius-sm);cursor:pointer;width:24px;height:24px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}@media (hover:hover){.-_QcMW_clearButton:hover{background:var(--dsw-alias-interactive-bg-hover)}}.-_QcMW_rail .-_QcMW_sectionHeader{justify-content:flex-start;gap:0;margin-bottom:12px;padding-left:0}.-_QcMW_rail .-_QcMW_headerActions{max-width:none}.-_QcMW_rail .-_QcMW_iconButton{border-radius:var(--dsw-radius-md);width:36px;height:36px;color:var(--dsw-alias-label-primary)}.-_QcMW_rail .-_QcMW_search{border-radius:var(--dsw-radius-md);background:0 0;border-color:#0000;gap:0;width:36px;height:36px;margin:0 0 12px;padding:0}.-_QcMW_rail .-_QcMW_searchButton{border-radius:var(--dsw-radius-md);width:36px;height:36px;color:var(--dsw-alias-label-primary)}@media (hover:hover){.-_QcMW_rail .-_QcMW_searchButton:hover{background:var(--dsw-alias-interactive-bg-hover)}}.-_QcMW_listArea{min-height:0;margin-left:-4px;margin-right:calc(-1 * var(--dsh-session-list-edge-inset));flex-direction:column;flex:1;padding-left:4px;display:flex;overflow:visible}.-_QcMW_rail .-_QcMW_listArea{margin-left:0;margin-right:0;padding-left:0}.-_QcMW_treeBody{flex-direction:column;flex:1;min-height:0;display:flex;position:relative}.-_QcMW_fade{left:0;right:var(--dsh-session-list-edge-inset);background:linear-gradient(to bottom, transparent, var(--dsw-specific-sidebar-fill));pointer-events:none;height:24px;position:absolute;bottom:0}[data-platform=darwin] .-_QcMW_fade{display:none}.-_QcMW_wide{animation:-_QcMW_wide-in .2s var(--ds-ease-in-out)}@keyframes -_QcMW_wide-in{0%{opacity:0}}.-_QcMW_list{min-height:0;margin-left:-4px;margin-right:var(--dsh-session-list-scrollbar-offset);padding-left:4px;padding-right:calc(var(--dsh-session-list-edge-inset) - var(--dsh-session-list-scrollbar-width) - var(--dsh-session-list-scrollbar-offset));scrollbar-gutter:stable;flex:1;padding-bottom:16px;overflow-y:auto}.-_QcMW_flatList>*+*,.-_QcMW_searchTree>[role=treeitem]+[role=treeitem],.-_QcMW_groupSection>*+*{margin-top:2px}.-_QcMW_searchStatus{color:var(--dsw-alias-label-tertiary);padding:10px 12px;font-size:12px;line-height:18px}.-_QcMW_skeletonRow{align-items:flex-start;gap:var(--dsh-sidebar-label-gap);box-sizing:border-box;min-height:48px;padding:6px var(--dsh-sidebar-row-padding) 7px;display:flex}.-_QcMW_skeletonDot{corner-shape:round;border-radius:50%;flex:none;width:16px;height:16px}.-_QcMW_skeletonBars{flex-direction:column;flex:1;gap:6px;min-width:0;display:flex}.-_QcMW_skeletonDot,.-_QcMW_skeletonBar{background:var(--dsw-alias-bg-skeleton);animation:2s cubic-bezier(.36,0,.64,1) infinite -_QcMW_search-skeleton}.-_QcMW_skeletonBar{border-radius:var(--dsw-radius-xs);width:65%;height:16px}.-_QcMW_skeletonBarWide{width:90%;height:13px}@keyframes -_QcMW_search-skeleton{0%{opacity:1}40%{opacity:.6}80%,to{opacity:1}}.-_QcMW_groupSection{position:relative}.-_QcMW_groupSection+.-_QcMW_groupSection{margin-top:4px}.-_QcMW_listTopDropIndicator,.-_QcMW_workspaceDropBefore:before,.-_QcMW_workspaceDropAfter:after{content:\"\";z-index:1;background:linear-gradient(55deg, transparent calc(50% - 1px), var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)) 0 0 / 5px 7px no-repeat, linear-gradient(125deg, transparent calc(50% - 1px), var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)) 0 5px / 5px 7px no-repeat, linear-gradient(var(--dsw-alias-state-business-primary) 0 0) 4px 5px / calc(100% - 4px) 2px no-repeat;pointer-events:none;height:12px;position:absolute;left:0;right:0}.-_QcMW_listTopDropIndicator{top:-8px;left:0;right:var(--dsh-session-list-edge-inset)}.-_QcMW_listTopDropActive>.-_QcMW_workspaceDropBefore:first-child:before{display:none}.-_QcMW_workspaceDropBefore:before{top:-8px}.-_QcMW_workspaceDropAfter:after{bottom:-8px}.-_QcMW_sessionOverflowButton{border-radius:var(--dsw-radius-sm);width:100%;height:28px;padding:0 var(--dsh-sidebar-row-padding) 0 calc(var(--dsh-sidebar-row-padding) + 16px + var(--dsh-sidebar-label-gap) + var(--dsh-workspace-indent,0px));cursor:pointer;text-align:left;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;font-size:12px}.-_QcMW_groupSection>.-_QcMW_sessionOverflowButton{margin-top:0}@media (hover:hover){.-_QcMW_sessionOverflowButton:hover{color:var(--dsw-alias-label-secondary);background:0 0}}.-_QcMW_empty{color:var(--dsw-alias-label-tertiary);padding:16px 12px;font-size:13px}.-_QcMW_emptyState{color:var(--dsw-alias-label-tertiary);flex-direction:column;align-items:center;gap:8px;margin-top:80px;padding:0 12px;font-size:13px;line-height:20px;display:flex}.-_QcMW_emptyState>svg{color:var(--dsw-alias-label-caption);margin-bottom:4px}.-_QcMW_emptyAction{cursor:pointer;color:var(--dsw-alias-link);background:0 0;border:none;padding:0;font-size:13px;line-height:20px}.-_QcMW_renameInput{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-lg);width:100%;height:44px;color:var(--dsw-alias-label-primary);background:0 0;outline:none;padding:7px 14px;font-size:14px;font-weight:400;line-height:22px}.-_QcMW_renameInput:disabled{color:var(--dsw-alias-label-dimmed)}.-_QcMW_renameError{color:var(--dsw-alias-state-error-primary);margin-top:8px;font-size:12px;line-height:18px}.-_QcMW_deleteAction:not(:disabled){color:var(--dsw-alias-state-error-primary)}.-_QcMW_deleteStatus{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}.-_QcMW_archiveActivity{color:var(--dsw-alias-label-primary);margin:0 0 8px;padding-left:18px;font-size:13px;line-height:20px}.-_QcMW_archiveActivity li{overflow-wrap:anywhere}@media (pointer:coarse){.-_QcMW_searchInput,.-_QcMW_renameInput{font-size:16px}}@media (prefers-reduced-motion:reduce){.-_QcMW_wide,.-_QcMW_skeletonDot,.-_QcMW_skeletonBar{animation:none}.-_QcMW_root:not(.-_QcMW_rail) .-_QcMW_sectionHeader.-_QcMW_searchSpacingMotion,.-_QcMW_search,.-_QcMW_sectionLabel,.-_QcMW_searchSlot,.-_QcMW_searchInput,.-_QcMW_headerActions{transition:none}}";
++		//#region \0dsh-css:/data/workspace/state/dsh-search-unified-20261122/sources/core/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.module.css.mjs
++		const css$2 = ".Vk5Gqq_root{--dsh-session-list-edge-inset:var(--dsh-sidebar-inline-padding);--dsh-session-list-scrollbar-width:5px;--dsh-session-list-scrollbar-offset:2px;box-sizing:border-box;min-height:0;padding-right:var(--dsh-session-list-edge-inset);flex-direction:column;flex:1;display:flex}.Vk5Gqq_root.Vk5Gqq_rail{padding-right:0}.Vk5Gqq_iconButton{border-radius:var(--dsw-radius-sm);cursor:pointer;width:28px;height:28px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.Vk5Gqq_iconButton:focus-visible,.Vk5Gqq_searchButton:focus-visible,.Vk5Gqq_clearButton:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:-2px}@media (hover:hover){.Vk5Gqq_iconButton:hover{background:var(--dsw-alias-interactive-bg-hover)}}.Vk5Gqq_viewOptionsMenu{min-width:200px}.Vk5Gqq_sectionHeader{height:36px;padding-left:var(--dsh-sidebar-row-padding);box-sizing:border-box;border-radius:var(--dsw-radius-md);color:var(--dsw-alias-label-tertiary);flex:none;justify-content:flex-end;align-items:center;gap:4px;margin-bottom:4px;display:flex;overflow:hidden}.Vk5Gqq_root:not(.Vk5Gqq_rail) .Vk5Gqq_sectionHeader{margin-top:2px;margin-right:-4px}.Vk5Gqq_root:not(.Vk5Gqq_rail) .Vk5Gqq_sectionHeader.Vk5Gqq_searchSpacingMotion{transition:margin-right .18s var(--ds-ease-in-out), padding-inline .18s var(--ds-ease-in-out), gap .18s var(--ds-ease-in-out)}.Vk5Gqq_root:not(.Vk5Gqq_rail) .Vk5Gqq_sectionHeader:not(:has(.Vk5Gqq_searchExpanded)){padding-right:1px}.Vk5Gqq_sectionLabel{white-space:nowrap;opacity:1;visibility:visible;min-width:0;max-width:45%;transition:max-width .18s var(--ds-ease-in-out), margin-right .18s var(--ds-ease-in-out), opacity .12s var(--ds-ease-in-out), transform .18s var(--ds-ease-in-out), visibility 0s linear;flex:none;line-height:20px;position:relative;left:-1px;overflow:hidden}.Vk5Gqq_sectionLabelHidden{opacity:0;visibility:hidden;max-width:0;margin-right:-4px;transition-delay:0s,0s,0s,0s,.18s;transform:translate(-4px)}.Vk5Gqq_searchSlot{box-sizing:border-box;min-width:0;max-width:28px;transition:max-width .18s var(--ds-ease-in-out), padding-left .18s var(--ds-ease-in-out);flex:1;align-items:center;margin-left:auto;padding-left:0;display:flex}.Vk5Gqq_searchSlotExpanded{max-width:100%;padding-left:0}.Vk5Gqq_headerActions{opacity:1;visibility:visible;max-width:60px;transition:max-width .18s var(--ds-ease-in-out), opacity .12s var(--ds-ease-in-out), transform .18s var(--ds-ease-in-out), visibility 0s linear;flex:none;align-items:center;gap:4px;display:flex;overflow:hidden}.Vk5Gqq_headerActionsHidden{opacity:0;visibility:hidden;pointer-events:none;max-width:0;transition-delay:0s,0s,0s,.18s;transform:translate(4px)}.Vk5Gqq_search{box-sizing:border-box;border-radius:var(--dsw-radius-sm);cursor:text;width:100%;height:28px;color:var(--dsw-alias-label-secondary);transition:width .18s var(--ds-ease-in-out), padding .18s var(--ds-ease-in-out), border-color .18s var(--ds-ease-in-out), background-color .18s var(--ds-ease-in-out);background:0 0;border:none;flex:none;align-items:center;gap:0;margin:0;padding:0;display:flex;overflow:hidden}.Vk5Gqq_root:not(.Vk5Gqq_rail) .Vk5Gqq_sectionHeader:has(.Vk5Gqq_searchExpanded){padding-inline:calc(var(--dsh-sidebar-paint-inset) + 1px);gap:0;margin-right:0}.Vk5Gqq_sectionHeader:has(.Vk5Gqq_searchExpanded) .Vk5Gqq_sectionLabelHidden{margin-right:0}.Vk5Gqq_searchExpanded{border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-md);width:100%;height:32px;color:var(--dsw-alias-label-caption);background:0 0;margin-inline:0;padding:0 4px 0 0}.Vk5Gqq_searchButton{border-radius:var(--dsw-radius-sm);cursor:pointer;width:28px;height:28px;color:inherit;background:0 0;border:none;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.Vk5Gqq_searchExpanded .Vk5Gqq_searchButton{width:28px;height:32px}@media (hover:hover){.Vk5Gqq_searchButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.Vk5Gqq_searchExpanded .Vk5Gqq_searchButton:hover{background:0 0}}.Vk5Gqq_searchInput{opacity:0;pointer-events:none;width:0;min-width:0;color:var(--dsw-alias-label-primary);transition:opacity .12s var(--ds-ease-in-out);background:0 0;border:none;outline:none;flex:1;font-size:13px;line-height:18px}.Vk5Gqq_searchExpanded .Vk5Gqq_searchInput{opacity:1;pointer-events:auto;margin-left:-2px}.Vk5Gqq_searchInput::placeholder{color:var(--dsw-alias-label-tertiary)}.Vk5Gqq_clearButton{border-radius:var(--dsw-radius-sm);cursor:pointer;width:24px;height:24px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}@media (hover:hover){.Vk5Gqq_clearButton:hover{background:var(--dsw-alias-interactive-bg-hover)}}.Vk5Gqq_rail .Vk5Gqq_sectionHeader{justify-content:flex-start;gap:0;margin-bottom:12px;padding-left:0}.Vk5Gqq_rail .Vk5Gqq_headerActions{max-width:none}.Vk5Gqq_rail .Vk5Gqq_iconButton{border-radius:var(--dsw-radius-md);width:36px;height:36px;color:var(--dsw-alias-label-primary)}.Vk5Gqq_rail .Vk5Gqq_search{border-radius:var(--dsw-radius-md);background:0 0;border-color:#0000;gap:0;width:36px;height:36px;margin:0 0 12px;padding:0}.Vk5Gqq_rail .Vk5Gqq_searchButton{border-radius:var(--dsw-radius-md);width:36px;height:36px;color:var(--dsw-alias-label-primary)}@media (hover:hover){.Vk5Gqq_rail .Vk5Gqq_searchButton:hover{background:var(--dsw-alias-interactive-bg-hover)}}.Vk5Gqq_listArea{min-height:0;margin-left:-4px;margin-right:calc(-1 * var(--dsh-session-list-edge-inset));flex-direction:column;flex:1;padding-left:4px;display:flex;overflow:visible}.Vk5Gqq_rail .Vk5Gqq_listArea{margin-left:0;margin-right:0;padding-left:0}.Vk5Gqq_treeBody{flex-direction:column;flex:1;min-height:0;display:flex;position:relative}.Vk5Gqq_fade{left:0;right:var(--dsh-session-list-edge-inset);background:linear-gradient(to bottom, transparent, var(--dsw-specific-sidebar-fill));pointer-events:none;height:24px;position:absolute;bottom:0}[data-platform=darwin] .Vk5Gqq_fade{display:none}.Vk5Gqq_wide{animation:Vk5Gqq_wide-in .2s var(--ds-ease-in-out)}@keyframes Vk5Gqq_wide-in{0%{opacity:0}}.Vk5Gqq_list{min-height:0;margin-left:-4px;margin-right:var(--dsh-session-list-scrollbar-offset);padding-left:4px;padding-right:calc(var(--dsh-session-list-edge-inset) - var(--dsh-session-list-scrollbar-width) - var(--dsh-session-list-scrollbar-offset));scrollbar-gutter:stable;flex:1;padding-bottom:16px;overflow-y:auto}.Vk5Gqq_flatList>*+*,.Vk5Gqq_searchTree>[role=treeitem]+[role=treeitem],.Vk5Gqq_groupSection>*+*{margin-top:2px}.Vk5Gqq_searchStatus{color:var(--dsw-alias-label-tertiary);padding:10px 12px;font-size:12px;line-height:18px}.Vk5Gqq_skeletonRow{align-items:flex-start;gap:var(--dsh-sidebar-label-gap);box-sizing:border-box;min-height:48px;padding:6px var(--dsh-sidebar-row-padding) 7px;display:flex}.Vk5Gqq_skeletonDot{corner-shape:round;border-radius:50%;flex:none;width:16px;height:16px}.Vk5Gqq_skeletonBars{flex-direction:column;flex:1;gap:6px;min-width:0;display:flex}.Vk5Gqq_skeletonDot,.Vk5Gqq_skeletonBar{background:var(--dsw-alias-bg-skeleton);animation:2s cubic-bezier(.36,0,.64,1) infinite Vk5Gqq_search-skeleton}.Vk5Gqq_skeletonBar{border-radius:var(--dsw-radius-xs);width:65%;height:16px}.Vk5Gqq_skeletonBarWide{width:90%;height:13px}@keyframes Vk5Gqq_search-skeleton{0%{opacity:1}40%{opacity:.6}80%,to{opacity:1}}.Vk5Gqq_groupSection{position:relative}.Vk5Gqq_groupSection+.Vk5Gqq_groupSection{margin-top:4px}.Vk5Gqq_listTopDropIndicator,.Vk5Gqq_workspaceDropBefore:before,.Vk5Gqq_workspaceDropAfter:after{content:\"\";z-index:1;background:linear-gradient(55deg, transparent calc(50% - 1px), var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)) 0 0 / 5px 7px no-repeat, linear-gradient(125deg, transparent calc(50% - 1px), var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)) 0 5px / 5px 7px no-repeat, linear-gradient(var(--dsw-alias-state-business-primary) 0 0) 4px 5px / calc(100% - 4px) 2px no-repeat;pointer-events:none;height:12px;position:absolute;left:0;right:0}.Vk5Gqq_listTopDropIndicator{top:-8px;left:0;right:var(--dsh-session-list-edge-inset)}.Vk5Gqq_listTopDropActive>.Vk5Gqq_workspaceDropBefore:first-child:before{display:none}.Vk5Gqq_workspaceDropBefore:before{top:-8px}.Vk5Gqq_workspaceDropAfter:after{bottom:-8px}.Vk5Gqq_sessionOverflowButton{border-radius:var(--dsw-radius-sm);width:100%;height:28px;padding:0 var(--dsh-sidebar-row-padding) 0 calc(var(--dsh-sidebar-row-padding) + 16px + var(--dsh-sidebar-label-gap) + var(--dsh-workspace-indent,0px));cursor:pointer;text-align:left;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;font-size:12px}.Vk5Gqq_groupSection>.Vk5Gqq_sessionOverflowButton{margin-top:0}@media (hover:hover){.Vk5Gqq_sessionOverflowButton:hover{color:var(--dsw-alias-label-secondary);background:0 0}}.Vk5Gqq_empty{color:var(--dsw-alias-label-tertiary);padding:16px 12px;font-size:13px}.Vk5Gqq_emptyState{color:var(--dsw-alias-label-tertiary);flex-direction:column;align-items:center;gap:8px;margin-top:80px;padding:0 12px;font-size:13px;line-height:20px;display:flex}.Vk5Gqq_emptyState>svg{color:var(--dsw-alias-label-caption);margin-bottom:4px}.Vk5Gqq_emptyAction{cursor:pointer;color:var(--dsw-alias-link);background:0 0;border:none;padding:0;font-size:13px;line-height:20px}.Vk5Gqq_renameInput{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-lg);width:100%;height:44px;color:var(--dsw-alias-label-primary);background:0 0;outline:none;padding:7px 14px;font-size:14px;font-weight:400;line-height:22px}.Vk5Gqq_renameInput:disabled{color:var(--dsw-alias-label-dimmed)}.Vk5Gqq_renameError{color:var(--dsw-alias-state-error-primary);margin-top:8px;font-size:12px;line-height:18px}.Vk5Gqq_deleteAction:not(:disabled){color:var(--dsw-alias-state-error-primary)}.Vk5Gqq_deleteStatus{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}.Vk5Gqq_archiveActivity{color:var(--dsw-alias-label-primary);margin:0 0 8px;padding-left:18px;font-size:13px;line-height:20px}.Vk5Gqq_archiveActivity li{overflow-wrap:anywhere}@media (pointer:coarse){.Vk5Gqq_searchInput,.Vk5Gqq_renameInput{font-size:16px}}@media (prefers-reduced-motion:reduce){.Vk5Gqq_wide,.Vk5Gqq_skeletonDot,.Vk5Gqq_skeletonBar{animation:none}.Vk5Gqq_root:not(.Vk5Gqq_rail) .Vk5Gqq_sectionHeader.Vk5Gqq_searchSpacingMotion,.Vk5Gqq_search,.Vk5Gqq_sectionLabel,.Vk5Gqq_searchSlot,.Vk5Gqq_searchInput,.Vk5Gqq_headerActions{transition:none}}";
+ 		const tagId$2 = "@deepseek-ai/dsh-client-ui-workspace/WorkspaceBrowser.module.css";
+ 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$2) + "]") === null) {
+ 			const tag = document.createElement("style");
+@@ -1872,55 +1903,55 @@
+ 			document.head.appendChild(tag);
+ 		}
+ 		var WorkspaceBrowser_module_css_default = {
+-			"archiveActivity": "-_QcMW_archiveActivity",
+-			"clearButton": "-_QcMW_clearButton",
+-			"deleteAction": "-_QcMW_deleteAction",
+-			"deleteStatus": "-_QcMW_deleteStatus",
+-			"empty": "-_QcMW_empty",
+-			"emptyAction": "-_QcMW_emptyAction",
+-			"emptyState": "-_QcMW_emptyState",
+-			"fade": "-_QcMW_fade",
+-			"flatList": "-_QcMW_flatList",
+-			"groupSection": "-_QcMW_groupSection",
+-			"headerActions": "-_QcMW_headerActions",
+-			"headerActionsHidden": "-_QcMW_headerActionsHidden",
+-			"iconButton": "-_QcMW_iconButton",
+-			"list": "-_QcMW_list",
+-			"listArea": "-_QcMW_listArea",
+-			"listTopDropActive": "-_QcMW_listTopDropActive",
+-			"listTopDropIndicator": "-_QcMW_listTopDropIndicator",
+-			"rail": "-_QcMW_rail",
+-			"renameError": "-_QcMW_renameError",
+-			"renameInput": "-_QcMW_renameInput",
+-			"root": "-_QcMW_root",
+-			"search": "-_QcMW_search",
+-			"search-skeleton": "-_QcMW_search-skeleton",
+-			"searchButton": "-_QcMW_searchButton",
+-			"searchExpanded": "-_QcMW_searchExpanded",
+-			"searchInput": "-_QcMW_searchInput",
+-			"searchSlot": "-_QcMW_searchSlot",
+-			"searchSlotExpanded": "-_QcMW_searchSlotExpanded",
+-			"searchSpacingMotion": "-_QcMW_searchSpacingMotion",
+-			"searchStatus": "-_QcMW_searchStatus",
+-			"searchTree": "-_QcMW_searchTree",
+-			"sectionHeader": "-_QcMW_sectionHeader",
+-			"sectionLabel": "-_QcMW_sectionLabel",
+-			"sectionLabelHidden": "-_QcMW_sectionLabelHidden",
+-			"sessionOverflowButton": "-_QcMW_sessionOverflowButton",
+-			"skeletonBar": "-_QcMW_skeletonBar",
+-			"skeletonBarWide": "-_QcMW_skeletonBarWide",
+-			"skeletonBars": "-_QcMW_skeletonBars",
+-			"skeletonDot": "-_QcMW_skeletonDot",
+-			"skeletonRow": "-_QcMW_skeletonRow",
+-			"treeBody": "-_QcMW_treeBody",
+-			"viewOptionsMenu": "-_QcMW_viewOptionsMenu",
+-			"wide": "-_QcMW_wide",
+-			"wide-in": "-_QcMW_wide-in",
+-			"workspaceDropAfter": "-_QcMW_workspaceDropAfter",
+-			"workspaceDropBefore": "-_QcMW_workspaceDropBefore"
++			"archiveActivity": "Vk5Gqq_archiveActivity",
++			"clearButton": "Vk5Gqq_clearButton",
++			"deleteAction": "Vk5Gqq_deleteAction",
++			"deleteStatus": "Vk5Gqq_deleteStatus",
++			"empty": "Vk5Gqq_empty",
++			"emptyAction": "Vk5Gqq_emptyAction",
++			"emptyState": "Vk5Gqq_emptyState",
++			"fade": "Vk5Gqq_fade",
++			"flatList": "Vk5Gqq_flatList",
++			"groupSection": "Vk5Gqq_groupSection",
++			"headerActions": "Vk5Gqq_headerActions",
++			"headerActionsHidden": "Vk5Gqq_headerActionsHidden",
++			"iconButton": "Vk5Gqq_iconButton",
++			"list": "Vk5Gqq_list",
++			"listArea": "Vk5Gqq_listArea",
++			"listTopDropActive": "Vk5Gqq_listTopDropActive",
++			"listTopDropIndicator": "Vk5Gqq_listTopDropIndicator",
++			"rail": "Vk5Gqq_rail",
++			"renameError": "Vk5Gqq_renameError",
++			"renameInput": "Vk5Gqq_renameInput",
++			"root": "Vk5Gqq_root",
++			"search": "Vk5Gqq_search",
++			"search-skeleton": "Vk5Gqq_search-skeleton",
++			"searchButton": "Vk5Gqq_searchButton",
++			"searchExpanded": "Vk5Gqq_searchExpanded",
++			"searchInput": "Vk5Gqq_searchInput",
++			"searchSlot": "Vk5Gqq_searchSlot",
++			"searchSlotExpanded": "Vk5Gqq_searchSlotExpanded",
++			"searchSpacingMotion": "Vk5Gqq_searchSpacingMotion",
++			"searchStatus": "Vk5Gqq_searchStatus",
++			"searchTree": "Vk5Gqq_searchTree",
++			"sectionHeader": "Vk5Gqq_sectionHeader",
++			"sectionLabel": "Vk5Gqq_sectionLabel",
++			"sectionLabelHidden": "Vk5Gqq_sectionLabelHidden",
++			"sessionOverflowButton": "Vk5Gqq_sessionOverflowButton",
++			"skeletonBar": "Vk5Gqq_skeletonBar",
++			"skeletonBarWide": "Vk5Gqq_skeletonBarWide",
++			"skeletonBars": "Vk5Gqq_skeletonBars",
++			"skeletonDot": "Vk5Gqq_skeletonDot",
++			"skeletonRow": "Vk5Gqq_skeletonRow",
++			"treeBody": "Vk5Gqq_treeBody",
++			"viewOptionsMenu": "Vk5Gqq_viewOptionsMenu",
++			"wide": "Vk5Gqq_wide",
++			"wide-in": "Vk5Gqq_wide-in",
++			"workspaceDropAfter": "Vk5Gqq_workspaceDropAfter",
++			"workspaceDropBefore": "Vk5Gqq_workspaceDropBefore"
+ 		};
+ 		//#endregion
+-		//#region lib/types/client/rows/WorkspaceDialogs.js
++		//#region src/client/rows/WorkspaceDialogs.tsx
+ 		/** Workspace rename and removal dialogs, keyed by their captured request. */
+ 		/** @param props - captured request, current Workspace list, and existing mutations. @returns the active dialog. */
+ 		function WorkspaceDialogs({ request, workspaces, renameWorkspace, deleteWorkspace, settleWorkspaceAction, t }) {
+@@ -1981,24 +2012,24 @@
+ 					setDeleteError(reason instanceof Error ? reason.message : String(reason));
+ 				});
+ 			};
+-			return (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.Modal, {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.Modal, {
+ 				open: renameTarget !== null,
+ 				onClose: closeRename,
+ 				closeLabel: t("close"),
+ 				title: t("rename.workspace.title"),
+-				footer: (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
++				footer: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+ 					variant: "outline",
+ 					disabled: renaming,
+ 					onClick: closeRename,
+ 					children: t("cancel")
+-				}), (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
++				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+ 					variant: "primary",
+ 					disabled: renameBlocked,
+ 					onClick: confirmRename,
+ 					children: t("rename")
+ 				})] }),
+ 				children: [
+-					(0, react_jsx_runtime.jsx)("input", {
++					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+ 						className: WorkspaceBrowser_module_css_default.renameInput,
+ 						value: renameDraft,
+ 						"aria-label": t("field.workspaceName"),
+@@ -2024,40 +2055,40 @@
+ 							}
+ 						}
+ 					}),
+-					renameDuplicate && (0, react_jsx_runtime.jsx)("div", {
++					renameDuplicate && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 						className: WorkspaceBrowser_module_css_default.renameError,
+ 						role: "alert",
+ 						children: t("conflict.named", { name: renameTrimmed })
+ 					}),
+-					renameError !== null && (0, react_jsx_runtime.jsx)("div", {
++					renameError !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 						className: WorkspaceBrowser_module_css_default.renameError,
+ 						role: "alert",
+ 						children: renameError
+ 					})
+ 				]
+-			}), (0, react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.Modal, {
++			}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.Modal, {
+ 				open: deleteTarget !== null,
+ 				onClose: closeDelete,
+ 				closeLabel: t("close"),
+ 				title: t("delete.workspace"),
+ 				...deleteTarget === null ? {} : { description: t("delete.desc", { name: deleteTarget.displayTitle }) },
+-				footer: (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
++				footer: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+ 					variant: "outline",
+ 					disabled: deleting,
+ 					onClick: closeDelete,
+ 					children: t("cancel")
+-				}), (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
++				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+ 					variant: "outline",
+ 					className: WorkspaceBrowser_module_css_default.deleteAction,
+ 					disabled: deleting,
+ 					onClick: confirmDelete,
+ 					children: t("delete.workspace")
+ 				})] }),
+-				children: [deleting && (0, react_jsx_runtime.jsx)("div", {
++				children: [deleting && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 					className: WorkspaceBrowser_module_css_default.deleteStatus,
+ 					role: "status",
+ 					children: t("delete.pending")
+-				}), deleteError !== null && (0, react_jsx_runtime.jsx)("div", {
++				}), deleteError !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 					className: WorkspaceBrowser_module_css_default.renameError,
+ 					role: "alert",
+ 					children: deleteError
+@@ -2078,8 +2109,8 @@
+ 			return title === "default-workspace" ? localizedDefault : title;
+ 		}
+ 		//#endregion
+-		//#region \0dsh-css:/data/workspace/state/betterdsh-20261120/session-loading/deepseek-harness/packages/client/ui-workspace/src/client/rows/Rows.module.css.mjs
+-		const css$1 = "._4JPkVW_projectRow,._4JPkVW_sessionRow{align-items:center;gap:var(--dsh-sidebar-label-gap);border-radius:var(--dsw-radius-md);border-inline:var(--dsh-sidebar-paint-inset) solid transparent;box-sizing:border-box;padding:0 8px;cursor:pointer;-webkit-user-select:none;user-select:none;color:var(--dsw-alias-label-primary);background-clip:padding-box;padding-inline-start:calc(var(--dsh-sidebar-row-padding) - var(--dsh-sidebar-paint-inset) + var(--dsh-workspace-indent,0px));display:flex}@media (hover:hover){._4JPkVW_projectRow:hover{background-color:var(--dsw-alias-interactive-bg-hover)}}._4JPkVW_sessionRow._4JPkVW_selected{background-color:var(--dsw-alias-interactive-bg-hover)}._4JPkVW_dragPreview{background:var(--dsw-specific-sidebar-fill)}._4JPkVW_searchResultRow{box-sizing:border-box;border-radius:var(--dsw-radius-lg);width:100%;min-height:48px;padding:4px calc(var(--dsh-sidebar-row-padding) - var(--dsh-sidebar-paint-inset));border:none;border-inline:var(--dsh-sidebar-paint-inset) solid transparent;cursor:pointer;text-align:left;color:var(--dsw-alias-label-primary);background:padding-box padding-box;flex-direction:column;align-items:stretch;display:flex}@media (hover:hover){._4JPkVW_searchResultRow:hover{background-color:var(--dsw-alias-interactive-bg-hover)}}._4JPkVW_searchResultRow._4JPkVW_selected{background-color:var(--dsw-alias-interactive-bg-hover)}._4JPkVW_searchResultHeading{align-items:center;min-width:0;display:flex}._4JPkVW_searchResultTitle{min-width:0;margin:0 var(--dsh-sidebar-label-gap);text-overflow:ellipsis;white-space:nowrap;flex:0 auto;font-size:14px;line-height:20px;overflow:hidden}._4JPkVW_searchResultMeta{min-width:0;margin-left:calc(16px + var(--dsh-sidebar-label-gap));align-items:center;gap:6px;display:flex}._4JPkVW_searchResultWorkspace,._4JPkVW_searchResultSnippet{text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:17px;overflow:hidden}._4JPkVW_searchResultWorkspace{max-width:40%;color:var(--dsw-alias-label-tertiary);flex:none}._4JPkVW_searchResultWorkspace:only-child{max-width:100%}._4JPkVW_searchResultSnippet{min-width:0;color:var(--dsw-alias-label-secondary);flex:1}._4JPkVW_projectRow{box-sizing:border-box;align-items:center;height:34px}._4JPkVW_projectRow ._4JPkVW_rowActions{height:20px}._4JPkVW_sessionRow{gap:0;height:32px}._4JPkVW_sessionRow ._4JPkVW_title{margin:0 6px 0 var(--dsh-sidebar-label-gap)}._4JPkVW_slot{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}._4JPkVW_visuallyHidden{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}._4JPkVW_folderActive{color:var(--dsw-alias-state-business-primary)}._4JPkVW_projectRow ._4JPkVW_chevron{display:none}@media (hover:hover){._4JPkVW_projectRow:hover ._4JPkVW_chevron{display:inline-flex}._4JPkVW_projectRow:hover ._4JPkVW_folder{display:none}}._4JPkVW_arrow{transition:transform .15s var(--ds-ease-in-out)}._4JPkVW_arrowOpen{transform:rotate(90deg)}._4JPkVW_projectText{flex-direction:column;flex:1;gap:2px;min-width:0;display:flex}._4JPkVW_title{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:14px;line-height:20px;overflow:hidden}._4JPkVW_renameInput{border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-button-elevated-fill);min-width:0;color:inherit;outline:none;padding:0 2px;font-size:14px;line-height:20px}._4JPkVW_sessionRow ._4JPkVW_title{flex:1}._4JPkVW_sessionRow ._4JPkVW_title[data-scrolled]{mask-image:linear-gradient(90deg,#0000,#000 12px)}._4JPkVW_sessionRow ._4JPkVW_title[data-clipped]{mask-image:linear-gradient(270deg,#0000,#000 12px)}._4JPkVW_sessionRow ._4JPkVW_title[data-scrolled][data-clipped]{mask-image:linear-gradient(90deg,#0000,#000 12px calc(100% - 12px),#0000)}._4JPkVW_meta{text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:20px;overflow:hidden}._4JPkVW_time{color:var(--dsw-alias-label-tertiary);flex:none;margin-inline-end:-1px;font-size:10px;line-height:16px}._4JPkVW_pinIndicator{width:16px;height:20px;color:var(--dsw-alias-label-caption);flex:none;justify-content:center;align-items:center;margin-left:6px;display:inline-flex}._4JPkVW_sessionRow._4JPkVW_archived ._4JPkVW_title,._4JPkVW_searchResultRow._4JPkVW_archived ._4JPkVW_searchResultTitle,._4JPkVW_searchResultRow._4JPkVW_archived ._4JPkVW_searchResultWorkspace,._4JPkVW_searchResultRow._4JPkVW_archived ._4JPkVW_searchResultSnippet{color:var(--dsw-alias-label-caption)}._4JPkVW_dot{flex:none}._4JPkVW_rowActions{flex:none;align-items:center;gap:13px;display:none}@media (hover:hover){._4JPkVW_projectRow:hover ._4JPkVW_rowActions,._4JPkVW_searchResultRow:hover ._4JPkVW_rowActions{display:inline-flex}}._4JPkVW_projectRow._4JPkVW_menuOpen ._4JPkVW_rowActions{display:inline-flex}._4JPkVW_rowQuickActions{display:contents}._4JPkVW_searchResultHeading ._4JPkVW_rowActions{margin-left:auto}._4JPkVW_rowResting{color:var(--dsw-alias-label-tertiary);flex:none;align-items:center;gap:6px;display:inline-flex}._4JPkVW_rowResting ._4JPkVW_pinIndicator{margin-left:0}@media (hover:hover){._4JPkVW_sessionRow:hover{background-color:var(--dsw-alias-interactive-bg-hover)}._4JPkVW_sessionRow:hover ._4JPkVW_rowActions,._4JPkVW_sessionRow._4JPkVW_menuOpen ._4JPkVW_rowActions,html[data-input-modality=keyboard] ._4JPkVW_sessionRow:focus-within ._4JPkVW_rowActions{display:inline-flex}._4JPkVW_sessionRow:hover ._4JPkVW_rowResting,._4JPkVW_sessionRow._4JPkVW_menuOpen ._4JPkVW_rowResting,html[data-input-modality=keyboard] ._4JPkVW_sessionRow:focus-within ._4JPkVW_rowResting{display:none}._4JPkVW_sessionRow:hover ._4JPkVW_title,._4JPkVW_sessionRow._4JPkVW_menuOpen ._4JPkVW_title{text-overflow:clip}}@media (hover:none){._4JPkVW_projectRow ._4JPkVW_rowActions,._4JPkVW_searchResultRow ._4JPkVW_rowActions,._4JPkVW_sessionRow ._4JPkVW_rowActions{display:inline-flex}._4JPkVW_sessionRow ._4JPkVW_timestamp,._4JPkVW_sessionRow:has(._4JPkVW_pinnedAction) ._4JPkVW_pinIndicator,._4JPkVW_sessionRow ._4JPkVW_rowQuickActions>[data-slot]>:not(._4JPkVW_pinnedAction),._4JPkVW_projectRow[aria-expanded=false] ._4JPkVW_rowActions{display:none}._4JPkVW_sessionRow ._4JPkVW_pinnedAction{order:-1}}._4JPkVW_projectRow._4JPkVW_menuOpen,._4JPkVW_sessionRow._4JPkVW_menuOpen{background-color:var(--dsw-alias-interactive-bg-hover)}._4JPkVW_sessionRow._4JPkVW_dropBefore,._4JPkVW_sessionRow._4JPkVW_dropAfter{position:relative}._4JPkVW_sessionRow._4JPkVW_dropBefore:before,._4JPkVW_sessionRow._4JPkVW_dropAfter:after{content:\"\";z-index:1;left:calc(-1 * var(--dsh-sidebar-paint-inset));right:calc(4px - var(--dsh-sidebar-paint-inset));background:linear-gradient(55deg, transparent calc(50% - 1px), var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)) 0 0 / 5px 7px no-repeat, linear-gradient(125deg, transparent calc(50% - 1px), var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)) 0 5px / 5px 7px no-repeat, linear-gradient(var(--dsw-alias-state-business-primary) 0 0) 4px 5px / calc(100% - 4px) 2px no-repeat;pointer-events:none;height:12px;position:absolute}._4JPkVW_sessionRow._4JPkVW_dropBefore:before{top:-7px}._4JPkVW_sessionRow._4JPkVW_dropAfter:after{bottom:-7px}._4JPkVW_hoverContent{flex-direction:column;gap:8px;display:flex}._4JPkVW_hoverTitle{color:#fff;overflow-wrap:break-word;font-size:14px;line-height:20px}._4JPkVW_hoverPath{color:#cfd3d6;word-break:break-all;font-size:12px;line-height:16px}._4JPkVW_hoverTime{color:#cfd3d6;font-size:12px;line-height:16px}._4JPkVW_hoverStatus{color:#adb2b8;align-items:center;gap:8px;font-size:12px;line-height:20px;display:flex}._4JPkVW_hoverArchived svg{flex-shrink:0;margin:0 -4px}._4JPkVW_iconButton{border-radius:var(--dsw-radius-xs);cursor:pointer;width:24px;height:24px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;flex:none;justify-content:center;align-items:center;margin:-4px;padding:0;display:inline-flex}._4JPkVW_iconButton:focus-visible{outline-offset:-2px}@media (hover:hover){._4JPkVW_iconButton:hover{color:var(--dsw-alias-label-primary)}}._4JPkVW_chevron{color:var(--dsw-alias-label-caption)}@media (prefers-reduced-motion:reduce){._4JPkVW_arrow{transition:none;animation:none}}";
++		//#region \0dsh-css:/data/workspace/state/dsh-search-unified-20261122/sources/core/packages/client/ui-workspace/src/client/rows/Rows.module.css.mjs
++		const css$1 = ".u3GmEG_projectRow,.u3GmEG_sessionRow{align-items:center;gap:var(--dsh-sidebar-label-gap);border-radius:var(--dsw-radius-md);border-inline:var(--dsh-sidebar-paint-inset) solid transparent;box-sizing:border-box;padding:0 8px;cursor:pointer;-webkit-user-select:none;user-select:none;color:var(--dsw-alias-label-primary);background-clip:padding-box;padding-inline-start:calc(var(--dsh-sidebar-row-padding) - var(--dsh-sidebar-paint-inset) + var(--dsh-workspace-indent,0px));display:flex}@media (hover:hover){.u3GmEG_projectRow:hover{background-color:var(--dsw-alias-interactive-bg-hover)}}.u3GmEG_sessionRow.u3GmEG_selected{background-color:var(--dsw-alias-interactive-bg-hover)}.u3GmEG_dragPreview{background:var(--dsw-specific-sidebar-fill)}.u3GmEG_searchResultRow{box-sizing:border-box;border-radius:var(--dsw-radius-lg);width:100%;min-height:48px;padding:4px calc(var(--dsh-sidebar-row-padding) - var(--dsh-sidebar-paint-inset));border:none;border-inline:var(--dsh-sidebar-paint-inset) solid transparent;cursor:pointer;text-align:left;color:var(--dsw-alias-label-primary);background:padding-box padding-box;flex-direction:column;align-items:stretch;display:flex}@media (hover:hover){.u3GmEG_searchResultRow:hover{background-color:var(--dsw-alias-interactive-bg-hover)}}.u3GmEG_searchResultRow.u3GmEG_selected{background-color:var(--dsw-alias-interactive-bg-hover)}.u3GmEG_searchResultHeading{align-items:center;min-width:0;display:flex}.u3GmEG_searchResultTitle{min-width:0;margin:0 var(--dsh-sidebar-label-gap);text-overflow:ellipsis;white-space:nowrap;flex:0 auto;font-size:14px;line-height:20px;overflow:hidden}.u3GmEG_searchResultMeta{min-width:0;margin-left:calc(16px + var(--dsh-sidebar-label-gap));align-items:center;gap:6px;display:flex}.u3GmEG_searchResultWorkspace,.u3GmEG_searchResultSnippet{text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:17px;overflow:hidden}.u3GmEG_searchResultWorkspace{max-width:40%;color:var(--dsw-alias-label-tertiary);flex:none}.u3GmEG_searchResultWorkspace:only-child{max-width:100%}.u3GmEG_searchResultSnippet{min-width:0;color:var(--dsw-alias-label-secondary);flex:1}.u3GmEG_projectRow{box-sizing:border-box;align-items:center;height:34px}.u3GmEG_projectRow .u3GmEG_rowActions{height:20px}.u3GmEG_sessionRow{gap:0;height:32px}.u3GmEG_sessionRow .u3GmEG_title{margin:0 6px 0 var(--dsh-sidebar-label-gap)}.u3GmEG_slot{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}.u3GmEG_visuallyHidden{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}.u3GmEG_folderActive{color:var(--dsw-alias-state-business-primary)}.u3GmEG_projectRow .u3GmEG_chevron{display:none}@media (hover:hover){.u3GmEG_projectRow:hover .u3GmEG_chevron{display:inline-flex}.u3GmEG_projectRow:hover .u3GmEG_folder{display:none}}.u3GmEG_arrow{transition:transform .15s var(--ds-ease-in-out)}.u3GmEG_arrowOpen{transform:rotate(90deg)}.u3GmEG_projectText{flex-direction:column;flex:1;gap:2px;min-width:0;display:flex}.u3GmEG_title{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:14px;line-height:20px;overflow:hidden}.u3GmEG_renameInput{border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-button-elevated-fill);min-width:0;color:inherit;outline:none;padding:0 2px;font-size:14px;line-height:20px}.u3GmEG_sessionRow .u3GmEG_title{flex:1}.u3GmEG_sessionRow .u3GmEG_title[data-scrolled]{mask-image:linear-gradient(90deg,#0000,#000 12px)}.u3GmEG_sessionRow .u3GmEG_title[data-clipped]{mask-image:linear-gradient(270deg,#0000,#000 12px)}.u3GmEG_sessionRow .u3GmEG_title[data-scrolled][data-clipped]{mask-image:linear-gradient(90deg,#0000,#000 12px calc(100% - 12px),#0000)}.u3GmEG_meta{text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:20px;overflow:hidden}.u3GmEG_time{color:var(--dsw-alias-label-tertiary);flex:none;margin-inline-end:-1px;font-size:10px;line-height:16px}.u3GmEG_pinIndicator{width:16px;height:20px;color:var(--dsw-alias-label-caption);flex:none;justify-content:center;align-items:center;margin-left:6px;display:inline-flex}.u3GmEG_sessionRow.u3GmEG_archived .u3GmEG_title,.u3GmEG_searchResultRow.u3GmEG_archived .u3GmEG_searchResultTitle,.u3GmEG_searchResultRow.u3GmEG_archived .u3GmEG_searchResultWorkspace,.u3GmEG_searchResultRow.u3GmEG_archived .u3GmEG_searchResultSnippet{color:var(--dsw-alias-label-caption)}.u3GmEG_dot{flex:none}.u3GmEG_rowActions{flex:none;align-items:center;gap:13px;display:none}@media (hover:hover){.u3GmEG_projectRow:hover .u3GmEG_rowActions,.u3GmEG_searchResultRow:hover .u3GmEG_rowActions{display:inline-flex}}.u3GmEG_projectRow.u3GmEG_menuOpen .u3GmEG_rowActions{display:inline-flex}.u3GmEG_rowQuickActions{display:contents}.u3GmEG_searchResultHeading .u3GmEG_rowActions{margin-left:auto}.u3GmEG_rowResting{color:var(--dsw-alias-label-tertiary);flex:none;align-items:center;gap:6px;display:inline-flex}.u3GmEG_rowResting .u3GmEG_pinIndicator{margin-left:0}@media (hover:hover){.u3GmEG_sessionRow:hover{background-color:var(--dsw-alias-interactive-bg-hover)}.u3GmEG_sessionRow:hover .u3GmEG_rowActions,.u3GmEG_sessionRow.u3GmEG_menuOpen .u3GmEG_rowActions,html[data-input-modality=keyboard] .u3GmEG_sessionRow:focus-within .u3GmEG_rowActions{display:inline-flex}.u3GmEG_sessionRow:hover .u3GmEG_rowResting,.u3GmEG_sessionRow.u3GmEG_menuOpen .u3GmEG_rowResting,html[data-input-modality=keyboard] .u3GmEG_sessionRow:focus-within .u3GmEG_rowResting{display:none}.u3GmEG_sessionRow:hover .u3GmEG_title,.u3GmEG_sessionRow.u3GmEG_menuOpen .u3GmEG_title{text-overflow:clip}}@media (hover:none){.u3GmEG_projectRow .u3GmEG_rowActions,.u3GmEG_searchResultRow .u3GmEG_rowActions,.u3GmEG_sessionRow .u3GmEG_rowActions{display:inline-flex}.u3GmEG_sessionRow .u3GmEG_timestamp,.u3GmEG_sessionRow:has(.u3GmEG_pinnedAction) .u3GmEG_pinIndicator,.u3GmEG_sessionRow .u3GmEG_rowQuickActions>[data-slot]>:not(.u3GmEG_pinnedAction),.u3GmEG_projectRow[aria-expanded=false] .u3GmEG_rowActions{display:none}.u3GmEG_sessionRow .u3GmEG_pinnedAction{order:-1}}.u3GmEG_projectRow.u3GmEG_menuOpen,.u3GmEG_sessionRow.u3GmEG_menuOpen{background-color:var(--dsw-alias-interactive-bg-hover)}.u3GmEG_sessionRow.u3GmEG_dropBefore,.u3GmEG_sessionRow.u3GmEG_dropAfter{position:relative}.u3GmEG_sessionRow.u3GmEG_dropBefore:before,.u3GmEG_sessionRow.u3GmEG_dropAfter:after{content:\"\";z-index:1;left:calc(-1 * var(--dsh-sidebar-paint-inset));right:calc(4px - var(--dsh-sidebar-paint-inset));background:linear-gradient(55deg, transparent calc(50% - 1px), var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)) 0 0 / 5px 7px no-repeat, linear-gradient(125deg, transparent calc(50% - 1px), var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)) 0 5px / 5px 7px no-repeat, linear-gradient(var(--dsw-alias-state-business-primary) 0 0) 4px 5px / calc(100% - 4px) 2px no-repeat;pointer-events:none;height:12px;position:absolute}.u3GmEG_sessionRow.u3GmEG_dropBefore:before{top:-7px}.u3GmEG_sessionRow.u3GmEG_dropAfter:after{bottom:-7px}.u3GmEG_hoverContent{flex-direction:column;gap:8px;display:flex}.u3GmEG_hoverTitle{color:#fff;overflow-wrap:break-word;font-size:14px;line-height:20px}.u3GmEG_hoverPath{color:#cfd3d6;word-break:break-all;font-size:12px;line-height:16px}.u3GmEG_hoverTime{color:#cfd3d6;font-size:12px;line-height:16px}.u3GmEG_hoverStatus{color:#adb2b8;align-items:center;gap:8px;font-size:12px;line-height:20px;display:flex}.u3GmEG_hoverArchived svg{flex-shrink:0;margin:0 -4px}.u3GmEG_iconButton{border-radius:var(--dsw-radius-xs);cursor:pointer;width:24px;height:24px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;flex:none;justify-content:center;align-items:center;margin:-4px;padding:0;display:inline-flex}.u3GmEG_iconButton:focus-visible{outline-offset:-2px}@media (hover:hover){.u3GmEG_iconButton:hover{color:var(--dsw-alias-label-primary)}}.u3GmEG_chevron{color:var(--dsw-alias-label-caption)}@media (prefers-reduced-motion:reduce){.u3GmEG_arrow{transition:none;animation:none}}";
+ 		const tagId$1 = "@deepseek-ai/dsh-client-ui-workspace/Rows.module.css";
+ 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$1) + "]") === null) {
+ 			const tag = document.createElement("style");
+@@ -2089,49 +2120,49 @@
+ 			document.head.appendChild(tag);
+ 		}
+ 		var Rows_module_css_default = {
+-			"archived": "_4JPkVW_archived",
+-			"arrow": "_4JPkVW_arrow",
+-			"arrowOpen": "_4JPkVW_arrowOpen",
+-			"chevron": "_4JPkVW_chevron",
+-			"dot": "_4JPkVW_dot",
+-			"dragPreview": "_4JPkVW_dragPreview",
+-			"dropAfter": "_4JPkVW_dropAfter",
+-			"dropBefore": "_4JPkVW_dropBefore",
+-			"folder": "_4JPkVW_folder",
+-			"folderActive": "_4JPkVW_folderActive",
+-			"hoverArchived": "_4JPkVW_hoverArchived",
+-			"hoverContent": "_4JPkVW_hoverContent",
+-			"hoverPath": "_4JPkVW_hoverPath",
+-			"hoverStatus": "_4JPkVW_hoverStatus",
+-			"hoverTime": "_4JPkVW_hoverTime",
+-			"hoverTitle": "_4JPkVW_hoverTitle",
+-			"iconButton": "_4JPkVW_iconButton",
+-			"menuOpen": "_4JPkVW_menuOpen",
+-			"meta": "_4JPkVW_meta",
+-			"pinIndicator": "_4JPkVW_pinIndicator",
+-			"pinnedAction": "_4JPkVW_pinnedAction",
+-			"projectRow": "_4JPkVW_projectRow",
+-			"projectText": "_4JPkVW_projectText",
+-			"renameInput": "_4JPkVW_renameInput",
+-			"rowActions": "_4JPkVW_rowActions",
+-			"rowQuickActions": "_4JPkVW_rowQuickActions",
+-			"rowResting": "_4JPkVW_rowResting",
+-			"searchResultHeading": "_4JPkVW_searchResultHeading",
+-			"searchResultMeta": "_4JPkVW_searchResultMeta",
+-			"searchResultRow": "_4JPkVW_searchResultRow",
+-			"searchResultSnippet": "_4JPkVW_searchResultSnippet",
+-			"searchResultTitle": "_4JPkVW_searchResultTitle",
+-			"searchResultWorkspace": "_4JPkVW_searchResultWorkspace",
+-			"selected": "_4JPkVW_selected",
+-			"sessionRow": "_4JPkVW_sessionRow",
+-			"slot": "_4JPkVW_slot",
+-			"time": "_4JPkVW_time",
+-			"timestamp": "_4JPkVW_timestamp",
+-			"title": "_4JPkVW_title",
+-			"visuallyHidden": "_4JPkVW_visuallyHidden"
++			"archived": "u3GmEG_archived",
++			"arrow": "u3GmEG_arrow",
++			"arrowOpen": "u3GmEG_arrowOpen",
++			"chevron": "u3GmEG_chevron",
++			"dot": "u3GmEG_dot",
++			"dragPreview": "u3GmEG_dragPreview",
++			"dropAfter": "u3GmEG_dropAfter",
++			"dropBefore": "u3GmEG_dropBefore",
++			"folder": "u3GmEG_folder",
++			"folderActive": "u3GmEG_folderActive",
++			"hoverArchived": "u3GmEG_hoverArchived",
++			"hoverContent": "u3GmEG_hoverContent",
++			"hoverPath": "u3GmEG_hoverPath",
++			"hoverStatus": "u3GmEG_hoverStatus",
++			"hoverTime": "u3GmEG_hoverTime",
++			"hoverTitle": "u3GmEG_hoverTitle",
++			"iconButton": "u3GmEG_iconButton",
++			"menuOpen": "u3GmEG_menuOpen",
++			"meta": "u3GmEG_meta",
++			"pinIndicator": "u3GmEG_pinIndicator",
++			"pinnedAction": "u3GmEG_pinnedAction",
++			"projectRow": "u3GmEG_projectRow",
++			"projectText": "u3GmEG_projectText",
++			"renameInput": "u3GmEG_renameInput",
++			"rowActions": "u3GmEG_rowActions",
++			"rowQuickActions": "u3GmEG_rowQuickActions",
++			"rowResting": "u3GmEG_rowResting",
++			"searchResultHeading": "u3GmEG_searchResultHeading",
++			"searchResultMeta": "u3GmEG_searchResultMeta",
++			"searchResultRow": "u3GmEG_searchResultRow",
++			"searchResultSnippet": "u3GmEG_searchResultSnippet",
++			"searchResultTitle": "u3GmEG_searchResultTitle",
++			"searchResultWorkspace": "u3GmEG_searchResultWorkspace",
++			"selected": "u3GmEG_selected",
++			"sessionRow": "u3GmEG_sessionRow",
++			"slot": "u3GmEG_slot",
++			"time": "u3GmEG_time",
++			"timestamp": "u3GmEG_timestamp",
++			"title": "u3GmEG_title",
++			"visuallyHidden": "u3GmEG_visuallyHidden"
+ 		};
+ 		//#endregion
+-		//#region lib/types/client/rows/Rows.js
++		//#region src/client/rows/Rows.tsx
+ 		/**
+ 		* Workspace browser tree row components (figma Cell set 14:3080): pure presentational —
+ 		* all data and callbacks arrive via props. Hover swaps (folder->chevron,
+@@ -2267,18 +2298,18 @@
+ 		}
+ 		/** Hover-card body: workspace title, display directory path, absolute creation time. */
+ 		function WorkspaceHoverContent({ label, cwd, createdAt, t }) {
+-			return (0, react_jsx_runtime.jsxs)("div", {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+ 				className: Rows_module_css_default.hoverContent,
+ 				children: [
+-					(0, react_jsx_runtime.jsx)("div", {
++					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 						className: Rows_module_css_default.hoverTitle,
+ 						children: label
+ 					}),
+-					(0, react_jsx_runtime.jsx)("div", {
++					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 						className: Rows_module_css_default.hoverPath,
+ 						children: cwd
+ 					}),
+-					(0, react_jsx_runtime.jsx)("div", {
++					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 						className: Rows_module_css_default.hoverTime,
+ 						children: createdLabel(createdAt, t)
+ 					})
+@@ -2308,7 +2339,7 @@
+ 		*/
+ 		function ProjectRowItem(props) {
+ 			const workspaceId = props.group.workspaceId;
+-			return workspaceId === void 0 ? (0, react_jsx_runtime.jsx)(UngroupedProjectRow, { ...props }) : (0, react_jsx_runtime.jsx)(WorkspaceProjectRow, {
++			return workspaceId === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(UngroupedProjectRow, { ...props }) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(WorkspaceProjectRow, {
+ 				...props,
+ 				workspaceId
+ 			});
+@@ -2316,7 +2347,7 @@
+ 		/** The ungrouped bucket's header: no Workspace resource, so starting a Session there asks the global resource. */
+ 		function UngroupedProjectRow(props) {
+ 			const create = props.useRemoteAccess("session/create");
+-			return (0, react_jsx_runtime.jsx)(ProjectRow, {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ProjectRow, {
+ 				...props,
+ 				access: {
+ 					create,
+@@ -2331,7 +2362,7 @@
+ 				create: useWorkspaceAccess(workspaceId, "session/create"),
+ 				reorder: useWorkspaceAccess(workspaceId, "workspace/insertBefore")
+ 			};
+-			return (0, react_jsx_runtime.jsx)(ProjectRow, {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ProjectRow, {
+ 				...props,
+ 				access
+ 			});
+@@ -2348,7 +2379,7 @@
+ 				workspaceId: row.workspaceId,
+ 				path: row.cwd
+ 			} : void 0;
+-			const ownRow = (0, react_jsx_runtime.jsxs)("div", {
++			const ownRow = /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+ 				className: clsx(Rows_module_css_default.projectRow, menuOpen && Rows_module_css_default.menuOpen),
+ 				"data-row-key": `workspace:${group.key}`,
+ 				role: "treeitem",
+@@ -2372,24 +2403,24 @@
+ 					if (dragPreview.clear()) drag?.end();
+ 				},
+ 				children: [
+-					(0, react_jsx_runtime.jsx)("span", {
++					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 						className: clsx(Rows_module_css_default.slot, Rows_module_css_default.folder, active && Rows_module_css_default.folderActive),
+-						children: row.expanded ? (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconFolderOpenRegular, {}) : (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconFolderCloseRegular, {})
++						children: row.expanded ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconFolderOpenRegular, {}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconFolderCloseRegular, {})
+ 					}),
+-					(0, react_jsx_runtime.jsx)("span", {
++					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 						className: clsx(Rows_module_css_default.slot, Rows_module_css_default.chevron),
+-						children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconTriangleRightFillRegular, { className: clsx(Rows_module_css_default.arrow, row.expanded && Rows_module_css_default.arrowOpen) })
++						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconTriangleRightFillRegular, { className: clsx(Rows_module_css_default.arrow, row.expanded && Rows_module_css_default.arrowOpen) })
+ 					}),
+-					(0, react_jsx_runtime.jsx)("span", {
++					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 						className: Rows_module_css_default.projectText,
+-						children: (0, react_jsx_runtime.jsx)("span", {
++						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 							className: Rows_module_css_default.title,
+ 							children: label
+ 						})
+ 					}),
+-					(0, react_jsx_runtime.jsxs)("span", {
++					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+ 						className: Rows_module_css_default.rowActions,
+-						children: [workspaceMenuTarget !== void 0 && (0, react_jsx_runtime.jsx)("button", {
++						children: [workspaceMenuTarget !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+ 							type: "button",
+ 							className: Rows_module_css_default.iconButton,
+ 							"data-context-menu-trigger": true,
+@@ -2404,15 +2435,15 @@
+ 									y: rect.bottom
+ 								}, "toggle");
+ 							},
+-							children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconEllipsisOutlineRegular, {})
+-						}), access.create && (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
++							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconEllipsisOutlineRegular, {})
++						}), access.create && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+ 							label: t("actions.newSession"),
+ 							shortcutKeys: newShortcut?.keys,
+ 							side: "bottom",
+ 							align: "end",
+ 							delayMs: 500,
+ 							portal: true,
+-							children: (0, react_jsx_runtime.jsx)("button", {
++							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+ 								type: "button",
+ 								className: Rows_module_css_default.iconButton,
+ 								"aria-keyshortcuts": newShortcut?.aria,
+@@ -2421,16 +2452,16 @@
+ 									e.stopPropagation();
+ 									onCreate();
+ 								},
+-								children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconNewChatOutlineRegular, { size: 14 })
++								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconNewChatOutlineRegular, { size: 14 })
+ 							})
+ 						})]
+ 					})
+ 				]
+ 			});
+ 			if (row.createdAt === void 0) return ownRow;
+-			return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.HoverCard, {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.HoverCard, {
+ 				anchor: ownRow,
+-				content: (0, react_jsx_runtime.jsx)(WorkspaceHoverContent, {
++				content: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(WorkspaceHoverContent, {
+ 					label: row.label,
+ 					cwd: row.cwd === void 0 ? void 0 : abbreviateHomePath(row.cwd, home),
+ 					createdAt: row.createdAt,
+@@ -2504,7 +2535,7 @@
+ 		}
+ 		/** Primary status dot plus every status's screen-reader label, shared by the search and session rows. */
+ 		function SessionStatusDots({ statuses }) {
+-			return (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, { state: statuses[0].state }), statuses.map((status) => (0, react_jsx_runtime.jsx)("span", {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, { state: statuses[0].state }), statuses.map((status) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 				className: Rows_module_css_default.visuallyHidden,
+ 				children: status.label
+ 			}, status.label))] });
+@@ -2512,12 +2543,12 @@
+ 		/** Non-interactive pinned-row marker; the enclosing row remains the only action. */
+ 		function PinnedIndicator({ t }) {
+ 			const label = t("row.pinned");
+-			return (0, react_jsx_runtime.jsx)("span", {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 				className: Rows_module_css_default.pinIndicator,
+ 				role: "img",
+ 				"aria-label": label,
+ 				title: label,
+-				children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPinFillRegular, { size: 14 })
++				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPinFillRegular, { size: 14 })
+ 			});
+ 		}
+ 		/**
+@@ -2527,29 +2558,29 @@
+ 		*/
+ 		function SessionHoverContent({ node, cwd, now, renderSlot, t }) {
+ 			const statuses = sessionStatuses(node, t).filter((status) => !(node.archived && (status.state === "done" || status.state === "idle")));
+-			return (0, react_jsx_runtime.jsxs)("div", {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+ 				className: Rows_module_css_default.hoverContent,
+ 				children: [
+-					(0, react_jsx_runtime.jsx)("div", {
++					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 						className: Rows_module_css_default.hoverTitle,
+ 						children: displayTitle(node, t)
+ 					}),
+-					cwd !== void 0 && (0, react_jsx_runtime.jsx)("div", {
++					cwd !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 						className: Rows_module_css_default.hoverPath,
+ 						children: cwd
+ 					}),
+-					!node.blank && (0, react_jsx_runtime.jsx)("div", {
++					!node.blank && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 						className: Rows_module_css_default.hoverTime,
+ 						children: hoverTimeLabel(node.updatedAt, now, t)
+ 					}),
+ 					renderSlot("sidebar.session.row.hover", { sessionId: node.id }),
+-					statuses.map((status) => (0, react_jsx_runtime.jsxs)("div", {
++					statuses.map((status) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+ 						className: Rows_module_css_default.hoverStatus,
+-						children: [(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, { state: status.state }), (0, react_jsx_runtime.jsx)("span", { children: status.label })]
++						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, { state: status.state }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: status.label })]
+ 					}, status.label)),
+-					node.archived && (0, react_jsx_runtime.jsxs)("div", {
++					node.archived && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+ 						className: clsx(Rows_module_css_default.hoverStatus, Rows_module_css_default.hoverArchived),
+-						children: [(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconArchiveOutlineRegular, { size: 14 }), (0, react_jsx_runtime.jsx)("span", { children: t("row.archived") })]
++						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconArchiveOutlineRegular, { size: 14 }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("row.archived") })]
+ 					})
+ 				]
+ 			});
+@@ -2573,7 +2604,7 @@
+ 			const canUnarchive = useSessionAccess(result.id, "workspace/unarchiveSession");
+ 			const statuses = sessionStatuses(result, t);
+ 			const primaryStatus = statuses[0];
+-			return (0, react_jsx_runtime.jsxs)("div", {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+ 				className: clsx(Rows_module_css_default.searchResultRow, selected && Rows_module_css_default.selected, result.archived && Rows_module_css_default.archived),
+ 				role: "treeitem",
+ 				"aria-selected": selected,
+@@ -2581,26 +2612,26 @@
+ 				onClick: () => {
+ 					onOpen(result.id);
+ 				},
+-				children: [(0, react_jsx_runtime.jsxs)("span", {
++				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+ 					className: Rows_module_css_default.searchResultHeading,
+ 					children: [
+-						(0, react_jsx_runtime.jsx)("span", {
++						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 							className: Rows_module_css_default.slot,
+-							children: !result.archived && primaryStatus.state !== "idle" && (0, react_jsx_runtime.jsx)(SessionStatusDots, { statuses })
++							children: !result.archived && primaryStatus.state !== "idle" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(SessionStatusDots, { statuses })
+ 						}),
+-						(0, react_jsx_runtime.jsx)("span", {
++						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 							className: Rows_module_css_default.searchResultTitle,
+ 							children: result.title || t("session.untitled")
+ 						}),
+-						result.archived && canUnarchive && (0, react_jsx_runtime.jsx)("span", {
++						result.archived && canUnarchive && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 							className: Rows_module_css_default.rowActions,
+-							children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
++							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+ 								label: t("actions.unarchive"),
+ 								side: "bottom",
+ 								align: "end",
+ 								delayMs: 500,
+ 								portal: true,
+-								children: (0, react_jsx_runtime.jsx)("button", {
++								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+ 									type: "button",
+ 									className: Rows_module_css_default.iconButton,
+ 									"aria-label": t("menu.unarchiveSession"),
+@@ -2608,17 +2639,17 @@
+ 										e.stopPropagation();
+ 										onUnarchive(result.id);
+ 									},
+-									children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconUnarchiveOutlineRegular, { size: 14 })
++									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconUnarchiveOutlineRegular, { size: 14 })
+ 								})
+ 							})
+ 						})
+ 					]
+-				}), (0, react_jsx_runtime.jsxs)("span", {
++				}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+ 					className: Rows_module_css_default.searchResultMeta,
+-					children: [(0, react_jsx_runtime.jsx)("span", {
++					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 						className: Rows_module_css_default.searchResultWorkspace,
+ 						children: result.workspace || t("group.ungrouped")
+-					}), result.snippet !== void 0 && (0, react_jsx_runtime.jsx)("span", {
++					}), result.snippet !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 						className: Rows_module_css_default.searchResultSnippet,
+ 						children: result.snippet
+ 					})]
+@@ -2681,8 +2712,8 @@
+ 				rowRef.current?.scrollIntoView({ block: "nearest" });
+ 				onReveal();
+ 			}, [onReveal]);
+-			return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.HoverCard, {
+-				anchor: (0, react_jsx_runtime.jsxs)("div", {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.HoverCard, {
++				anchor: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+ 					ref: rowRef,
+ 					"data-row-key": `session:${node.id}`,
+ 					className: clsx(Rows_module_css_default.sessionRow, selected && Rows_module_css_default.selected, menuOpen && Rows_module_css_default.menuOpen, row.archived && Rows_module_css_default.archived, drag?.marker === "before" && Rows_module_css_default.dropBefore, drag?.marker === "after" && Rows_module_css_default.dropAfter),
+@@ -2731,11 +2762,11 @@
+ 						drag.drop(rowHalf(e));
+ 					},
+ 					children: [
+-						(0, react_jsx_runtime.jsx)("span", {
++						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 							className: Rows_module_css_default.slot,
+-							children: !row.archived && !row.blank && (showStatus ? (0, react_jsx_runtime.jsx)(SessionStatusDots, { statuses }) : renderSlot("sidebar.session.row.leading", { sessionId: node.id }))
++							children: !row.archived && !row.blank && (showStatus ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(SessionStatusDots, { statuses }) : renderSlot("sidebar.session.row.leading", { sessionId: node.id }))
+ 						}),
+-						(0, react_jsx_runtime.jsx)("span", {
++						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 							ref: titleRef,
+ 							className: Rows_module_css_default.title,
+ 							onMouseDown: (e) => {
+@@ -2751,24 +2782,24 @@
+ 							},
+ 							children: title
+ 						}),
+-						!row.blank && (0, react_jsx_runtime.jsxs)("span", {
++						!row.blank && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+ 							className: Rows_module_css_default.rowResting,
+ 							children: [
+-								(0, react_jsx_runtime.jsx)("span", {
++								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 									className: clsx(Rows_module_css_default.time, primaryStatus.trailingLabel === void 0 && Rows_module_css_default.timestamp),
+ 									"aria-hidden": primaryStatus.trailingLabel === void 0 ? void 0 : true,
+ 									children: primaryStatus.trailingLabel ?? timeLabel(row.updatedAt, now, t)
+ 								}),
+ 								renderSlot("sidebar.session.row.trailing", { sessionId: node.id }),
+-								row.pinned && !row.archived && (0, react_jsx_runtime.jsx)(PinnedIndicator, { t })
++								row.pinned && !row.archived && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PinnedIndicator, { t })
+ 							]
+ 						}),
+-						!row.blank && (0, react_jsx_runtime.jsxs)("span", {
++						!row.blank && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+ 							className: Rows_module_css_default.rowActions,
+ 							onClick: (e) => {
+ 								e.stopPropagation();
+ 							},
+-							children: [(0, react_jsx_runtime.jsx)("button", {
++							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+ 								type: "button",
+ 								className: Rows_module_css_default.iconButton,
+ 								"aria-label": t("actions.session.aria", { name: title }),
+@@ -2784,8 +2815,8 @@
+ 										y: rect.bottom
+ 									}, "toggle");
+ 								},
+-								children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconEllipsisOutlineRegular, {})
+-							}), (0, react_jsx_runtime.jsx)("span", {
++								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconEllipsisOutlineRegular, {})
++							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 								className: Rows_module_css_default.rowQuickActions,
+ 								children: renderSlot("sidebar.workspaces.session.row.action", {
+ 									sessionId: node.id,
+@@ -2795,7 +2826,7 @@
+ 						})
+ 					]
+ 				}),
+-				content: (0, react_jsx_runtime.jsx)(SessionHoverContent, {
++				content: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(SessionHoverContent, {
+ 					node,
+ 					cwd: row.cwd === void 0 ? void 0 : abbreviateHomePath(row.cwd, home),
+ 					now,
+@@ -2811,7 +2842,7 @@
+ 			});
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/path-suffix.js
++		//#region src/client/path-suffix.ts
+ 		/** Path suffixes that tell same-titled Workspaces apart. */
+ 		/**
+ 		* Map each Workspace whose display title another listed Workspace shares to
+@@ -2838,8 +2869,8 @@
+ 			return suffixes;
+ 		}
+ 		//#endregion
+-		//#region \0dsh-css:/data/workspace/state/betterdsh-20261120/session-loading/deepseek-harness/packages/client/ui-workspace/src/client/WorkspacePicker.module.css.mjs
+-		const css = ".vs3UNq_modalAction{min-width:72px}.vs3UNq_modalError,.vs3UNq_menuStatus{margin-top:8px;font-size:12px;line-height:18px}.vs3UNq_modalError{color:var(--dsw-alias-state-error-primary)}.vs3UNq_menuStatus,.vs3UNq_pathSuffix{color:var(--dsw-alias-label-secondary)}.vs3UNq_disambiguated{gap:4px;min-width:0;display:flex}.vs3UNq_title,.vs3UNq_pathSuffix{text-overflow:ellipsis;min-width:0;overflow:hidden}.vs3UNq_pathSuffix{flex:none;max-width:75%}";
++		//#region \0dsh-css:/data/workspace/state/dsh-search-unified-20261122/sources/core/packages/client/ui-workspace/src/client/WorkspacePicker.module.css.mjs
++		const css = ".ILBSoq_modalAction{min-width:72px}.ILBSoq_modalError,.ILBSoq_menuStatus{margin-top:8px;font-size:12px;line-height:18px}.ILBSoq_modalError{color:var(--dsw-alias-state-error-primary)}.ILBSoq_menuStatus,.ILBSoq_pathSuffix{color:var(--dsw-alias-label-secondary)}.ILBSoq_disambiguated{gap:4px;min-width:0;display:flex}.ILBSoq_title,.ILBSoq_pathSuffix{text-overflow:ellipsis;min-width:0;overflow:hidden}.ILBSoq_pathSuffix{flex:none;max-width:75%}";
+ 		const tagId = "@deepseek-ai/dsh-client-ui-workspace/WorkspacePicker.module.css";
+ 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
+ 			const tag = document.createElement("style");
+@@ -2849,15 +2880,15 @@
+ 			document.head.appendChild(tag);
+ 		}
+ 		var WorkspacePicker_module_css_default = {
+-			"disambiguated": "vs3UNq_disambiguated",
+-			"menuStatus": "vs3UNq_menuStatus",
+-			"modalAction": "vs3UNq_modalAction",
+-			"modalError": "vs3UNq_modalError",
+-			"pathSuffix": "vs3UNq_pathSuffix",
+-			"title": "vs3UNq_title"
++			"disambiguated": "ILBSoq_disambiguated",
++			"menuStatus": "ILBSoq_menuStatus",
++			"modalAction": "ILBSoq_modalAction",
++			"modalError": "ILBSoq_modalError",
++			"pathSuffix": "ILBSoq_pathSuffix",
++			"title": "ILBSoq_title"
+ 		};
+ 		//#endregion
+-		//#region lib/types/client/WorkspacePicker.js
++		//#region src/client/WorkspacePicker.tsx
+ 		const ADD_WORKSPACE = "::add-workspace";
+ 		/**
+ 		* Render the pick menu plus the adoption error dialog.
+@@ -2883,7 +2914,7 @@
+ 			const addEntries = flowAvailable ? [{
+ 				id: ADD_WORKSPACE,
+ 				label: t("menu.addWorkspace"),
+-				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPlusOutlineRegular, { size: 16 }),
++				icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPlusOutlineRegular, { size: 16 }),
+ 				disabled: flowBusy
+ 			}] : [];
+ 			const pinAdd = !addOnly && workspaces.length > 0;
+@@ -2907,22 +2938,22 @@
+ 			]);
+ 			const items = pinAdd ? listed.map(({ id, title, path, suffix }) => ({
+ 				id,
+-				label: suffix === void 0 ? title : (0, react_jsx_runtime.jsxs)("span", {
++				label: suffix === void 0 ? title : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+ 					className: WorkspacePicker_module_css_default.disambiguated,
+ 					title: path,
+ 					children: [
+-						(0, react_jsx_runtime.jsx)("span", {
++						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 							className: WorkspacePicker_module_css_default.title,
+ 							children: title
+ 						}),
+ 						" ",
+-						(0, react_jsx_runtime.jsx)("span", {
++						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 							className: WorkspacePicker_module_css_default.pathSuffix,
+ 							children: suffix
+ 						})
+ 					]
+ 				}),
+-				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconFolderCloseRegular, { size: 16 }),
++				icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconFolderCloseRegular, { size: 16 }),
+ 				disabled: flowBusy
+ 			})) : addEntries;
+ 			const menuIsEmpty = items.length === 0;
+@@ -2981,8 +3012,8 @@
+ 				}
+ 				onPick(id);
+ 			};
+-			return (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+-				(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Menu, {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
++				/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Menu, {
+ 					open: open && !addIsTheOnlyEntry && !menuIsEmpty,
+ 					anchor: null,
+ 					items,
+@@ -2994,30 +3025,30 @@
+ 					portal: true,
+ 					getAnchorRect
+ 				}),
+-				open && !addIsTheOnlyEntry && !menuIsEmpty && workspaceSnapshot.phase === "pending" && (0, react_jsx_runtime.jsx)("div", {
++				open && !addIsTheOnlyEntry && !menuIsEmpty && workspaceSnapshot.phase === "pending" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 					className: WorkspacePicker_module_css_default.menuStatus,
+ 					role: "status",
+ 					children: t("picker.loading")
+ 				}),
+ 				renderDirectoryFlow(flowOwner),
+-				(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Modal, {
++				/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Modal, {
+ 					open: errorOpen,
+ 					onClose: closeModal,
+ 					closeLabel: t("close"),
+ 					title: t("folderError.title"),
+-					footer: (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
++					footer: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+ 						variant: "outline",
+ 						className: WorkspacePicker_module_css_default.modalAction,
+ 						onClick: closeModal,
+ 						children: t("cancel")
+-					}), (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
++					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+ 						variant: "primary",
+ 						className: WorkspacePicker_module_css_default.modalAction,
+ 						disabled: !flowAvailable,
+ 						onClick: openDirectoryFlow,
+ 						children: t("folderError.retry")
+ 					})] }),
+-					children: (0, react_jsx_runtime.jsx)("div", {
++					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 						className: WorkspacePicker_module_css_default.modalError,
+ 						role: "alert",
+ 						children: modalError
+@@ -3032,7 +3063,7 @@
+ 		* @returns the flow element.
+ 		*/
+ 		function WorkspacePicker({ open, anchorRef, useWorkspaces, selectedId, onPick, onClose, createWorkspace, useDirectoryFlow, renderSlot, t }) {
+-			return (0, react_jsx_runtime.jsx)(WorkspacePickFlow, {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(WorkspacePickFlow, {
+ 				t,
+ 				open,
+ 				anchorRef,
+@@ -3046,7 +3077,7 @@
+ 			});
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/rows/WorkspaceBrowser.js
++		//#region src/client/rows/WorkspaceBrowser.tsx
+ 		/**
+ 		* The workspace/session browsing region filling the sidebar shell's
+ 		* `sidebar.workspaces` hole: section header (title + view options + add
+@@ -3148,7 +3179,7 @@
+ 		/** Grouping, ordering, and archived-filter menu; own open state so it resets with the wide chrome. */
+ 		function ViewOptionsMenu({ groupBy, orderBy, archivedFilter, onGroupPick, onOrderPick, onArchivedFilterPick, t }) {
+ 			const [open, setOpen] = (0, react.useState)(false);
+-			return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Menu, {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Menu, {
+ 				open,
+ 				onClose: () => {
+ 					setOpen(false);
+@@ -3162,17 +3193,17 @@
+ 					{
+ 						id: "workspace",
+ 						label: t("groupBy.workspace"),
+-						icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconFolderCloseRegular, {})
++						icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconFolderCloseRegular, {})
+ 					},
+ 					{
+ 						id: "workspace-tree",
+ 						label: t("groupBy.workspaceTree"),
+-						icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconWorkspaceTreeOutlineRegular, {})
++						icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconWorkspaceTreeOutlineRegular, {})
+ 					},
+ 					{
+ 						id: "flat",
+ 						label: t("groupBy.flat"),
+-						icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconFlatListOutlineRegular, {})
++						icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconFlatListOutlineRegular, {})
+ 					},
+ 					{
+ 						type: "separator",
+@@ -3186,12 +3217,12 @@
+ 					{
+ 						id: "manual",
+ 						label: t("orderBy.manual"),
+-						icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronsUpDownOutlineRegular, {})
++						icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronsUpDownOutlineRegular, {})
+ 					},
+ 					{
+ 						id: "updated",
+ 						label: t("orderBy.updated"),
+-						icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconClockOutlineRegular, {})
++						icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconClockOutlineRegular, {})
+ 					},
+ 					{
+ 						type: "separator",
+@@ -3205,17 +3236,17 @@
+ 					{
+ 						id: "hide-archived",
+ 						label: t("viewOptions.hideArchived"),
+-						icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconArchiveOffOutlineRegular, {})
++						icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconArchiveOffOutlineRegular, {})
+ 					},
+ 					{
+ 						id: "show-archived",
+ 						label: t("viewOptions.showArchived"),
+-						icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconQueueOutlineRegular, {})
++						icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconQueueOutlineRegular, {})
+ 					},
+ 					{
+ 						id: "only-archived",
+ 						label: t("viewOptions.onlyArchived"),
+-						icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconArchiveCheckOutlineRegular, {})
++						icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconArchiveCheckOutlineRegular, {})
+ 					}
+ 				],
+ 				selectedIds: [
+@@ -3239,19 +3270,19 @@
+ 				dense: true,
+ 				listClassName: WorkspaceBrowser_module_css_default.viewOptionsMenu,
+ 				portal: true,
+-				anchor: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
++				anchor: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+ 					label: t("viewOptions.label"),
+ 					side: "bottom",
+ 					delayMs: 500,
+ 					portal: true,
+-					children: (0, react_jsx_runtime.jsx)("button", {
++					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+ 						type: "button",
+ 						className: clsx(WorkspaceBrowser_module_css_default.iconButton, WorkspaceBrowser_module_css_default.wide),
+ 						"aria-label": t("viewOptions.label"),
+ 						onClick: () => {
+ 							setOpen((v) => !v);
+ 						},
+-						children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconSlidersTwoOutlineRegular, {})
++						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconSlidersTwoOutlineRegular, {})
+ 					})
+ 				})
+ 			});
+@@ -3278,13 +3309,13 @@
+ 		/** The list-empty placeholder — a glyph over the text; the archived-only view names its filter and offers the way back. */
+ 		function EmptySessions({ rowState, onLeaveArchivedOnly, t }) {
+ 			const archivedOnly = rowState.archivedFilter === "only";
+-			return (0, react_jsx_runtime.jsxs)("div", {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+ 				className: WorkspaceBrowser_module_css_default.emptyState,
+ 				"data-row-key": "empty",
+ 				children: [
+-					archivedOnly ? (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconArchiveOutlineRegular, { size: 24 }) : (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconQueueOutlineRegular, { size: 24 }),
+-					(0, react_jsx_runtime.jsx)("div", { children: archivedOnly ? t("empty.noneArchived") : t("empty.none") }),
+-					archivedOnly && (0, react_jsx_runtime.jsx)("button", {
++					archivedOnly ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconArchiveOutlineRegular, { size: 24 }) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconQueueOutlineRegular, { size: 24 }),
++					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", { children: archivedOnly ? t("empty.noneArchived") : t("empty.none") }),
++					archivedOnly && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+ 						type: "button",
+ 						className: WorkspaceBrowser_module_css_default.emptyAction,
+ 						onClick: onLeaveArchivedOnly,
+@@ -3465,7 +3496,7 @@
+ 						half
+ 					});
+ 				};
+-				return (0, react_jsx_runtime.jsxs)("div", {
++				return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+ 					style: { "--dsh-workspace-indent": `${depth * 12}px` },
+ 					className: clsx(WorkspaceBrowser_module_css_default.groupSection, workspaceMarker === "before" && WorkspaceBrowser_module_css_default.workspaceDropBefore, workspaceMarker === "after" && WorkspaceBrowser_module_css_default.workspaceDropAfter),
+ 					onDragOver: workspaceDrag === null ? void 0 : (e) => {
+@@ -3493,7 +3524,7 @@
+ 						} else dropWorkspace(workspaceGroupHalf(e));
+ 					},
+ 					children: [
+-						(0, react_jsx_runtime.jsx)(ProjectRowItem, {
++						/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ProjectRowItem, {
+ 							newShortcut: shortcuts.find((row) => row.id === "session.new"),
+ 							group,
+ 							openWorkspaceMenu,
+@@ -3516,7 +3547,7 @@
+ 							},
+ 							drag: workspaceDragProps
+ 						}),
+-						childRows.length > 0 && (0, react_jsx_runtime.jsx)("div", {
++						childRows.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 							role: "group",
+ 							children: childRows
+ 						}),
+@@ -3560,7 +3591,7 @@
+ 									sessionDropCommitted.current = false;
+ 								}
+ 							};
+-							return (0, react_jsx_runtime.jsx)(SessionNodeItem, {
++							return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(SessionNodeItem, {
+ 								node,
+ 								currentId: current,
+ 								now,
+@@ -3579,7 +3610,7 @@
+ 								t
+ 							}, node.id);
+ 						}),
+-						collapsed.hiddenCount > 0 && (0, react_jsx_runtime.jsx)("button", {
++						collapsed.hiddenCount > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+ 							type: "button",
+ 							className: WorkspaceBrowser_module_css_default.sessionOverflowButton,
+ 							"data-row-key": `overflow:${group.key}`,
+@@ -3601,27 +3632,27 @@
+ 				}, group.key);
+ 			};
+ 			const groupRows = rootGroups.map((group) => renderGroup(group, 0));
+-			return (0, react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.HoverCardGroup, {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.HoverCardGroup, {
+ 				className: clsx(WorkspaceBrowser_module_css_default.treeBody, WorkspaceBrowser_module_css_default.wide),
+ 				children: [
+-					workspaceDropAtListStart && (0, react_jsx_runtime.jsx)("span", {
++					workspaceDropAtListStart && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 						className: WorkspaceBrowser_module_css_default.listTopDropIndicator,
+ 						"aria-hidden": "true"
+ 					}),
+-					(0, react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.AnimatedRows, {
++					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.AnimatedRows, {
+ 						className: clsx(WorkspaceBrowser_module_css_default.list, workspaceDropAtListStart && WorkspaceBrowser_module_css_default.listTopDropActive),
+ 						role: "tree",
+ 						label: t("section.sessions"),
+ 						rowKeys,
+ 						ready: list.phase === "ready" && workspaceReady && !nativeDragActive,
+ 						resetKey: JSON.stringify([animationResetKey, watermarkMotionKey]),
+-						children: [groups.length === 0 && (0, react_jsx_runtime.jsx)(EmptySessions, {
++						children: [groups.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(EmptySessions, {
+ 							rowState,
+ 							onLeaveArchivedOnly,
+ 							t
+ 						}), groupRows]
+ 					}),
+-					(0, react_jsx_runtime.jsx)("span", { className: WorkspaceBrowser_module_css_default.fade })
++					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { className: WorkspaceBrowser_module_css_default.fade })
+ 				]
+ 			});
+ 		}
+@@ -3647,23 +3678,23 @@
+ 				if (nextOrder !== void 0) setSessionOrder(FLAT_SESSION_ORDER_KEY, nextOrder);
+ 			};
+ 			const now = Date.now();
+-			return (0, react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.HoverCardGroup, {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.HoverCardGroup, {
+ 				className: clsx(WorkspaceBrowser_module_css_default.treeBody, WorkspaceBrowser_module_css_default.wide),
+-				children: [(0, react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.AnimatedRows, {
++				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.AnimatedRows, {
+ 					className: clsx(WorkspaceBrowser_module_css_default.list, WorkspaceBrowser_module_css_default.flatList),
+ 					role: "tree",
+ 					label: t("section.sessions"),
+ 					rowKeys: rows.length === 0 ? ["empty"] : rows.map((row) => `session:${row.id}`),
+ 					ready: list.phase === "ready" && workspaceReady && drag === null,
+ 					resetKey: animationResetKey,
+-					children: [rows.length === 0 && (0, react_jsx_runtime.jsx)(EmptySessions, {
++					children: [rows.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(EmptySessions, {
+ 						rowState,
+ 						onLeaveArchivedOnly,
+ 						t
+ 					}), rows.map((node) => {
+ 						const active = drag !== null && drag.pinned === node.pinned;
+ 						const normalizeHalf = (half) => node.blank ? "after" : half;
+-						return (0, react_jsx_runtime.jsx)(SessionNodeItem, {
++						return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(SessionNodeItem, {
+ 							node,
+ 							currentId,
+ 							now,
+@@ -3714,7 +3745,7 @@
+ 							t
+ 						}, node.id);
+ 					})]
+-				}), (0, react_jsx_runtime.jsx)("span", { className: WorkspaceBrowser_module_css_default.fade })]
++				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { className: WorkspaceBrowser_module_css_default.fade })]
+ 			});
+ 		}
+ 		/** Flat search body: local metadata matches plus the current Host result page. */
+@@ -3746,16 +3777,16 @@
+ 			]);
+ 			const pending = currentRemote.status === "loading";
+ 			const currentId = panelActive ? void 0 : Object.values(list.byId).find((session) => (session.retainedBy.mainView ?? 0) > 0)?.id;
+-			return (0, react_jsx_runtime.jsxs)("div", {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+ 				className: clsx(WorkspaceBrowser_module_css_default.treeBody, WorkspaceBrowser_module_css_default.wide),
+-				children: [(0, react_jsx_runtime.jsxs)("div", {
++				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+ 					className: WorkspaceBrowser_module_css_default.list,
+ 					children: [
+-						(0, react_jsx_runtime.jsx)("div", {
++						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 							className: WorkspaceBrowser_module_css_default.searchTree,
+ 							role: "tree",
+ 							"aria-label": t("search.results.aria"),
+-							children: results.items.map((result) => (0, react_jsx_runtime.jsx)(SearchResultItem, {
++							children: results.items.map((result) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(SearchResultItem, {
+ 								result,
+ 								currentId,
+ 								onOpen: open,
+@@ -3764,28 +3795,28 @@
+ 								t
+ 							}, result.id))
+ 						}),
+-						pending && (0, react_jsx_runtime.jsx)("div", {
++						pending && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 							role: "status",
+ 							"aria-label": t("search.pending"),
+-							children: (results.items.length === 0 ? [0, 1] : [0]).map((i) => (0, react_jsx_runtime.jsxs)("div", {
++							children: (results.items.length === 0 ? [0, 1] : [0]).map((i) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+ 								className: WorkspaceBrowser_module_css_default.skeletonRow,
+ 								"aria-hidden": "true",
+-								children: [(0, react_jsx_runtime.jsx)("span", { className: WorkspaceBrowser_module_css_default.skeletonDot }), (0, react_jsx_runtime.jsxs)("span", {
++								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { className: WorkspaceBrowser_module_css_default.skeletonDot }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+ 									className: WorkspaceBrowser_module_css_default.skeletonBars,
+-									children: [(0, react_jsx_runtime.jsx)("span", { className: WorkspaceBrowser_module_css_default.skeletonBar }), (0, react_jsx_runtime.jsx)("span", { className: clsx(WorkspaceBrowser_module_css_default.skeletonBar, WorkspaceBrowser_module_css_default.skeletonBarWide) })]
++									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { className: WorkspaceBrowser_module_css_default.skeletonBar }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { className: clsx(WorkspaceBrowser_module_css_default.skeletonBar, WorkspaceBrowser_module_css_default.skeletonBarWide) })]
+ 								})]
+ 							}, i))
+ 						}),
+-						!pending && results.items.length === 0 && (0, react_jsx_runtime.jsx)("div", {
++						!pending && results.items.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 							className: WorkspaceBrowser_module_css_default.empty,
+ 							children: t("search.noMatches")
+ 						}),
+-						results.hasMore && (0, react_jsx_runtime.jsx)("div", {
++						results.hasMore && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 							className: WorkspaceBrowser_module_css_default.searchStatus,
+ 							children: t("search.hasMore", { n: resultLimit })
+ 						})
+ 					]
+-				}), (0, react_jsx_runtime.jsx)("span", { className: WorkspaceBrowser_module_css_default.fade })]
++				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { className: WorkspaceBrowser_module_css_default.fade })]
+ 			});
+ 		}
+ 		/**
+@@ -4073,47 +4104,48 @@
+ 					console.warn("session unarchive rejected:", reason);
+ 				});
+ 			};
+-			return (0, react_jsx_runtime.jsxs)("div", {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+ 				className: clsx(WorkspaceBrowser_module_css_default.root, !wide && WorkspaceBrowser_module_css_default.rail),
+ 				children: [
+-					(0, react_jsx_runtime.jsxs)("div", {
++					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+ 						className: clsx(WorkspaceBrowser_module_css_default.sectionHeader, wide && searchSpacingMotionEnabled && WorkspaceBrowser_module_css_default.searchSpacingMotion),
+ 						children: [
+-							wide && (0, react_jsx_runtime.jsx)("span", {
++							wide && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 								className: clsx(WorkspaceBrowser_module_css_default.sectionLabel, WorkspaceBrowser_module_css_default.wide, searchExpanded && WorkspaceBrowser_module_css_default.sectionLabelHidden),
+ 								children: groupBy === "flat" ? t("section.sessions") : t("section.workspaces")
+ 							}),
+-							wide && (0, react_jsx_runtime.jsx)("div", {
++							wide && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 								className: clsx(WorkspaceBrowser_module_css_default.searchSlot, searchExpanded && WorkspaceBrowser_module_css_default.searchSlotExpanded),
+-								children: (0, react_jsx_runtime.jsxs)("div", {
++								children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+ 									ref: searchRoot,
+ 									className: clsx(WorkspaceBrowser_module_css_default.search, searchExpanded && WorkspaceBrowser_module_css_default.searchExpanded),
+ 									onClick: () => {
+ 										closeAddWorkspace();
+-										changeSearchExpanded(true);
+-										searchInput.current?.focus();
++										if (!searchExpanded) requestSearch();
++										else searchInput.current?.focus();
+ 									},
+ 									children: [
+-										(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
++										/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+ 											label: t("search"),
+ 											shortcutKeys: searchShortcut?.keys,
+ 											side: "bottom",
+ 											delayMs: 500,
+ 											disabled: searchExpanded,
+ 											portal: true,
+-											children: (0, react_jsx_runtime.jsx)("button", {
++											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+ 												type: "button",
+ 												className: WorkspaceBrowser_module_css_default.searchButton,
+ 												"aria-label": t("search.sessions.aria"),
+ 												"aria-keyshortcuts": searchShortcut?.aria,
+ 												"aria-expanded": searchExpanded,
+-												onClick: () => {
++												onClick: (event) => {
++													event.stopPropagation();
+ 													requestSearch();
+ 												},
+-												children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconSearchOutlineRegular, { size: searchExpanded ? 11 : 14 })
++												children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconSearchOutlineRegular, { size: searchExpanded ? 11 : 14 })
+ 											})
+ 										}),
+-										(0, react_jsx_runtime.jsx)("input", {
++										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+ 											ref: searchInput,
+ 											className: WorkspaceBrowser_module_css_default.searchInput,
+ 											type: "text",
+@@ -4130,7 +4162,7 @@
+ 												changeSearchExpanded(false);
+ 											}
+ 										}),
+-										searchExpanded && (0, react_jsx_runtime.jsx)("button", {
++										searchExpanded && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+ 											type: "button",
+ 											className: WorkspaceBrowser_module_css_default.clearButton,
+ 											"aria-label": t("search.clear"),
+@@ -4139,14 +4171,14 @@
+ 												setQuery("");
+ 												changeSearchExpanded(false);
+ 											},
+-											children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCloseFillRegular, {})
++											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCloseFillRegular, {})
+ 										})
+ 									]
+ 								})
+ 							}),
+-							(0, react_jsx_runtime.jsxs)("div", {
++							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+ 								className: clsx(WorkspaceBrowser_module_css_default.headerActions, wide && searchExpanded && WorkspaceBrowser_module_css_default.headerActionsHidden),
+-								children: [wide && (0, react_jsx_runtime.jsx)(ViewOptionsMenu, {
++								children: [wide && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ViewOptionsMenu, {
+ 									groupBy,
+ 									orderBy,
+ 									archivedFilter,
+@@ -4156,13 +4188,13 @@
+ 									},
+ 									onArchivedFilterPick: actions.setArchivedFilter,
+ 									t
+-								}), directoryFlowAvailable && (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
++								}), directoryFlowAvailable && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+ 									label: t("workspace.add"),
+ 									shortcutKeys: addShortcut?.keys,
+ 									side: "bottom",
+ 									delayMs: 500,
+ 									portal: true,
+-									children: (0, react_jsx_runtime.jsx)("button", {
++									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+ 										ref: wsPlusRef,
+ 										type: "button",
+ 										className: WorkspaceBrowser_module_css_default.iconButton,
+@@ -4171,11 +4203,11 @@
+ 										onClick: () => {
+ 											requestAddWorkspace();
+ 										},
+-										children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconProjectAddOutlineRegular, { size: wide ? 16 : 18 })
++										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconProjectAddOutlineRegular, { size: wide ? 16 : 18 })
+ 									})
+ 								})]
+ 							}),
+-							(0, react_jsx_runtime.jsx)(WorkspacePickFlow, {
++							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(WorkspacePickFlow, {
+ 								t,
+ 								open: wsPickerOpen,
+ 								anchorRef: wsPlusRef,
+@@ -4196,13 +4228,13 @@
+ 							})
+ 						]
+ 					}),
+-					!wide && (0, react_jsx_runtime.jsx)("div", {
++					!wide && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 						className: WorkspaceBrowser_module_css_default.search,
+-						children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
++						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+ 							label: t("search"),
+ 							shortcutKeys: searchShortcut?.keys,
+ 							portal: true,
+-							children: (0, react_jsx_runtime.jsx)("button", {
++							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+ 								type: "button",
+ 								className: WorkspaceBrowser_module_css_default.searchButton,
+ 								"aria-label": t("search.sessions.aria"),
+@@ -4210,13 +4242,13 @@
+ 								onClick: () => {
+ 									requestSearch();
+ 								},
+-								children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconSearchOutlineRegular, { size: 18 })
++								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconSearchOutlineRegular, { size: 18 })
+ 							})
+ 						})
+ 					}),
+-					(0, react_jsx_runtime.jsx)("div", {
++					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 						className: WorkspaceBrowser_module_css_default.listArea,
+-						children: wide && (normalizedQuery !== "" ? (0, react_jsx_runtime.jsx)(SearchResults, {
++						children: wide && (normalizedQuery !== "" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(SearchResults, {
+ 							usePanelInfo,
+ 							useSessionAccess,
+ 							useSessions,
+@@ -4231,7 +4263,7 @@
+ 							remote: remoteSearch,
+ 							resultLimit: searchResultLimit,
+ 							t
+-						}) : groupBy === "flat" ? (0, react_jsx_runtime.jsx)(FlatList, {
++						}) : groupBy === "flat" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(FlatList, {
+ 							useSessionAccess,
+ 							usePanelInfo,
+ 							list,
+@@ -4252,7 +4284,7 @@
+ 							onSessionRevealed: acknowledgeSessionReveal,
+ 							home,
+ 							t
+-						}) : (0, react_jsx_runtime.jsx)(SessionTree, {
++						}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(SessionTree, {
+ 							useRemoteAccess,
+ 							useSessionAccess,
+ 							useWorkspaceAccess,
+@@ -4285,7 +4317,7 @@
+ 							t
+ 						}))
+ 					}),
+-					workspaceActionRequest !== null && (0, react_jsx_runtime.jsx)(WorkspaceDialogs, {
++					workspaceActionRequest !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(WorkspaceDialogs, {
+ 						request: workspaceActionRequest,
+ 						workspaces,
+ 						renameWorkspace,
+@@ -4297,7 +4329,7 @@
+ 			});
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/session-actions/ArchiveSession.js
++		//#region src/client/session-actions/ArchiveSession.tsx
+ 		/** Archive hover button and confirmation for stopping the Session’s running work. */
+ 		/**
+ 		* Hover button (order 100): archive, or restore an archived row. Absent while the Session's access
+@@ -4308,20 +4340,20 @@
+ 		function ArchiveSessionRowButton({ sessionId, useArchived, useSessionAccess, archiveSession, unarchiveSession, t }) {
+ 			const archived = useArchived((set) => set.has(sessionId));
+ 			if (!useSessionAccess(sessionId, archived ? "workspace/unarchiveSession" : "workspace/archiveSession")) return null;
+-			return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+ 				label: t(archived ? "actions.unarchive" : "actions.archive"),
+ 				side: "bottom",
+ 				align: "end",
+ 				delayMs: 500,
+ 				portal: true,
+-				children: (0, react_jsx_runtime.jsx)("button", {
++				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+ 					type: "button",
+ 					className: Rows_module_css_default.iconButton,
+ 					"aria-label": t(archived ? "menu.unarchiveSession" : "menu.archiveSession"),
+ 					onClick: () => {
+ 						(archived ? unarchiveSession : archiveSession)(sessionId);
+ 					},
+-					children: archived ? (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconUnarchiveOutlineRegular, { size: 14 }) : (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconArchiveOutlineRegular, { size: 14 })
++					children: archived ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconUnarchiveOutlineRegular, { size: 14 }) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconArchiveOutlineRegular, { size: 14 })
+ 				})
+ 			});
+ 		}
+@@ -4336,7 +4368,7 @@
+ 		function SessionArchiveConfirmDialog({ useArchiveRequest, settleSessionArchive, stopAndArchiveSession, t }) {
+ 			const request = useArchiveRequest((pending) => pending);
+ 			if (request === null) return null;
+-			return (0, react_jsx_runtime.jsx)(ArchiveConfirmForm, {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ArchiveConfirmForm, {
+ 				request,
+ 				stopAndArchiveSession,
+ 				onSettle: settleSessionArchive,
+@@ -4362,18 +4394,18 @@
+ 					setError(reason instanceof Error ? reason.message : String(reason));
+ 				});
+ 			};
+-			return (0, react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.Modal, {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.Modal, {
+ 				open: true,
+ 				onClose: close,
+ 				closeLabel: t("close"),
+ 				title: t("archive.confirm.title"),
+ 				description: t("archive.confirm.desc", { title: request.displayTitle }),
+-				footer: (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
++				footer: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+ 					variant: "outline",
+ 					disabled: archiving,
+ 					onClick: close,
+ 					children: t("cancel")
+-				}), (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
++				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+ 					variant: "outline",
+ 					className: WorkspaceBrowser_module_css_default.deleteAction,
+ 					disabled: archiving,
+@@ -4381,17 +4413,17 @@
+ 					children: t("archive.confirm.action")
+ 				})] }),
+ 				children: [
+-					(0, react_jsx_runtime.jsx)("ul", {
++					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
+ 						className: WorkspaceBrowser_module_css_default.archiveActivity,
+ 						"aria-label": t("archive.confirm.activity"),
+-						children: request.activity.map((entry, index) => (0, react_jsx_runtime.jsx)("li", { children: activityLine(entry, t) }, `${entry.kind}-${String(index)}`))
++						children: request.activity.map((entry, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("li", { children: activityLine(entry, t) }, `${entry.kind}-${String(index)}`))
+ 					}),
+-					archiving && (0, react_jsx_runtime.jsx)("div", {
++					archiving && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 						className: WorkspaceBrowser_module_css_default.deleteStatus,
+ 						role: "status",
+ 						children: t("archive.confirm.pending")
+ 					}),
+-					error !== null && (0, react_jsx_runtime.jsx)("div", {
++					error !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 						className: WorkspaceBrowser_module_css_default.renameError,
+ 						role: "alert",
+ 						children: error
+@@ -4430,7 +4462,7 @@
+ 			}
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/session-actions/derived.js
++		//#region src/client/session-actions/derived.ts
+ 		/**
+ 		* Project one observable into another, recomputing only when the source
+ 		* snapshot changes identity, so consumers that select from the projection
+@@ -4455,7 +4487,7 @@
+ 			};
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/session-actions/context-menus.js
++		//#region src/client/session-actions/context-menus.tsx
+ 		/**
+ 		* Register built-in actions while retaining the legacy Slot for external components.
+ 		* @param ctx - workspace plugin context owning menus, access, membership, and locale.
+@@ -4532,7 +4564,7 @@
+ 			});
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/session-actions/PinSession.js
++		//#region src/client/session-actions/PinSession.tsx
+ 		/** Session pin hover button over the workspace owner’s shared callbacks. */
+ 		/** The row's pin and archive membership, one Set lookup each, and whether its access allows the toggle. */
+ 		function usePinState({ sessionId, usePinned, useArchived, useSessionAccess }) {
+@@ -4555,25 +4587,25 @@
+ 			const { sessionId, pinSession, unpinSession, t } = props;
+ 			const { pinned, archived, allowed } = usePinState(props);
+ 			if (archived || !allowed) return null;
+-			return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+ 				label: t(pinned ? "actions.unpin" : "actions.pin"),
+ 				side: "bottom",
+ 				align: "end",
+ 				delayMs: 500,
+ 				portal: true,
+-				children: (0, react_jsx_runtime.jsx)("button", {
++				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+ 					type: "button",
+ 					className: clsx(Rows_module_css_default.iconButton, pinned && Rows_module_css_default.pinnedAction),
+ 					"aria-label": t(pinned ? "menu.unpinSession" : "menu.pinSession"),
+ 					onClick: () => {
+ 						(pinned ? unpinSession : pinSession)(sessionId);
+ 					},
+-					children: pinned ? (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPinFillRegular, { size: 14 }) : (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPinOutlineRegular, { size: 14 })
++					children: pinned ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPinFillRegular, { size: 14 }) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPinOutlineRegular, { size: 14 })
+ 				})
+ 			});
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/session-actions/RenameSession.js
++		//#region src/client/session-actions/RenameSession.tsx
+ 		/** Rename dialog shared by Session menus, shortcuts, and title double-clicks. */
+ 		/**
+ 		* The `shell.overlay` entry: nothing while no rename is requested, otherwise
+@@ -4587,7 +4619,7 @@
+ 		function SessionRenameDialog({ useRenameRequest, settleSessionRename, renameSession, t }) {
+ 			const request = useRenameRequest((pending) => pending);
+ 			if (request === null) return null;
+-			return (0, react_jsx_runtime.jsx)(RenameForm, {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(RenameForm, {
+ 				request,
+ 				renameSession,
+ 				onSettle: settleSessionRename,
+@@ -4618,23 +4650,23 @@
+ 					setError(reason instanceof Error ? reason.message : String(reason));
+ 				});
+ 			};
+-			return (0, react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.Modal, {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.Modal, {
+ 				open: true,
+ 				onClose: close,
+ 				closeLabel: t("close"),
+ 				title: t("rename.session.title"),
+-				footer: (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
++				footer: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+ 					variant: "outline",
+ 					disabled: renaming,
+ 					onClick: close,
+ 					children: t("cancel")
+-				}), (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
++				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+ 					variant: "primary",
+ 					disabled: blocked,
+ 					onClick: confirm,
+ 					children: t("rename")
+ 				})] }),
+-				children: [(0, react_jsx_runtime.jsx)("input", {
++				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+ 					className: WorkspaceBrowser_module_css_default.renameInput,
+ 					value: draft,
+ 					"aria-label": t("field.sessionName"),
+@@ -4659,7 +4691,7 @@
+ 							confirm();
+ 						}
+ 					}
+-				}), error !== null && (0, react_jsx_runtime.jsx)("div", {
++				}), error !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 					className: WorkspaceBrowser_module_css_default.renameError,
+ 					role: "alert",
+ 					children: error
+@@ -4667,7 +4699,7 @@
+ 			});
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/session-actions/RowActionToast.js
++		//#region src/client/session-actions/RowActionToast.tsx
+ 		/**
+ 		* Dispatch the current notice without interpreting its business payload.
+ 		* @param props - Current notice, dismissal, and the declared keyed renderer.
+@@ -4682,7 +4714,7 @@
+ 			}, { entryKey: notice.kind });
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/toast/Toast.js
++		//#region src/client/toast/Toast.tsx
+ 		/** One presentation Factory and the adapters for keyed Workspace notices. */
+ 		/**
+ 		* Render one notice using the shared Factory.
+@@ -4719,17 +4751,17 @@
+ 		* @returns One Toast, remounted only for a new display identity.
+ 		*/
+ 		function WorkspaceToast({ seq, text, tone, holdMs, actions, onDone }) {
+-			return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Toast, {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Toast, {
+ 				text,
+ 				onDone,
+ 				...tone === "success" ? { tone: "success" } : {},
+-				...tone === "warning" ? { icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconWarningOutlineRegular, {}) } : {},
++				...tone === "warning" ? { icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconWarningOutlineRegular, {}) } : {},
+ 				...holdMs === void 0 ? {} : { holdMs },
+ 				...actions === void 0 ? {} : { actions }
+ 			}, seq);
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/toast/register.js
++		//#region src/client/toast/register.ts
+ 		/** Register notice presentations with their business-owned display fields and actions.
+ 		* @param ctx - Workspace plugin context.
+ 		* @param viewStore - Viewing store, read only by archive notices.
+@@ -4884,7 +4916,7 @@
+ 			});
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/locales.js
++		//#region src/client/locales.ts
+ 		/**
+ 		* `workspace` namespace dictionaries: the browsing region (section header,
+ 		* search, tree rows, dialogs) and the pick/add flow. Runtime failure
+@@ -5867,7 +5899,7 @@
+ 			"time.ago": "{t} atrás"
+ 		};
+ 		//#endregion
+-		//#region lib/types/client/index.js
++		//#region src/client/index.ts
+ 		/** Dictionary namespace owned by this plugin. */
+ 		const NS = "workspace";
+ 		/**
+@@ -5928,7 +5960,7 @@
+ 				ru,
+ 				pt
+ 			}), "ui-workspace: dictionaries");
+-			const shortcutControls = createWorkspaceShortcutControls();
++			const shortcutControls = createWorkspaceShortcutControls(uiWorkspace.searchHandler.dispatch);
+ 			const searchSessions = async (query, signal) => {
+ 				const result = await sessions.search(query, signal);
+ 				if (!result.ok) throw new Error(result.error.message);
+--- a/lib/types/client/navigation.d.ts
++++ b/lib/types/client/navigation.d.ts
+@@ -16,6 +16,11 @@
+ }
+ /** Workspace archive and directory operations consumed by Client UI domains. */
+ export interface UiWorkspace {
++    /** Register a synchronous search opener. Only the latest provider is called.
++     * Return true only after accepting the request; false or a throw uses native search.
++     * Dispose the returned callback on plugin unload. Disposing twice is safe.
++     */
++    registerSearchHandler(handler: () => boolean): () => void;
+     /** Register an observable, explicit sidebar exclusion set; does not restrict opening Sessions. */
+     registerSidebarHiddenSessions(source: import('@deepseek-ai/dsh-client-ui-slots').HostObservable<SidebarPolicy>): () => void;
+     /**
+@@ -138,6 +143,12 @@
+     private readonly sessions;
+     private readonly view;
+     private readonly notify;
++    /** Private routing shared by the native shortcut and pointer controls. */
++    readonly searchHandler: {
++        register: (handler: () => boolean) => () => void;
++        dispatch: () => boolean;
++    };
++    registerSearchHandler(handler: () => boolean): () => void;
+     /** Merged navigation-only policy. Providers own provenance and durability. */
+     readonly sidebarHiddenSessions: import("@deepseek-ai/dsh-client-store").SnapshotStore<SidebarPolicy>;
+     private readonly sidebarSources;
+--- a/lib/types/client/search-handler.d.ts
++++ b/lib/types/client/search-handler.d.ts
+@@ -0,0 +1,6 @@
++/** One active search provider, owned by the Workspace UI service lifetime. */
++export declare function createWorkspaceSearchHandler(): {
++    register: (handler: () => boolean) => () => void;
++    dispatch: () => boolean;
++};
++//# sourceMappingURL=search-handler.d.ts.map
+\ No newline at end of file
+--- a/lib/types/client/shortcuts.d.ts
++++ b/lib/types/client/shortcuts.d.ts
+@@ -26,7 +26,7 @@
+  * Create the private browser request source shared by commands and controls.
+  * @returns observable state and its complete mutation callbacks.
+  */
+-export declare function createWorkspaceShortcutControls(): WorkspaceShortcutControls;
++export declare function createWorkspaceShortcutControls(handleSearch?: () => boolean): WorkspaceShortcutControls;
+ /**
+  * Register navigation commands against the existing workspace owner.
+  * Rename requires a nonblank main Conversation with no modal other than the navigation drawer obscuring it.

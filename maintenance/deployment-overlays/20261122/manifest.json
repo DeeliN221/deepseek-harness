@@ -1,0 +1,273 @@
+{
+  "formatVersion": 1,
+  "date": "2026-11-22",
+  "sourceBranchBase": "afaea42d83fc502743b43e9d02bb1a882c8deb35",
+  "scope": "Exact maintained deployment overlays. These are compiled-code patches where source equivalence is not yet proven; not a claim that rebuilding TypeScript reproduces all live bytes. No profile, credential, session, or personal policy files.",
+  "packages": [
+    {
+      "package": "@deepseek-ai/dsh-api-session-controller",
+      "baseVersion": "0.2.2-rc.1",
+      "baseOrigin": "deployed base artifact: deepseek-ai-dsh-api-session-controller-0.2.2-rc.1.tgz",
+      "baseSha256": "f787488b00806e2be86810da7c324c74ebff26ccf9d04bb761ce30e9d3f63e99",
+      "patch": null,
+      "changes": [],
+      "replayVerified": true
+    },
+    {
+      "package": "@deepseek-ai/dsh-brand",
+      "baseVersion": "0.2.2-rc.1",
+      "baseOrigin": "npm @deepseek-ai/dsh-brand@0.2.2-rc.1",
+      "baseSha256": "d953cb5e8dcd69be0b0347ce9a3b36421eefa751820cbe909f4a185348ad5530",
+      "patch": null,
+      "changes": [],
+      "replayVerified": true
+    },
+    {
+      "package": "@deepseek-ai/dsh-client-ui-chat",
+      "baseVersion": "0.2.2-rc.1",
+      "baseOrigin": "deployed base artifact: deepseek-ai-dsh-client-ui-chat-0.2.2-rc.1.tgz",
+      "baseSha256": "0d947f0777bd4a9eb00e5fa5670b9b93a3571f3946254ffdba158a6227d930b9",
+      "patch": null,
+      "changes": [],
+      "replayVerified": true
+    },
+    {
+      "package": "@deepseek-ai/dsh-client-ui-conversation",
+      "baseVersion": "0.2.2-rc.1",
+      "baseOrigin": "deployed base artifact: deepseek-ai-dsh-client-ui-conversation-0.2.2-rc.1.tgz",
+      "baseSha256": "5651a151c014d16b6ba66f068750dd9186ff85de173983a0708abc0f7b3db5a4",
+      "patch": null,
+      "changes": [],
+      "replayVerified": true
+    },
+    {
+      "package": "@deepseek-ai/dsh-client-ui-entry-customization",
+      "baseVersion": "0.2.2-rc.1",
+      "baseOrigin": "npm @deepseek-ai/dsh-client-ui-entry-customization@0.2.2-rc.1",
+      "baseSha256": "c8e25cddbd244c3eb302b203888446c6b2a5c474fcf8bb4c90032d36ceb7c352",
+      "patch": "dsh-client-ui-entry-customization.patch",
+      "changes": [
+        {
+          "path": "lib/client.js",
+          "before": "607476157d5ba93a0c2b74048591509116764348a275b7d27add6460b467d9a8",
+          "after": "d9d4d45f1bf1b32b3b2a093e028ea87c44cbd0fe9f46ffc036bb98632372e3cc",
+          "bytes": 5879
+        },
+        {
+          "path": "lib/types/client/EntryMenuContent.d.ts",
+          "before": "be6950c69f8f92a5a961ce84d7b6cd41d034e3fc250252d4f86d3adbb2e08540",
+          "after": "aca387453a0b39da4889b4eab78ea21fc671e2e32da546f85acbe727ce485af6",
+          "bytes": 1480
+        },
+        {
+          "path": "lib/types/client/index.d.ts",
+          "before": "085ff0ed8517c5a9fb611368c9f99757742357ad13c2eaa734fc01c3f0729224",
+          "after": "fe8666c2a352c6722278fa6c8a84cc93afe4ada5af9d3ed6d2fd18e21d40dcda",
+          "bytes": 823
+        },
+        {
+          "path": "lib/types/client/locales.d.ts",
+          "before": "bdfb38029879952306a6e27fe6357a6106d6c7010644268ff426cd3372415449",
+          "after": "99ea3c533c20aafc8f8472159219899ff5c0f8d8a60fccd7bf8ddafd21fb3a80",
+          "bytes": 1441
+        }
+      ],
+      "replayVerified": true
+    },
+    {
+      "package": "@deepseek-ai/dsh-client-ui-sidebar",
+      "baseVersion": "0.2.2-rc.1",
+      "baseOrigin": "npm @deepseek-ai/dsh-client-ui-sidebar@0.2.2-rc.1",
+      "baseSha256": "003683cd8044d246f82d2f2e81bc840444589c366b28c0c955960be8daf64db1",
+      "patch": "dsh-client-ui-sidebar.patch",
+      "changes": [
+        {
+          "path": "lib/client.js",
+          "before": "0a0a32382391acee1a692cf7d2529a2669cc8cc23d4d83b446f6247c3c4562c4",
+          "after": "3b59d0e5fd784f230eea430bba1a9f73fcdba1fc2ece43da3ff66d51b363bf31",
+          "bytes": 46491
+        },
+        {
+          "path": "lib/types/client/HeaderLeadingControls.js",
+          "before": null,
+          "after": "1fba468b98c289e976016f0d08a3da58e42ef20b8ad510b6f40a57403a351018",
+          "bytes": 2285
+        },
+        {
+          "path": "lib/types/client/SidebarRoot.js",
+          "before": null,
+          "after": "fe381ce2009c12b8f8665f2b207c053096106496889a70c2b93ffa75d77b990f",
+          "bytes": 18240
+        },
+        {
+          "path": "lib/types/client/contract/slots.js",
+          "before": null,
+          "after": "8e17593bc2565eef2ac8420a29a49f57046b137f8adc8d483f5e2a8251292750",
+          "bytes": 44
+        },
+        {
+          "path": "lib/types/client/index.js",
+          "before": null,
+          "after": "57349c170b6a935ba42e515528ef3cd242b014f92f7af704fd67aa0270fa31ed",
+          "bytes": 4286
+        },
+        {
+          "path": "lib/types/client/locales.js",
+          "before": null,
+          "after": "aeb9a02da3855919f6b3e50e4c5c632f56b8d2a5fed220b566fc47499598e570",
+          "bytes": 3488
+        },
+        {
+          "path": "lib/types/client/minimal-nav.d.ts",
+          "before": null,
+          "after": "75f9d12c6f21cde4aab0f59a4b704d89c70443b463e39dda083085966d9c49ea",
+          "bytes": 941
+        },
+        {
+          "path": "lib/types/client/minimal-nav.js",
+          "before": null,
+          "after": "b838b890b60cda5bf9c595abe1886646f830608bc1281d99c1a06ba446ce3873",
+          "bytes": 1186
+        },
+        {
+          "path": "lib/types/client/panel-pins.js",
+          "before": null,
+          "after": "846a7fa026ec724e29cf054121e46fbdc251eb5abb766563bce7343afe751b8e",
+          "bytes": 1022
+        },
+        {
+          "path": "lib/types/index.js",
+          "before": null,
+          "after": "e9dd336079c5501281ed5ad331ab3ce31d8a3453dc59cce56f2e461212cd1dd3",
+          "bytes": 162
+        }
+      ],
+      "replayVerified": true
+    },
+    {
+      "package": "@deepseek-ai/dsh-client-ui-workspace",
+      "baseVersion": "0.2.2-rc.1",
+      "baseOrigin": "deployed base artifact: deepseek-ai-dsh-client-ui-workspace-0.2.2-rc.1.tgz",
+      "baseSha256": "a6ea3f22ff38e0e2fd230fd13472775a3b8ab7cc59f87b47f30e2ee877508005",
+      "patch": "dsh-client-ui-workspace.patch",
+      "changes": [
+        {
+          "path": "lib/client.js",
+          "before": "c622d94c5ad82652b895f6137310f3d839203d703ed45a139570ec2e8556230e",
+          "after": "37e543b1c4bc22a550ee197b938363f1280f72c06975e2f1e07d87dbf16bc7ee",
+          "bytes": 295326
+        },
+        {
+          "path": "lib/types/client/navigation.d.ts",
+          "before": "15104e41ea74d9fac7cfe9f8f0ec9d69f46f181126d3390306fc30f128da4fa5",
+          "after": "fb5b497a0a79d7966764c1bd3d4b1b149cb6f9d8a53444fc35f939e4cd0b2b59",
+          "bytes": 12297
+        },
+        {
+          "path": "lib/types/client/search-handler.d.ts",
+          "before": null,
+          "after": "497151b451990b1159e4a9192ce3e3b22e750c88e9d83a90d6e2e9b41243a8d1",
+          "bytes": 267
+        },
+        {
+          "path": "lib/types/client/shortcuts.d.ts",
+          "before": "3d47b190dc716f28cc1b578e043868fa3f67360849014195f5cd7609846a04bf",
+          "after": "e45e8c085e7e668ac255c098bc1f6f453cd17468cc3997b984f1b87286e10f7e",
+          "bytes": 2192
+        }
+      ],
+      "replayVerified": true
+    },
+    {
+      "package": "@deepseek-ai/dsh-message-quotes",
+      "baseVersion": "0.2.2-rc.1",
+      "baseOrigin": "npm @deepseek-ai/dsh-message-quotes@0.2.2-rc.1",
+      "baseSha256": "c4cba3e0642c2e1efa783c5cb8ee746cc183300474d61fcd8931c09a6638f911",
+      "patch": null,
+      "changes": [],
+      "replayVerified": true
+    },
+    {
+      "package": "@deepseek-ai/dsh-client-ui-brand-official",
+      "baseVersion": "0.2.2-rc.1",
+      "baseOrigin": "npm @deepseek-ai/dsh-client-ui-brand-official@0.2.2-rc.1",
+      "baseSha256": "acd71719c041d7740caa08cf724834b9f595931b1b4ee678d61823d47aceb0fa",
+      "patch": "dsh-client-ui-brand-official.patch",
+      "changes": [
+        {
+          "path": "lib/client.js",
+          "before": "22bb7e181a8d93372e1d14927b201612b09a02c84ea3d0f36933cfff1de47d71",
+          "after": "129c08684c2936d2c1efbc7693e534359e4869f257f4c3269cedf625646baf80",
+          "bytes": 1885
+        }
+      ],
+      "replayVerified": true
+    },
+    {
+      "package": "@deepseek-ai/dsh-client-ui-input-trigger",
+      "baseVersion": "0.2.2-rc.1",
+      "baseOrigin": "npm @deepseek-ai/dsh-client-ui-input-trigger@0.2.2-rc.1",
+      "baseSha256": "247f928e1f20a21e57c230d0f0dbaa811fe905849586b3ec9e0f5b6e92179231",
+      "patch": "dsh-client-ui-input-trigger.patch",
+      "changes": [
+        {
+          "path": "lib/client.js",
+          "before": "3f57b79e1f5f9a2378caadba05c3fead8baf1aa4dc80e3ffcd3718774f0b887f",
+          "after": "5cd84770177c4fc38eee3982c087b545132e43b0bfd2b32f8d3c836b148a5b90",
+          "bytes": 80728
+        },
+        {
+          "path": "lib/types/core/contract.d.ts",
+          "before": "fdb629a21401844f154b416d85707d945759562fb80835d88e8e8ee8f232b5f4",
+          "after": "b6eb46f56fd10325d65a3880af2a0d8b7a8b02a859e1cf98b7355f5ab3e453a7",
+          "bytes": 3202
+        },
+        {
+          "path": "lib/types/types.d.ts",
+          "before": "2d5b004229c1657bc0c484d1f881e2498fa9f45549589a3f1e40e82c1f637582",
+          "after": "39c17a2107b53e2feef56d6dd0e7f314aeb29352134a194a1403917630ba53ee",
+          "bytes": 11945
+        }
+      ],
+      "replayVerified": true
+    },
+    {
+      "package": "@deepseek-ai/dsh-client-ui-commands",
+      "baseVersion": "0.2.2-rc.1",
+      "baseOrigin": "npm @deepseek-ai/dsh-client-ui-commands@0.2.2-rc.1",
+      "baseSha256": "d6c7d35d3e70d62df3f2d33da62f967c805a8a96bd70fba339e4b6b4e971cd47",
+      "patch": "dsh-client-ui-commands.patch",
+      "changes": [
+        {
+          "path": "lib/client.js",
+          "before": "016760060707b1b67c74c218de48c6a97790c678533c9b5b6c311e1c005bb984",
+          "after": "5891716734aaf1a4fc7f5e6ac7cf76f41202224aeff19209a8b1e16bbebcdf80",
+          "bytes": 91768
+        },
+        {
+          "path": "lib/types/client/presentation.d.ts",
+          "before": "ac3efcd73107a71a792c1a9c228bdecad04fe1b6a153bd756a9510702740d409",
+          "after": "406e2e6fe6113475907db31d91d47c732939018c00006dde464c97f057b32cb8",
+          "bytes": 1530
+        }
+      ],
+      "replayVerified": true
+    },
+    {
+      "package": "@deepseek-ai/dsh-attachment-local",
+      "baseVersion": "0.2.2-rc.1",
+      "baseOrigin": "npm @deepseek-ai/dsh-attachment-local@0.2.2-rc.1",
+      "baseSha256": "b549397297781412f90f7de618a3ae004fdf0ddc56390b7440e68e67eca6327b",
+      "patch": "dsh-attachment-local.patch",
+      "changes": [
+        {
+          "path": "lib/index.js",
+          "before": "ff717f87226b59d6224aff67796b43d5fd72b98d0e74fa91a952affaf3285f9d",
+          "after": "7d3839f7c584595c42f38ea99776b1887260090aec66389e6cf0ae9b06c21704",
+          "bytes": 47374
+        }
+      ],
+      "replayVerified": true
+    }
+  ]
+}

@@ -1,0 +1,343 @@
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -6,9 +6,9 @@
+ 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
+ 		let _deepseek_ai_cordis = require("@deepseek-ai/cordis");
+ 		let _deepseek_ai_dsh_client_store = require("@deepseek-ai/dsh-client-store");
+-		let react_jsx_runtime = require("react/jsx-runtime");
+ 		let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
+ 		let react = require("react");
++		let react_jsx_runtime = require("react/jsx-runtime");
+ 		//#region ../../util/values/src/partial-json.ts
+ 		/**
+ 		* Lazily scanned view of one JSON object's top-level fields, built from text
+@@ -731,7 +731,7 @@
+ 			};
+ 		}
+ 		//#endregion
+-		//#region lib/types/core/detect.js
++		//#region src/core/detect.ts
+ 		/**
+ 		* Trigger detection pure core. Scans backward from
+ 		* the caret for a live trigger char under the guard tier and applies the
+@@ -811,7 +811,7 @@
+ 			return null;
+ 		};
+ 		//#endregion
+-		//#region lib/types/core/menu.js
++		//#region src/core/menu.ts
+ 		/** Closed rest state with generation 0; store initializer and test seed. */
+ 		const MENU_CLOSED = {
+ 			open: false,
+@@ -965,7 +965,7 @@
+ 			}
+ 		};
+ 		//#endregion
+-		//#region lib/types/client/controller.js
++		//#region src/client/controller.ts
+ 		/** Whether a tracked hit is the one the user just dismissed (same token, same query). */
+ 		function dismissedHit(dismissed, hit) {
+ 			return dismissed.trigger === hit.trigger && dismissed.query === hit.query && dismissed.quoted === hit.quoted && dismissed.start === hit.span.start && dismissed.end === hit.span.end;
+@@ -1099,15 +1099,19 @@
+ 					return;
+ 				}
+ 				this.stopFetch();
+-				this.hit = hit;
++				const launchedHit = {
++					...hit,
++					origin: "launcher"
++				};
++				this.hit = launchedHit;
+ 				this.launcher.set(source);
+ 				this.menu.set(seedGroups(this.menu.getSnapshot(), [match]));
+ 				this.reduce({
+ 					type: "hit",
+-					hit
++					hit: launchedHit
+ 				});
+-				this.refreshHeaders(hit, [match]);
+-				this.fetchCandidates(hit, [match]);
++				this.refreshHeaders(launchedHit, [match]);
++				this.fetchCandidates(launchedHit, [match]);
+ 			}
+ 			/**
+ 			* Pointer pick from MenuView: route the clicked candidate through onPick
+@@ -1418,6 +1422,7 @@
+ 				const generation = this.menu.getSnapshot().generation;
+ 				const projection = this.project();
+ 				for (const source of roster) source.candidates(projection, {
++					...hit.origin === void 0 ? {} : { origin: hit.origin },
+ 					query: hit.query,
+ 					quoted: hit.quoted,
+ 					position: hit.position,
+@@ -1522,7 +1527,7 @@
+ 			}
+ 		};
+ 		//#endregion
+-		//#region lib/types/client/service.js
++		//#region src/client/service.ts
+ 		/**
+ 		* InputTriggerService (`ctx.inputTriggers`): the root half of the trigger pipeline — the
+ 		* stateless source registry plus the per-session controller map. Every piece
+@@ -1609,7 +1614,7 @@
+ 			}
+ 		};
+ 		//#endregion
+-		//#region ../../../node_modules/.pnpm/clsx@2.1.1/node_modules/clsx/dist/clsx.mjs
++		//#region ../../../../../../betterdsh-20261120/session-loading/deepseek-harness/node_modules/.pnpm/clsx@2.1.1/node_modules/clsx/dist/clsx.mjs
+ 		function r(e) {
+ 			var t, f, n = "";
+ 			if ("string" == typeof e || "number" == typeof e) n += e;
+@@ -1624,8 +1629,8 @@
+ 			return n;
+ 		}
+ 		//#endregion
+-		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-input-trigger/src/client/MenuView.module.css.mjs
+-		const css = "._3e4SsG_menu{z-index:100;box-sizing:border-box;--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);--dsh-scrollbar-width:6px;--dsh-scrollbar-thumb-border:2px;--dsh-scrollbar-track-margin:12px;--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);max-height:400px;box-shadow:var(--dsw-elevation-prominent);border:0;flex-direction:column;padding:4px;display:flex;position:absolute;bottom:calc(100% + 4px);left:0;right:0;overflow:hidden}._3e4SsG_menu[data-overflow-below]:after{content:\"\";background:linear-gradient(to bottom, transparent, var(--dsw-specific-menu));pointer-events:none;height:16px;position:absolute;bottom:4px;left:4px;right:14px}._3e4SsG_viewport{flex-direction:column;min-height:0;display:flex;overflow-y:auto}._3e4SsG_item{border-radius:var(--dsw-radius-md);cursor:pointer;width:100%;min-height:34px;color:var(--dsw-alias-label-primary);text-align:left;background:0 0;border:none;align-items:center;gap:6px;padding:6px 8px;font-size:13px;line-height:20px;display:flex}._3e4SsG_item._3e4SsG_active{background:var(--dsw-alias-interactive-bg-hover)}._3e4SsG_sectionTitle{min-height:23px;color:var(--dsw-alias-label-tertiary);flex:none;padding:5px 8px 2px;font-size:11px;font-weight:500;line-height:16px}._3e4SsG_sectionTitle:not(:first-child){margin-top:3px}._3e4SsG_itemIcon{width:14px;height:14px;color:var(--dsw-alias-menu-icon);flex:none;justify-content:center;align-items:center;display:inline-flex}._3e4SsG_itemIcon svg{width:14px;height:14px}._3e4SsG_itemName{text-overflow:ellipsis;white-space:nowrap;flex:none;max-width:40%;overflow:hidden}._3e4SsG_itemAlias{text-overflow:ellipsis;white-space:nowrap;max-width:20%;color:var(--dsw-alias-label-tertiary);flex:none;font-size:12px;line-height:18px;overflow:hidden}._3e4SsG_itemDescription{text-overflow:ellipsis;white-space:nowrap;text-align:right;min-width:0;color:var(--dsw-alias-label-tertiary);flex:1;font-size:12px;line-height:18px;overflow:hidden}._3e4SsG_trailing{flex:none;align-items:center;gap:3px;margin-left:auto;display:inline-flex}._3e4SsG_drillHintText{color:var(--dsw-alias-label-caption);white-space:nowrap;font-size:10px;line-height:16px;display:none}._3e4SsG_drillHint{border-radius:var(--dsw-radius-xs);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-caption);padding:0 4px;font-family:inherit;font-size:10px;line-height:16px;display:none}._3e4SsG_item._3e4SsG_active ._3e4SsG_drillHintText,._3e4SsG_item._3e4SsG_active ._3e4SsG_drillHint{display:inline-flex}._3e4SsG_drill{border-radius:var(--dsw-radius-xs);width:18px;height:18px;color:var(--dsw-alias-menu-icon);flex:none;place-items:center;display:inline-grid}@media (hover:hover){._3e4SsG_drill:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}}._3e4SsG_groupTitle{color:var(--dsw-alias-label-tertiary);padding:6px 8px;font-size:11px;line-height:15px}._3e4SsG_skeletonRow{box-sizing:border-box;align-items:center;min-height:34px;padding:6px 8px;display:flex}._3e4SsG_skeletonBar{border-radius:var(--dsw-radius-xs);background:var(--dsw-alias-bg-skeleton);height:18px;animation:2s cubic-bezier(.36,0,.64,1) infinite _3e4SsG_dsh-menu-skeleton}@keyframes _3e4SsG_dsh-menu-skeleton{0%{opacity:1}40%{opacity:.6}80%,to{opacity:1}}._3e4SsG_crumbs{border-bottom:.5px solid var(--dsw-alias-border-l1);flex-wrap:wrap;flex:none;align-items:center;gap:2px;margin-bottom:2px;padding:3px 3px 5px;display:flex}._3e4SsG_crumb{border-radius:var(--dsw-radius-sm);max-width:40%;color:var(--dsw-alias-label-tertiary);cursor:pointer;text-overflow:ellipsis;white-space:nowrap;background:0 0;border:none;flex:0 auto;padding:2px 5px;font-family:inherit;font-size:11px;line-height:16px;overflow:hidden}@media (hover:hover){._3e4SsG_crumb:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}}._3e4SsG_crumbCurrent{color:var(--dsw-alias-label-primary);cursor:default;background:0 0}@media (hover:hover){._3e4SsG_crumbCurrent:hover{color:var(--dsw-alias-label-primary);cursor:default;background:0 0}}._3e4SsG_crumbSeparator{color:var(--dsw-alias-menu-icon);flex:none;display:inline-flex}";
++		//#region \0dsh-css:/data/workspace/state/dsh-search-unified-20261122/sources/core/packages/client/ui-input-trigger/src/client/MenuView.module.css.mjs
++		const css = ".wpDnxW_menu{z-index:100;box-sizing:border-box;--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);--dsh-scrollbar-width:6px;--dsh-scrollbar-thumb-border:2px;--dsh-scrollbar-track-margin:12px;--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);max-height:400px;box-shadow:var(--dsw-elevation-prominent);border:0;flex-direction:column;padding:4px;display:flex;position:absolute;bottom:calc(100% + 4px);left:0;right:0;overflow:hidden}.wpDnxW_menu[data-command-launcher]{width:min(320px,100%);right:auto}@media (pointer:coarse){.wpDnxW_menu[data-command-launcher] .wpDnxW_item{min-height:44px}}.wpDnxW_menu[data-overflow-below]:after{content:\"\";background:linear-gradient(to bottom, transparent, var(--dsw-specific-menu));pointer-events:none;height:16px;position:absolute;bottom:4px;left:4px;right:14px}.wpDnxW_viewport{flex-direction:column;min-height:0;display:flex;overflow-y:auto}.wpDnxW_item{border-radius:var(--dsw-radius-md);cursor:pointer;width:100%;min-height:34px;color:var(--dsw-alias-label-primary);text-align:left;background:0 0;border:none;align-items:center;gap:6px;padding:6px 8px;font-size:13px;line-height:20px;display:flex}.wpDnxW_item.wpDnxW_active{background:var(--dsw-alias-interactive-bg-hover)}.wpDnxW_sectionTitle{min-height:23px;color:var(--dsw-alias-label-tertiary);flex:none;padding:5px 8px 2px;font-size:11px;font-weight:500;line-height:16px}.wpDnxW_sectionTitle:not(:first-child){margin-top:3px}.wpDnxW_itemIcon{width:14px;height:14px;color:var(--dsw-alias-menu-icon);flex:none;justify-content:center;align-items:center;display:inline-flex}.wpDnxW_itemIcon svg{width:14px;height:14px}.wpDnxW_itemName{text-overflow:ellipsis;white-space:nowrap;flex:none;max-width:40%;overflow:hidden}.wpDnxW_itemAlias{text-overflow:ellipsis;white-space:nowrap;max-width:20%;color:var(--dsw-alias-label-tertiary);flex:none;font-size:12px;line-height:18px;overflow:hidden}.wpDnxW_itemDescription{text-overflow:ellipsis;white-space:nowrap;text-align:right;min-width:0;color:var(--dsw-alias-label-tertiary);flex:1;font-size:12px;line-height:18px;overflow:hidden}.wpDnxW_trailing{flex:none;align-items:center;gap:3px;margin-left:auto;display:inline-flex}.wpDnxW_drillHintText{color:var(--dsw-alias-label-caption);white-space:nowrap;font-size:10px;line-height:16px;display:none}.wpDnxW_drillHint{border-radius:var(--dsw-radius-xs);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-caption);padding:0 4px;font-family:inherit;font-size:10px;line-height:16px;display:none}.wpDnxW_item.wpDnxW_active .wpDnxW_drillHintText,.wpDnxW_item.wpDnxW_active .wpDnxW_drillHint{display:inline-flex}.wpDnxW_drill{border-radius:var(--dsw-radius-xs);width:18px;height:18px;color:var(--dsw-alias-menu-icon);flex:none;place-items:center;display:inline-grid}@media (hover:hover){.wpDnxW_drill:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}}.wpDnxW_groupTitle{color:var(--dsw-alias-label-tertiary);padding:6px 8px;font-size:11px;line-height:15px}.wpDnxW_skeletonRow{box-sizing:border-box;align-items:center;min-height:34px;padding:6px 8px;display:flex}.wpDnxW_skeletonBar{border-radius:var(--dsw-radius-xs);background:var(--dsw-alias-bg-skeleton);height:18px;animation:2s cubic-bezier(.36,0,.64,1) infinite wpDnxW_dsh-menu-skeleton}@keyframes wpDnxW_dsh-menu-skeleton{0%{opacity:1}40%{opacity:.6}80%,to{opacity:1}}.wpDnxW_crumbs{border-bottom:.5px solid var(--dsw-alias-border-l1);flex-wrap:wrap;flex:none;align-items:center;gap:2px;margin-bottom:2px;padding:3px 3px 5px;display:flex}.wpDnxW_crumb{border-radius:var(--dsw-radius-sm);max-width:40%;color:var(--dsw-alias-label-tertiary);cursor:pointer;text-overflow:ellipsis;white-space:nowrap;background:0 0;border:none;flex:0 auto;padding:2px 5px;font-family:inherit;font-size:11px;line-height:16px;overflow:hidden}@media (hover:hover){.wpDnxW_crumb:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}}.wpDnxW_crumbCurrent{color:var(--dsw-alias-label-primary);cursor:default;background:0 0}@media (hover:hover){.wpDnxW_crumbCurrent:hover{color:var(--dsw-alias-label-primary);cursor:default;background:0 0}}.wpDnxW_crumbSeparator{color:var(--dsw-alias-menu-icon);flex:none;display:inline-flex}";
+ 		const tagId = "@deepseek-ai/dsh-client-ui-input-trigger/MenuView.module.css";
+ 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
+ 			const tag = document.createElement("style");
+@@ -1635,30 +1640,30 @@
+ 			document.head.appendChild(tag);
+ 		}
+ 		var MenuView_module_css_default = {
+-			"active": "_3e4SsG_active",
+-			"crumb": "_3e4SsG_crumb",
+-			"crumbCurrent": "_3e4SsG_crumbCurrent",
+-			"crumbSeparator": "_3e4SsG_crumbSeparator",
+-			"crumbs": "_3e4SsG_crumbs",
+-			"drill": "_3e4SsG_drill",
+-			"drillHint": "_3e4SsG_drillHint",
+-			"drillHintText": "_3e4SsG_drillHintText",
+-			"dsh-menu-skeleton": "_3e4SsG_dsh-menu-skeleton",
+-			"groupTitle": "_3e4SsG_groupTitle",
+-			"item": "_3e4SsG_item",
+-			"itemAlias": "_3e4SsG_itemAlias",
+-			"itemDescription": "_3e4SsG_itemDescription",
+-			"itemIcon": "_3e4SsG_itemIcon",
+-			"itemName": "_3e4SsG_itemName",
+-			"menu": "_3e4SsG_menu",
+-			"sectionTitle": "_3e4SsG_sectionTitle",
+-			"skeletonBar": "_3e4SsG_skeletonBar",
+-			"skeletonRow": "_3e4SsG_skeletonRow",
+-			"trailing": "_3e4SsG_trailing",
+-			"viewport": "_3e4SsG_viewport"
++			"active": "wpDnxW_active",
++			"crumb": "wpDnxW_crumb",
++			"crumbCurrent": "wpDnxW_crumbCurrent",
++			"crumbSeparator": "wpDnxW_crumbSeparator",
++			"crumbs": "wpDnxW_crumbs",
++			"drill": "wpDnxW_drill",
++			"drillHint": "wpDnxW_drillHint",
++			"drillHintText": "wpDnxW_drillHintText",
++			"dsh-menu-skeleton": "wpDnxW_dsh-menu-skeleton",
++			"groupTitle": "wpDnxW_groupTitle",
++			"item": "wpDnxW_item",
++			"itemAlias": "wpDnxW_itemAlias",
++			"itemDescription": "wpDnxW_itemDescription",
++			"itemIcon": "wpDnxW_itemIcon",
++			"itemName": "wpDnxW_itemName",
++			"menu": "wpDnxW_menu",
++			"sectionTitle": "wpDnxW_sectionTitle",
++			"skeletonBar": "wpDnxW_skeletonBar",
++			"skeletonRow": "wpDnxW_skeletonRow",
++			"trailing": "wpDnxW_trailing",
++			"viewport": "wpDnxW_viewport"
+ 		};
+ 		//#endregion
+-		//#region lib/types/client/MenuView.js
++		//#region src/client/MenuView.tsx
+ 		/**
+ 		* Trigger candidate menu: renders the InputTriggerService menu store into the
+ 		* conversation.input.overlay anchor. Closed state renders null (the overlay
+@@ -1708,6 +1713,7 @@
+ 				maxHeight,
+ 				updateOverflowHint
+ 			]);
++			const commandLauncher = state.hit?.origin === "launcher" && state.groups.length === 1 && state.groups[0]?.source === "command";
+ 			const highlight = state.open ? state.highlight : null;
+ 			(0, react.useEffect)(() => {
+ 				if (highlight === null) return;
+@@ -1727,22 +1733,23 @@
+ 				};
+ 			}, [state.open, onDismiss]);
+ 			if (!state.open) return null;
+-			return (0, react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.MenuSurface, {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.MenuSurface, {
+ 				ref: listRef,
+ 				className: MenuView_module_css_default.menu,
+ 				style: { maxHeight },
+ 				"data-trigger-menu": "",
++				"data-command-launcher": commandLauncher ? "" : void 0,
+ 				"data-overflow-below": hasOverflowBelow || void 0,
+ 				children: [state.groups.map((group) => {
+ 					const trail = crumbs.get(group.source);
+-					return trail === void 0 ? null : (0, react_jsx_runtime.jsx)("nav", {
++					return trail === void 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("nav", {
+ 						className: MenuView_module_css_default.crumbs,
+ 						"aria-label": t("crumbs.aria"),
+-						children: trail.map((crumb, index) => (0, react_jsx_runtime.jsxs)(react.Fragment, { children: [index > 0 && (0, react_jsx_runtime.jsx)("span", {
++						children: trail.map((crumb, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react.Fragment, { children: [index > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 							className: MenuView_module_css_default.crumbSeparator,
+ 							"aria-hidden": true,
+-							children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronRightOutlineRegular, {})
+-						}), (0, react_jsx_runtime.jsx)("button", {
++							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronRightOutlineRegular, {})
++						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+ 							type: "button",
+ 							className: clsx(MenuView_module_css_default.crumb, crumb.current === true && MenuView_module_css_default.crumbCurrent),
+ 							"aria-current": crumb.current === true ? "location" : void 0,
+@@ -1754,42 +1761,42 @@
+ 							children: crumb.label
+ 						})] }, `${String(index)}-${crumb.value}`))
+ 					}, group.source);
+-				}), (0, react_jsx_runtime.jsx)("div", {
++				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 					ref: viewportRef,
+ 					className: MenuView_module_css_default.viewport,
+ 					role: "listbox",
+ 					"aria-label": t("suggestions.aria"),
+ 					"aria-activedescendant": highlight !== null ? optionId(highlight.source, highlight.index) : void 0,
+ 					onScroll: updateOverflowHint,
+-					children: state.groups.map((group) => group.status === "ready" && group.items.length === 0 ? null : (0, react_jsx_runtime.jsxs)(react.Fragment, { children: [group.showGroupTitle === false || group.items.some((item) => item.section !== void 0) ? null : (0, react_jsx_runtime.jsx)("div", {
++					children: state.groups.map((group) => group.status === "ready" && group.items.length === 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react.Fragment, { children: [commandLauncher || group.showGroupTitle === false || group.items.some((item) => item.section !== void 0) ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 						className: MenuView_module_css_default.groupTitle,
+ 						role: "presentation",
+ 						"data-source": group.source,
+ 						children: t(group.source)
+-					}), group.status === "pending" && group.items.length === 0 ? (0, react_jsx_runtime.jsxs)("div", {
++					}), group.status === "pending" && group.items.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+ 						role: "status",
+ 						"aria-label": t("loading"),
+ 						"data-source": group.source,
+-						children: [(0, react_jsx_runtime.jsx)("div", {
++						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 							className: MenuView_module_css_default.skeletonRow,
+-							children: (0, react_jsx_runtime.jsx)("span", {
++							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 								className: MenuView_module_css_default.skeletonBar,
+ 								style: { width: "32%" }
+ 							})
+-						}), (0, react_jsx_runtime.jsx)("div", {
++						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 							className: MenuView_module_css_default.skeletonRow,
+-							children: (0, react_jsx_runtime.jsx)("span", {
++							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 								className: MenuView_module_css_default.skeletonBar,
+ 								style: { width: "48%" }
+ 							})
+ 						})]
+ 					}) : group.items.map((item, index) => {
+ 						const active = highlight !== null && highlight.source === group.source && highlight.index === index;
+-						return (0, react_jsx_runtime.jsxs)(react.Fragment, { children: [item.section !== void 0 && item.section !== group.items[index - 1]?.section ? (0, react_jsx_runtime.jsx)("div", {
++						return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react.Fragment, { children: [item.section !== void 0 && item.section !== group.items[index - 1]?.section ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 							className: MenuView_module_css_default.sectionTitle,
+ 							role: "presentation",
+ 							children: item.section
+-						}) : null, (0, react_jsx_runtime.jsxs)("button", {
++						}) : null, /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+ 							id: optionId(group.source, index),
+ 							type: "button",
+ 							role: "option",
+@@ -1803,40 +1810,40 @@
+ 								onHover(group.source, index);
+ 							},
+ 							children: [
+-								item.icon !== void 0 && (0, react_jsx_runtime.jsx)("span", {
++								item.icon !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 									className: MenuView_module_css_default.itemIcon,
+ 									"aria-hidden": true,
+-									children: typeof item.icon === "string" ? (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.ReferenceIconRegular, {
++									children: typeof item.icon === "string" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.ReferenceIconRegular, {
+ 										kind: item.icon,
+ 										size: 14
+-									}) : (0, react_jsx_runtime.jsx)(item.icon, { size: 14 })
++									}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(item.icon, { size: 14 })
+ 								}),
+-								(0, react_jsx_runtime.jsx)("span", {
++								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 									className: MenuView_module_css_default.itemName,
+ 									children: item.label ?? item.name
+ 								}),
+-								item.label !== void 0 && item.label.toLowerCase() !== item.name.toLowerCase() && (0, react_jsx_runtime.jsx)("span", {
++								item.label !== void 0 && item.label.toLowerCase() !== item.name.toLowerCase() && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 									className: MenuView_module_css_default.itemAlias,
+ 									children: item.name
+ 								}),
+-								item.description !== void 0 && (0, react_jsx_runtime.jsx)("span", {
++								item.description !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 									className: MenuView_module_css_default.itemDescription,
+ 									children: item.description
+ 								}),
+-								item.drill === true && (0, react_jsx_runtime.jsxs)("span", {
++								item.drill === true && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+ 									className: MenuView_module_css_default.trailing,
+ 									children: [
+-										(0, react_jsx_runtime.jsx)("span", {
++										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 											className: MenuView_module_css_default.drillHintText,
+ 											"aria-hidden": true,
+ 											children: t("drill.hint")
+ 										}),
+-										(0, react_jsx_runtime.jsx)("kbd", {
++										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("kbd", {
+ 											className: MenuView_module_css_default.drillHint,
+ 											"aria-hidden": true,
+ 											children: t("drill.key")
+ 										}),
+-										(0, react_jsx_runtime.jsx)("span", {
++										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 											role: "button",
+ 											"aria-label": t("drill.aria"),
+ 											className: MenuView_module_css_default.drill,
+@@ -1845,7 +1852,7 @@
+ 												ev.stopPropagation();
+ 												onPick(group.source, index, "drill");
+ 											},
+-											children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronRightOutlineRegular, { size: 12 })
++											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronRightOutlineRegular, { size: 12 })
+ 										})
+ 									]
+ 								})
+@@ -1856,7 +1863,7 @@
+ 			});
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/locales.js
++		//#region src/client/locales.ts
+ 		/**
+ 		* `slash.menu` namespace dictionaries: group titles keyed by source name
+ 		* (the lookup chain returns the key itself, so an unknown source shows its
+@@ -1959,7 +1966,7 @@
+ 			"suggestions.aria": "Sugestões de gatilho"
+ 		};
+ 		//#endregion
+-		//#region lib/types/client/index.js
++		//#region src/client/index.ts
+ 		/** Namespace owning the candidate-menu copy. */
+ 		const MENU_NS = "slash.menu";
+ 		/** Required services: controller resolution reads the session scope tree; the menu copy is localized. */
+--- a/lib/types/core/contract.d.ts
++++ b/lib/types/core/contract.d.ts
+@@ -9,6 +9,8 @@
+ /** A detected trigger token under the caret. */
+ export interface TriggerHit {
+     readonly trigger: TriggerChar;
++    /** Set only for a programmatically opened menu; preserved through refreshes. */
++    readonly origin?: 'launcher';
+     /** Text between the trigger char and the caret, live-filtered. */
+     readonly query: string;
+     /** True only for an open quoted `@file` token. */
+--- a/lib/types/types.d.ts
++++ b/lib/types/types.d.ts
+@@ -94,6 +94,8 @@
+ }
+ /** Candidate request passed to a source. The signal is superseded on query change / menu close. */
+ export interface CandidateRequest {
++    /** Programmatic menu invocation; absent for typed triggers and older callers. */
++    readonly origin?: 'launcher';
+     readonly query: string;
+     /** Whether the active @file token is an open quoted path. */
+     readonly quoted?: boolean;

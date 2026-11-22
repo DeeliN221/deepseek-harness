@@ -1,0 +1,37 @@
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -4,26 +4,27 @@
+ 		var module = { exports: {} };
+ 		var exports = module.exports;
+ 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
++		let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
+ 		let react_jsx_runtime = require("react/jsx-runtime");
+-		let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
+-		//#region lib/types/client/Brand.js
++		//#region src/client/Brand.tsx
+ 		/**
+ 		* Render the official mark with the presentation requested by its host surface.
+ 		* @param props - Host-supplied mark presentation.
+ 		* @returns the official whale mark.
+ 		*/
+ 		function OfficialBrandMark({ size }) {
+-			return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.FishLogo, { size });
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.FishLogo, { size });
+ 		}
+ 		/**
+-		* Render the official name artwork without its independently slotted mark.
+-		* @returns the official name wordmark.
++		* Occupy the name slot without a wordmark for the compact NAS navigation.
++		* The host retains the mark's New Session action and accessible name.
++		* @returns no visible name; occupying the slot suppresses the local-build fallback.
+ 		*/
+ 		function OfficialBrandName() {
+-			return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.BrandWordmark, { includeMark: false });
++			return null;
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/index.js
++		//#region src/client/index.ts
+ 		/** Required service: the UI slot registry. */
+ 		const inject = ["slots"];
+ 		/**
