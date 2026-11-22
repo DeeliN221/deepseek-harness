@@ -68,6 +68,8 @@ export function MenuView({ menu, headers, onPick, onCrumb, onHover, onDismiss, t
   useLayoutEffect(() => {
     updateOverflowHint()
   }, [state, maxHeight, updateOverflowHint])
+  const commandLauncher = state.hit?.origin === 'launcher'
+    && state.groups.length === 1 && state.groups[0]?.source === 'command'
   const highlight = state.open ? state.highlight : null
   // Focus stays in the textarea (combobox pattern), so the browser never
   // scrolls the active option into view on keyboard moves — do it here.
@@ -99,6 +101,7 @@ export function MenuView({ menu, headers, onPick, onCrumb, onHover, onDismiss, t
       className={css.menu}
       style={{ maxHeight }}
       data-trigger-menu=""
+      data-command-launcher={commandLauncher ? '' : undefined}
       data-overflow-below={hasOverflowBelow || undefined}
     >
       {state.groups.map((group) => {
@@ -141,7 +144,7 @@ export function MenuView({ menu, headers, onPick, onCrumb, onHover, onDismiss, t
               {/* Source names key the dictionary open-endedly: the lookup chain
                   returns an unknown key verbatim, so an unregistered source
                   shows its raw name — hence the cast past the typed key union. */}
-              {group.showGroupTitle === false || group.items.some(item => item.section !== undefined)
+              {commandLauncher || group.showGroupTitle === false || group.items.some(item => item.section !== undefined)
                 ? null
                 : <div className={css.groupTitle} role="presentation" data-source={group.source}>{t(group.source as MenuKey)}</div>}
               {group.status === 'pending' && group.items.length === 0

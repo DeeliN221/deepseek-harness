@@ -28,6 +28,18 @@
   box-shadow: var(--dsw-elevation-prominent);
 }
 
+/* The add menu sizes to its three rows and stays above the composer. */
+.menu[data-command-launcher] {
+  right: auto;
+  width: min(320px, 100%);
+}
+
+@media (pointer: coarse) {
+  .menu[data-command-launcher] .item {
+    min-height: 44px;
+  }
+}
+
 /* The hint covers content, not the scrollbar rail, and disappears once the
    viewport reaches the final row. */
 .menu[data-overflow-below]::after {

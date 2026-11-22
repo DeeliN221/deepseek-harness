@@ -94,6 +94,19 @@ function titles(container: HTMLElement): string[] {
 }
 
 describe('MenuView', () => {
+  it('omits headings in the command launcher and preserves pointer selection', () => {
+    const { view, onPick } = mount(openState({
+      hit: { ...hit, origin: 'launcher' },
+      groups: [{ source: 'command', status: 'ready', items: [{ name: 'file' }, { name: 'goal' }, { name: 'plan' }] }],
+    }))
+    expect(titles(view.container)).toEqual([])
+    expect(menuShell().hasAttribute('data-command-launcher')).toBe(true)
+    const options = screen.getAllByRole('option')
+    expect(options.map(option => option.textContent)).toEqual(['file', 'goal', 'plan'])
+    fireEvent.mouseDown(options[2]!)
+    expect(onPick).toHaveBeenCalledWith('command', 2)
+  })
+
   it('renders null while closed and appears when the store opens', () => {
     const { menu, view } = mount(CLOSED)
     expect(view.container.childElementCount).toBe(0)

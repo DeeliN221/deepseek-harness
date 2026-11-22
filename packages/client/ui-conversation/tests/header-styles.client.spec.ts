@@ -32,8 +32,18 @@ describe('conversation header geometry', () => {
     expect(css.match(/^\.headerCorner\s*\{([^}]*)\}/m)?.[1]).toContain('margin-left: 8px')
   })
 
-  it('uses 32px between view labels without changing the action gap', () => {
-    expect(css.match(/\.viewTabs\s*\{([^}]*)\}/)?.[1]).toContain('gap: 32px')
-    expect(css.match(/\.tabs\s*\{([^}]*)\}/)?.[1]).toContain('gap: 16px 20px')
+  it('uses 32px between view labels and keeps the strip a single scrollable row', () => {
+    const strip = css.match(/\.viewTabs\s*\{([^}]*)\}/)?.[1]
+    expect(strip).toContain('gap: 32px')
+    expect(strip).toContain('flex-wrap: nowrap')
+    expect(strip).toContain('overflow-x: auto')
+    expect(css.match(/\.tabs\s*\{([^}]*)\}/)?.[1]).toContain('gap: 20px')
+    expect(css.match(/\.tabs\s*\{([^}]*)\}/)?.[1]).toContain('flex-wrap: nowrap')
+  })
+
+  it('keeps tab labels on one line without a clip width', () => {
+    const label = css.match(/\.tabLabel\s*\{([^}]*)\}/)?.[1]
+    expect(label).toContain('white-space: nowrap')
+    expect(label).not.toContain('max-width')
   })
 })

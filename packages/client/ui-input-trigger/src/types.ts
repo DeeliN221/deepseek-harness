@@ -112,6 +112,8 @@ export interface SubmitEnvelope {
 
 /** Candidate request passed to a source. The signal is superseded on query change / menu close. */
 export interface CandidateRequest {
+  /** Programmatic menu invocation; absent for typed triggers and older callers. */
+  readonly origin?: 'launcher'
   readonly query: string
   /** Whether the active @file token is an open quoted path. */
   readonly quoted?: boolean

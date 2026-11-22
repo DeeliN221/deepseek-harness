@@ -10,6 +10,7 @@ import type { UserMessage } from '@deepseek-ai/dsh-llm/types'
 import { SessionLogOffset, SessionSeq, type SessionId } from '@deepseek-ai/dsh-session/types'
 import { SessionEventStream } from '../transport.ts'
 import type { SessionJournalChange } from '../transport.ts'
+import { DEFAULT_MAX_HISTORY_EVENTS } from '../../types.ts'
 import type {
   PromptContentPart,
   QueueAction,
@@ -51,7 +52,11 @@ function projectionsBaseline(value: SessionProjectionBaseline): ProjectionsBasel
 /** Minimum message count for ordinary history windows. */
 export const PAGE_MESSAGES = 50
 
-const HISTORY_PAGE_OPTIONS = { maxMessages: 500, turnWindow: { minMessages: PAGE_MESSAGES, minTurns: 2 } }
+const HISTORY_PAGE_OPTIONS = {
+  maxEvents: DEFAULT_MAX_HISTORY_EVENTS,
+  maxMessages: 500,
+  turnWindow: { minMessages: PAGE_MESSAGES, minTurns: 2 },
+}
 
 /** Minimum messages per page while a turn jump loops backwards. */
 export const JUMP_PAGE_MESSAGES = 200

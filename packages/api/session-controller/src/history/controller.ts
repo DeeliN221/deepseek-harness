@@ -11,6 +11,7 @@ import {
 } from '../history.ts'
 import { EventListener, ProjectionListener } from './listener.ts'
 import { SessionAssistantStreamsListener } from './assistant-stream.ts'
+import { DEFAULT_MAX_HISTORY_EVENTS } from '../types.ts'
 import type {
   SessionEventFrame, SessionEventsPage, SessionPageRequest,
   SessionObserveEventRequest, SessionProjectionsRequest, SessionProjectionFrame,
@@ -222,6 +223,7 @@ export function history(observation: SessionObservation, request: Omit<SessionPa
     request.maxMessages,
     cursor,
     request.turnWindow,
+    request.maxEvents ?? DEFAULT_MAX_HISTORY_EVENTS,
   )
   return { cursor, records: pageRecords(page.events), hasMore: page.hasMore }
 }
@@ -240,9 +242,12 @@ export function projections(observation: SessionObservation): SessionProjectionB
 /**
  * Validate and resolve the history page window.
  * @param request - external history window.
- * @returns the validated request with an explicit message budget.
+ * @returns the validated request with explicit event and message budgets.
  */
-export function resolveHistoryRequest(request: SessionPageRequest): SessionPageRequest & { readonly maxMessages: number } {
+export function resolveHistoryRequest(request: SessionPageRequest): SessionPageRequest & {
+  readonly maxEvents: number
+  readonly maxMessages: number
+} {
   if (request.throughSeq !== undefined
     && (!Number.isSafeInteger(request.throughSeq) || request.throughSeq < -1 || Object.is(request.throughSeq, -0))) {
     throw new RemoteError('gateway/bad-request', 'throughSeq must be an integer greater than or equal to -1', {})
@@ -252,5 +257,9 @@ export function resolveHistoryRequest(request: SessionPageRequest): SessionPageR
     throw new RemoteError('gateway/bad-request', 'beforeSeq must be a non-negative safe integer', {})
   }
   validateHistoryWindow(request)
-  return { ...request, maxMessages: request.maxMessages ?? DEFAULT_MAX_MESSAGES }
+  return {
+    ...request,
+    maxEvents: request.maxEvents ?? DEFAULT_MAX_HISTORY_EVENTS,
+    maxMessages: request.maxMessages ?? DEFAULT_MAX_MESSAGES,
+  }
 }

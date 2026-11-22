@@ -10,8 +10,14 @@ import type { FlowMotionRows } from './flow-motion.ts'
 
 /** Committed content and Session operations used to reconcile scroll ownership. */
 export interface ChatScrollInput extends ChatNavigationInput {
+  /** Session whose saved reading position and navigation state this hook owns. */
+  readonly sessionId: string
   readonly chatScroll: ChatViewSlotProps['chatScroll']
   readonly order: readonly string[]
+  /** Rendered Chat suffix/slice; `order` remains the complete paging/navigation authority. */
+  readonly renderOrder: readonly string[]
+  readonly renderedGlobalTail: boolean
+  readonly advanceRenderWindow: () => boolean
   readonly lastKey: string | null
   readonly lastIsUser: boolean
   readonly steeringId: string | null
@@ -49,17 +55,33 @@ interface ChatScrollState extends ChatReadingState {
  */
 export function useChatScroll(input: ChatScrollInput): ChatScrollState {
   const {
-    isOpen, order, firstSeq, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running,
-    deferCompletedTurns, loadedTurns, chatScroll, hasMore, loadingOlder, historyLoadStatus,
-    loadOlder, consumeOlder, loadThrough, transcriptView,
+    sessionId, isOpen, order, renderOrder, renderedGlobalTail, advanceRenderWindow,
+    firstSeq, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running,
+    deferCompletedTurns, loadedTurns, chatScroll, hasMore, loadingOlder, historyLoadStatus, historyRevision,
+    loadOlder, consumeOlder, loadThrough, beforeLoadOlder, revealEarlier, revealTurn, revealThrough, transcriptView,
   } = input
   const { viewport, listRef, columnRef } = useChatViewport()
   const [historyInputHeld, setHistoryInputHeld] = useState(false)
-  const { reading, state } = useChatReading(viewport, chatScroll, loadedTurns.at(-1)?.turn ?? null)
+  const { reading, state } = useChatReading(
+    viewport, chatScroll, loadedTurns.at(-1)?.turn ?? null, renderedGlobalTail, advanceRenderWindow,
+  )
   const navigationInput = useMemo(() => ({
     firstSeq, loadingOlder, hasMore, historyLoadStatus, isOpen, loadOlder, consumeOlder, loadThrough,
-  }), [firstSeq, loadingOlder, hasMore, historyLoadStatus, isOpen, loadOlder, consumeOlder, loadThrough])
+    ...(historyRevision === undefined ? {} : { historyRevision }),
+    ...(beforeLoadOlder === undefined ? {} : { beforeLoadOlder }),
+    ...(revealEarlier === undefined ? {} : { revealEarlier }),
+    ...(revealTurn === undefined ? {} : { revealTurn }),
+    ...(revealThrough === undefined ? {} : { revealThrough }),
+    ...(input.readerPositionChanged === undefined ? {} : { readerPositionChanged: input.readerPositionChanged }),
+  }), [firstSeq, loadingOlder, hasMore, historyLoadStatus, isOpen, loadOlder, consumeOlder, loadThrough,
+    historyRevision, beforeLoadOlder, revealEarlier, revealTurn, revealThrough, input.readerPositionChanged])
   const { navigation, busyTurn, historyPending, historyProcessing } = useChatNavigation(viewport, reading, navigationInput)
+  const navigationSession = useRef(sessionId)
+  useLayoutEffect(() => {
+    if (navigationSession.current === sessionId) return
+    navigationSession.current = sessionId
+    navigation.reset()
+  }, [navigation, sessionId])
   const content = useRef<{ input: ChatScrollInput; applied: ChatScrollInput | null; opened: boolean }>({
     input, applied: null, opened: false,
   })
@@ -113,6 +135,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
       scroll: (event) => {
         if (!content.current.opened) return
         if (!event.movedByReader && viewport.motion.foldActive()) return
+        navigation.readerMoved(event.movedByReader)
         reading.onScroll(event)
       },
       scrollEnd: (outer) => {
@@ -152,7 +175,8 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
   useLayoutEffect(() => {
     const previous = content.current.input
     content.current.input = {
-      order, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running, loadedTurns,
+      sessionId, order, renderOrder, renderedGlobalTail, advanceRenderWindow,
+      lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running, loadedTurns,
       chatScroll, deferCompletedTurns, transcriptView, ...navigationInput,
     }
     if (!deferCompletedTurns) {
@@ -160,7 +184,8 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
       reading.interruptFollow()
     }
     viewport.updateTurns(loadedTurns)
-    const layoutChanged = previous.order !== order || previous.isOpen !== isOpen
+    const layoutChanged = previous.order !== order || previous.renderOrder !== renderOrder
+      || previous.isOpen !== isOpen
     const historyConsumed = previous.historyLoadStatus === 'pendingConsumption' && historyLoadStatus === 'idle'
     if (!isOpen || historyLoadStatus === 'error') viewport.cancelHistoryPrepend()
     else if (layoutChanged || historyConsumed) {
@@ -173,7 +198,8 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
     if (layoutChanged && content.current.opened) reading.refreshActiveTurn()
     if (content.current.opened) navigation.requestHistoryCheck()
   }, [
-    viewport, reading, processContent, navigationInput, isOpen, order, lastKey, lastIsUser,
+    viewport, reading, processContent, navigationInput, isOpen, order, renderOrder,
+    renderedGlobalTail, advanceRenderWindow, lastKey, lastIsUser,
     steeringId, submissionId, submissionSteers, running, loadedTurns, chatScroll, deferCompletedTurns, transcriptView,
     cancelPendingFollow,
   ])

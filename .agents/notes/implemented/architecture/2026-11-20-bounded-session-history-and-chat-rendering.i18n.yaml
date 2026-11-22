@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-11-20-bounded-session-history-and-chat-rendering.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-11-20-bounded-session-history-and-chat-rendering.md
+/agent-note-bounded-session-history-and-chat-rendering:
+  en: 83e3706a5e12f892
+  zh: 77c080b9ecbbb39c
+/agent-note-bounded-session-history-and-chat-rendering/problem:
+  en: 86fc408386474103
+  zh: cfc0f2936b42de7f
+/agent-note-bounded-session-history-and-chat-rendering/decision:
+  en: e7ce51824f091f0d
+  zh: 884b85d07813c697
+/agent-note-bounded-session-history-and-chat-rendering/alternatives-considered:
+  en: fbf8174e4fbccd8c
+  zh: 4af0ffb0398dc78c
+/agent-note-bounded-session-history-and-chat-rendering/consequences:
+  en: 5e7a672239d62e2c
+  zh: 6a094cae0bf09892
+/agent-note-bounded-session-history-and-chat-rendering/verification:
+  en: afd74a49dea2eb7c
+  zh: ad4499f3ee95ebc8

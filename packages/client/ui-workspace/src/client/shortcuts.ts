@@ -29,13 +29,16 @@ interface WorkspaceShortcutControls {
  * Create the private browser request source shared by commands and controls.
  * @returns observable state and its complete mutation callbacks.
  */
-export function createWorkspaceShortcutControls(): WorkspaceShortcutControls {
+export function createWorkspaceShortcutControls(handleSearch: () => boolean = () => false): WorkspaceShortcutControls {
   const state = createSnapshotStore<WorkspaceShortcutState>({
     searchRequest: 0, addRequested: false, directoryBusy: false, renameTarget: null,
   })
   return {
     state,
-    search: () => { state.set({ ...state.getSnapshot(), searchRequest: state.getSnapshot().searchRequest + 1 }) },
+    search: () => {
+      if (handleSearch()) return
+      state.set({ ...state.getSnapshot(), searchRequest: state.getSnapshot().searchRequest + 1 })
+    },
     add: () => { state.set(state.getSnapshot().directoryBusy ? state.getSnapshot() : { ...state.getSnapshot(), addRequested: true }) },
     closeAdd: () => { state.set({ ...state.getSnapshot(), addRequested: false }) },
     directoryBusy: (busy: boolean) => { state.set({ ...state.getSnapshot(), directoryBusy: busy }) },

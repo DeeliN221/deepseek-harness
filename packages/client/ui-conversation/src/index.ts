@@ -2,26 +2,30 @@
 import type {} from '@deepseek-ai/dsh-settings'
 
 import type { Volatile, Context } from '@deepseek-ai/cordis'
-import type { BusyEnterBehavior } from './submission-settings.ts'
+import type { BusyEnterBehavior, ViewTabSelection } from './submission-settings.ts'
 import z from '@deepseek-ai/schemastery'
-import { BUSY_ENTER_FIELD } from './submission-settings.ts'
+import { BUSY_ENTER_FIELD, VIEW_TABS_FIELD } from './submission-settings.ts'
 
 import { ConversationSettingsFields } from './submission-settings.ts'
 
 export {
-  BUSY_ENTER_BEHAVIORS, BUSY_ENTER_FIELD, CONVERSATION_SETTINGS_NAMESPACE,
-  DEFAULT_BUSY_ENTER_BEHAVIOR, type BusyEnterBehavior, type ConversationSettings,
+  BUSY_ENTER_BEHAVIORS, BUSY_ENTER_FIELD, CONVERSATION_SETTINGS_NAMESPACE, DEFAULT_VIEW_TAB_SELECTION,
+  DEFAULT_BUSY_ENTER_BEHAVIOR, VIEW_TABS_FIELD, type BusyEnterBehavior, type ConversationSettings,
+  type ViewTabSelection,
 } from './submission-settings.ts'
 
 /** Runtime preferences projected to the browser. */
 export interface Config {
   /** Enter key behavior while a turn is running. */
   busyEnter: Volatile<BusyEnterBehavior>
+  /** Ordered View ids; ids not listed follow in registration order. */
+  viewTabs: Volatile<ViewTabSelection>
 }
 
 /** Live preferences projected to the browser. */
 export const Config = z.object({
   [BUSY_ENTER_FIELD]: ConversationSettingsFields[BUSY_ENTER_FIELD].volatile(),
+  [VIEW_TABS_FIELD]: ConversationSettingsFields[VIEW_TABS_FIELD].volatile(),
 })
 
 /** Register browser conversation preferences.

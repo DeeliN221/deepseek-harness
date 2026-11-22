@@ -1,11 +1,10 @@
-/** Rows for the More menus of the left sidebar, Conversation View tabs, and right-sidebar guide. */
+/** Plugin discovery and Creator rows for the More menus that expose them. */
 import type { Context } from '@deepseek-ai/cordis'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-product-analytics/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
-import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
@@ -14,7 +13,7 @@ import { en, ja, es, fr, de, ru, pt, zh } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
-    /** More menu rows: navigation actions, and Creator draft prompts. */
+    /** More menu rows: plugin discovery and the Creator draft prompt. */
     entryCustomization: keyof typeof en
   }
 }
@@ -23,7 +22,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export const inject = ['slots', 'locale', 'uiWorkspace']
 
 /**
- * Register the same menu rows into each region's More menu.
+ * Register the plugin discovery rows into the left sidebar's More menu.
  * @param ctx - Browser context with slot, locale, and Workspace services, and the optional plugin navigation.
  */
 export function apply(ctx: Context): void {
@@ -55,10 +54,8 @@ export function apply(ctx: Context): void {
     name: 'sidebar.panellist.actions', id: 'entry-customization', locale: 'entryCustomization',
     inject: () => injected('sidebar'),
   }, EntryMenuContent))
-  ctx.slots.inject('conversation.session.header.views.actions', () => ctx.slots.register({
-    name: 'conversation.session.header.views.actions', id: 'entry-customization', locale: 'entryCustomization',
-    inject: () => injected('conversation'),
-  }, EntryMenuContent))
+  // The Conversation header's View actions menu was replaced by the ordered View
+  // tab strip, so this plugin only registers the regions that still expose a More menu.
   ctx.slots.inject('sidebar.right.tab.guide.actions', () => ctx.slots.register({
     name: 'sidebar.right.tab.guide.actions', id: 'entry-customization', locale: 'entryCustomization',
     inject: () => injected('rightbar'),

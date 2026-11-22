@@ -88,6 +88,14 @@ function sessionState(
   }
 }
 
+function projectionSnapshot(blank: boolean): SessionListState['projectionsBySession'][SessionId] {
+  return {
+    values: { sessionListMetadata: { blank, lastPromptAt: null } },
+    state: 'ready',
+    error: null,
+  }
+}
+
 function workspaceState(
   items: WorkspaceSnapshot['items'] = [],
   archivedSessionIds: readonly SessionId[] = [],
@@ -1028,6 +1036,95 @@ describe('UiWorkspaceService', () => {
     await vi.waitFor(() => {
       expect(b.sessions.retain).toHaveBeenCalledWith(sid('created-newest'), { source: 'mainView' })
     })
+  })
+
+  it('opens an exactly projected saved nonblank Session while the full catalog is pending', async () => {
+    const saved = sid('saved')
+    const projectionReady = Promise.withResolvers<undefined>()
+    persistSelection({ sessionId: saved })
+    const b = bench({
+      sessions: sessionState([], 'pending'),
+      workspaces: workspaceState([workspace('a', [saved])]),
+      configureSessions: (sessions) => {
+        sessions.refreshProjections.mockImplementation(async (id) => {
+          await projectionReady.promise
+          sessions.list.update(state => ({
+            ...state,
+            projectionsBySession: {
+              ...state.projectionsBySession,
+              [id]: projectionSnapshot(false),
+            },
+          }))
+        })
+      },
+    })
+
+    expect(b.sessions.refreshProjections).toHaveBeenCalledOnce()
+    expect(b.sessions.retain).not.toHaveBeenCalled()
+    projectionReady.resolve(undefined)
+    await vi.waitFor(() => {
+      expect(b.sessions.retain).toHaveBeenCalledExactlyOnceWith(saved, { source: 'mainView' })
+    })
+    expect(b.sessions.list.getSnapshot().phase).toBe('pending')
+  })
+
+  it('waits for the catalog before restoring a projected blank Session', async () => {
+    const saved = sid('saved')
+    persistSelection({ sessionId: saved })
+    const b = bench({
+      sessions: sessionState([], 'pending'),
+      workspaces: workspaceState([workspace('a', [saved])]),
+      configureSessions: (sessions) => {
+        sessions.refreshProjections.mockImplementation(async (id) => {
+          sessions.list.update(state => ({
+            ...state,
+            projectionsBySession: {
+              ...state.projectionsBySession,
+              [id]: projectionSnapshot(true),
+            },
+          }))
+        })
+      },
+    })
+
+    await vi.waitFor(() => { expect(b.sessions.refreshProjections).toHaveBeenCalledOnce() })
+    expect(b.sessions.retain).not.toHaveBeenCalled()
+    const catalogReady = sessionState([
+      summary('saved', { blank: true, cwd: '/w/a', projectionValues: { agentPreset: 'ptc' } }),
+    ])
+    b.sessions.list.set({
+      ...catalogReady,
+      projectionsBySession: b.sessions.list.getSnapshot().projectionsBySession,
+    })
+
+    await vi.waitFor(() => {
+      expect(b.sessions.create).toHaveBeenCalledExactlyOnceWith({
+        workspaceId: wid('a'), sessionId: saved, agentPreset: 'ptc',
+      })
+      expect(b.sessions.retain).toHaveBeenCalledExactlyOnceWith(saved, { source: 'mainView' })
+    })
+    expect(b.sessions.refreshProjections).toHaveBeenCalledOnce()
+  })
+
+  it('cancels the saved Session preflight when a manual Session is selected', async () => {
+    const saved = sid('saved')
+    let projectionSignal: AbortSignal | undefined
+    persistSelection({ sessionId: saved })
+    const b = bench({
+      sessions: sessionState([], 'pending'),
+      workspaces: workspaceState([workspace('a', [saved])]),
+      configureSessions: (sessions) => {
+        sessions.refreshProjections.mockImplementation((_id, signal) => new Promise<void>((resolve) => {
+          projectionSignal = signal
+          signal?.addEventListener('abort', () => resolve(), { once: true })
+        }))
+      },
+    })
+
+    expect(projectionSignal).toBeDefined()
+    b.uiWorkspace.openSession(sid('manual'))
+    await vi.waitFor(() => { expect(projectionSignal?.aborted).toBe(true) })
+    expect(b.sessions.retained.map(item => item.reference.sessionId)).toEqual([sid('manual')])
   })
 
   it('uses catalog order for Workspace connects without reading the saved selection', async () => {

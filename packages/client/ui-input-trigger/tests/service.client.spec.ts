@@ -428,6 +428,30 @@ describe('track', () => {
 })
 
 describe('programmatic source launcher', () => {
+  it('preserves launcher origin through focus and refresh, then clears it for typing', async () => {
+    const origins: Array<string | undefined> = []
+    const source: InputTriggerSource = {
+      trigger: '/', name: 'command',
+      candidates: async (_session, request) => { origins.push(request.origin); return [{ name: 'goal' }] },
+      onPick: () => undefined,
+    }
+    const { controller } = controllerBench([source])
+    controller.toggleSource('command', {
+      trigger: '/', query: '', quoted: false, position: 'leading',
+      span: { start: 0, end: 0, draftRev: 0 },
+    })
+    controller.track('', 0, { tier: 'plain' }, 0)
+    await tick()
+    controller.refreshOpenMenu()
+    await tick()
+    expect(origins).toEqual(['launcher', 'launcher'])
+    expect(controller.menu.getSnapshot().hit?.origin).toBe('launcher')
+    controller.track('/g', 2, { tier: 'plain' }, 1)
+    await tick()
+    expect(origins).toEqual(['launcher', 'launcher', undefined])
+    expect(controller.menu.getSnapshot().hit?.origin).toBeUndefined()
+  })
+
   it('opens only the requested source and reuses its ordinary pick span', async () => {
     const command = readySource('/', 'command', [{ name: 'goal' }])
     const skill = readySource('/', 'skill', [{ name: 'review' }])

@@ -421,9 +421,7 @@ function mount(fixture: Awaited<ReturnType<typeof bench>>) {
     <>
       <ConversationSessionHeader
         hideChrome={false}
-        useEntryPins={selector => selector([])}
-        useEntryActions={selector => selector(false)}
-        setPinned={vi.fn()}
+        useViewTabs={selector => selector(null)}
         {...standardProps}
         SessionProvider={({ children }) => children}
         useStore={bindSnapshotSelector(conversation)}

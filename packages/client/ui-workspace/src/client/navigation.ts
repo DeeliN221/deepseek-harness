@@ -22,7 +22,9 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { DraftInitializationOptions } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { RowToast } from './contract/slots.ts'
+import { mergeSidebarPolicies, type SidebarPolicy } from './sidebar-visibility.ts'
 import { pinOrderAccounts, pinOrderSource } from './pin-order.ts'
+import { createWorkspaceSearchHandler } from './search-handler.ts'
 import type { WorkspaceViewStoreActions } from './stores.ts'
 
 interface MainSelection {
@@ -38,6 +40,13 @@ export interface StartSessionOptions extends DraftInitializationOptions {
 
 /** Workspace archive and directory operations consumed by Client UI domains. */
 export interface UiWorkspace {
+  /** Register a synchronous search opener. Only the latest provider is called.
+   * Return true only after accepting the request; false or a throw uses native search.
+   * Dispose the returned callback on plugin unload. Disposing twice is safe.
+   */
+  registerSearchHandler(handler: () => boolean): () => void
+  /** Register an observable, explicit sidebar exclusion set; does not restrict opening Sessions. */
+  registerSidebarHiddenSessions(source: import('@deepseek-ai/dsh-client-ui-slots').HostObservable<SidebarPolicy>): () => void
   /**
    * Select a Session and show its Conversation as one UI navigation action.
    * @param target - known Session identity or durable direct-parent subagent address to display.
@@ -164,6 +173,34 @@ export class DirectoryBrowseError extends Error {
 
 /** Implements Workspace archive and directory UI operations. */
 class UiWorkspaceService extends Service implements UiWorkspace {
+  /** Private routing shared by the native shortcut and pointer controls. */
+  readonly searchHandler = createWorkspaceSearchHandler()
+
+  registerSearchHandler(handler: () => boolean): () => void {
+    return this.searchHandler.register(handler)
+  }
+  /** Merged navigation-only policy. Providers own provenance and durability. */
+  readonly sidebarHiddenSessions = createSnapshotStore<SidebarPolicy>([])
+  private readonly sidebarSources = new Map<symbol, SidebarPolicy>()
+
+  registerSidebarHiddenSessions(source: import('@deepseek-ai/dsh-client-ui-slots').HostObservable<SidebarPolicy>): () => void {
+    const key = Symbol('sidebar-source')
+    const publish = (): void => {
+      this.sidebarHiddenSessions.set(mergeSidebarPolicies([...this.sidebarSources.values()]))
+    }
+    const update = (): void => { this.sidebarSources.set(key, source.getSnapshot()); publish() }
+    const stop = source.subscribe(update)
+    update()
+    let disposed = false
+    return () => {
+      if (disposed) return
+      disposed = true
+      stop()
+      this.sidebarSources.delete(key)
+      publish()
+    }
+  }
+
   /** The latest in-flight connection per Workspace; a request joins it only when both name the same preset. */
   private readonly connecting = new Map<WorkspaceId, {
     readonly agentPreset: string | undefined
@@ -175,6 +212,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
   )
   private mainReference: SessionReference | undefined
   private restorationNavigation: AbortSignal | undefined
+  private restorationPreflight: AbortController | undefined
 
   /**
    * @param ctx - Client root Context.
@@ -277,7 +315,9 @@ class UiWorkspaceService extends Service implements UiWorkspace {
    * that still awaits a format migration reloads only those cached hints.
    */
   private async restoreBlank(workspaceId: WorkspaceId, sessionId: SessionId): Promise<SessionId> {
-    await this.sessions.refreshProjections(sessionId)
+    if (this.sessions.list.getSnapshot().projectionsBySession[sessionId]?.state !== 'ready') {
+      await this.sessions.refreshProjections(sessionId)
+    }
     const recorded = this.sessions.list.getSnapshot().byId[sessionId]?.projectionValues?.agentPreset
     const request = { workspaceId, sessionId }
     if (typeof recorded !== 'string') return this.createNamed(request)
@@ -291,7 +331,9 @@ class UiWorkspaceService extends Service implements UiWorkspace {
   }
 
   openSession(target: SessionTarget): void {
-    this.replaceMain(target, this.lifetime.signal, 'reveal')
+    this.cancelRestorationPreflight()
+    const navigation = AbortSignal.any([this.ctx.layout.beginNavigation(), this.lifetime.signal])
+    this.replaceMain(target, navigation, 'reveal')
   }
 
   openWorkspace(
@@ -307,6 +349,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     beforeOpen: ((sessionId: SessionId) => void) | undefined,
     reuse: Pick<StartSessionOptions, 'agentPreset'>,
   ): Promise<void> {
+    this.cancelRestorationPreflight()
     const navigation = AbortSignal.any([this.ctx.layout.beginNavigation(), this.lifetime.signal])
     let sessionId: SessionId
     try {
@@ -433,10 +476,52 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     const reconcile = (): void => {
       if (this.lifetime.signal.aborted) return
       if (this.clearArchivedCurrent()) return
-      if (initial !== 'waiting' || this.restorationNavigation?.aborted === true) return
       const workspace = this.workspaces.list.getSnapshot()
       const sessions = this.sessions.list.getSnapshot()
-      if (workspace.phase !== 'ready' || sessions.phase !== 'ready') return
+      if (initial === 'connecting' && this.restorationPreflight !== undefined && sessions.phase === 'ready') {
+        this.cancelRestorationPreflight()
+        this.restorationNavigation = undefined
+        initial = this.mainReference === undefined ? 'waiting' : 'done'
+      }
+      if (initial !== 'waiting' || this.restorationNavigation?.aborted === true) return
+      if (workspace.phase !== 'ready') return
+      if (sessions.phase !== 'ready') {
+        const saved = this.selection.getSnapshot()
+        if (saved.sessionId === undefined || saved.subagentAddress !== undefined
+          || workspace.archivedSessionIds.includes(saved.sessionId)) return
+        initial = 'connecting'
+        const preflight = new AbortController()
+        this.restorationPreflight = preflight
+        const navigation = AbortSignal.any([preflight.signal, this.lifetime.signal])
+        this.restorationNavigation = navigation
+        const finishPreflight = (): void => {
+          if (this.restorationPreflight === preflight) this.restorationPreflight = undefined
+        }
+        void this.restoreSavedSessionBeforeCatalog(saved.sessionId, navigation).then(
+          (restored) => {
+            finishPreflight()
+            if (this.lifetime.signal.aborted) return
+            if (navigation.aborted) {
+              initial = 'done'
+              return
+            }
+            initial = restored ? 'done' : 'waiting'
+            if (!restored && this.sessions.list.getSnapshot().phase === 'ready') reconcile()
+          },
+          (reason: unknown) => {
+            finishPreflight()
+            if (this.lifetime.signal.aborted) return
+            if (navigation.aborted) {
+              initial = 'done'
+              return
+            }
+            initial = 'waiting'
+            console.warn('saved Session projection preflight failed:', reason)
+            if (this.sessions.list.getSnapshot().phase === 'ready') reconcile()
+          },
+        )
+        return
+      }
       if (this.mainReference !== undefined) {
         initial = 'done'
         return
@@ -460,6 +545,24 @@ class UiWorkspaceService extends Service implements UiWorkspace {
       disposeSessions()
       disposeWorkspaces()
     }
+  }
+
+  private async restoreSavedSessionBeforeCatalog(
+    sessionId: SessionId,
+    navigation: AbortSignal,
+  ): Promise<boolean> {
+    await this.sessions.refreshProjections(sessionId, navigation)
+    if (navigation.aborted || this.lifetime.signal.aborted || this.mainReference !== undefined) return false
+    const saved = this.selection.getSnapshot()
+    if (saved.sessionId !== sessionId || saved.subagentAddress !== undefined) return false
+    const workspaces = this.workspaces.list.getSnapshot()
+    if (workspaces.phase !== 'ready' || workspaces.archivedSessionIds.includes(sessionId)) return false
+    const sessions = this.sessions.list.getSnapshot()
+    if (sessions.phase !== 'pending') return false
+    const metadata = sessions.projectionsBySession[sessionId]
+    if (metadata?.state !== 'ready' || metadata.values.sessionListMetadata?.blank !== false) return false
+    this.replaceMain(sessionId, navigation, 'preserve')
+    return true
   }
 
   private async restoreSelection(workspaces: WorkspaceSnapshot, sessions: SessionListState): Promise<void> {
@@ -512,7 +615,14 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     return true
   }
 
+  private cancelRestorationPreflight(): void {
+    const preflight = this.restorationPreflight
+    this.restorationPreflight = undefined
+    if (preflight !== undefined && !preflight.signal.aborted) preflight.abort()
+  }
+
   private clearMain(): void {
+    this.cancelRestorationPreflight()
     const previous = this.mainReference
     this.mainReference = undefined
     this.selection.set({})

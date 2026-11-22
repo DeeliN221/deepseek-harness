@@ -16,6 +16,7 @@
  */
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
+import { sidebarList, sidebarSearch } from '../sidebar-visibility.ts'
 import { WorkspaceDialogs } from './WorkspaceDialogs.tsx'
 import {
   AnimatedRows, HoverCardGroup, IconArchiveCheckOutlineRegular, IconArchiveOffOutlineRegular, IconArchiveOutlineRegular,
@@ -794,6 +795,7 @@ interface RemoteSearchState {
 /** Flat search body: local metadata matches plus the current Host result page. */
 function SearchResults({
   useSessions,
+  useSidebarHiddenSessions,
   useSessionStatus,
   open,
   onUnarchive,
@@ -806,7 +808,7 @@ function SearchResults({
   usePanelInfo,
   useSessionAccess,
   t,
-}: Pick<WorkspaceBrowserProps, 'useSessions' | 'useSessionStatus' | 'open' | 't' | 'usePanelInfo' | 'useSessionAccess'> & {
+}: Pick<WorkspaceBrowserProps, 'useSessions' | 'useSidebarHiddenSessions' | 'useSessionStatus' | 'open' | 't' | 'usePanelInfo' | 'useSessionAccess'> & {
   workspaces: readonly WorkspaceView[]
   archivedSessionIds: readonly SessionNode['id'][]
   /** Search matches follow the archived filter selected for the list. */
@@ -818,7 +820,9 @@ function SearchResults({
   resultLimit: number
 }) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
-  const list = useSessions(s => s)
+  const rawList = useSessions(s => s)
+  const hidden = useSidebarHiddenSessions(s => s)
+  const list = useMemo(() => sidebarList(rawList, hidden), [rawList, hidden])
   const statuses = useSessionStatus(s => s)
   const currentRemote = remote.query === query
     ? remote
@@ -843,11 +847,11 @@ function SearchResults({
       archivedSessionIds,
       archivedFilter,
       statuses,
-      currentRemote,
+      { ...currentRemote, items: sidebarSearch(currentRemote.items, hidden) },
       resultLimit,
       index,
     ),
-    [list, workspaces, query, archivedSessionIds, archivedFilter, statuses, currentRemote, resultLimit, index],
+    [list, workspaces, query, archivedSessionIds, archivedFilter, statuses, currentRemote, resultLimit, index, hidden],
   )
   const pending = currentRemote.status === 'loading'
   const currentId = panelActive
@@ -909,6 +913,7 @@ export function WorkspaceBrowser({
   expandSidebar,
   useSectionScroller,
   useSessions,
+  useSidebarHiddenSessions,
   useSessionStatus,
   useSessionAccess,
   useWorkspaceAccess,
@@ -943,7 +948,9 @@ export function WorkspaceBrowser({
   const addShortcut = shortcuts.find(row => row.id === 'workspace.add')
   const shortcutState = useWorkspaceShortcuts(state => state)
   // Ordering remains live while the rail or search replaces the list body.
-  const list = useSessions(state => state)
+  const rawList = useSessions(state => state)
+  const hidden = useSidebarHiddenSessions(state => state)
+  const list = useMemo(() => sidebarList(rawList, hidden), [rawList, hidden])
   const storedWorkspaces = useWorkspaces(state => state.items)
   // The resolved name, not `t`, is the memo dependency: the bound seat keeps
   // its identity across a language switch.
@@ -1243,8 +1250,8 @@ export function WorkspaceBrowser({
               className={clsx(css.search, searchExpanded && css.searchExpanded)}
               onClick={() => {
                 closeAddWorkspace()
-                changeSearchExpanded(true)
-                focusSearch()
+                if (!searchExpanded) requestSearch()
+                else focusSearch()
               }}
             >
               <Tooltip label={t('search')} shortcutKeys={searchShortcut?.keys} side="bottom" delayMs={500} disabled={searchExpanded} portal>
@@ -1254,7 +1261,9 @@ export function WorkspaceBrowser({
                   aria-label={t('search.sessions.aria')}
                   aria-keyshortcuts={searchShortcut?.aria}
                   aria-expanded={searchExpanded}
-                  onClick={() => {
+                  onClick={(event) => {
+                    // The outer native-search container must not open as well.
+                    event.stopPropagation()
                     requestSearch()
                   }}
                 >
@@ -1371,6 +1380,7 @@ export function WorkspaceBrowser({
               usePanelInfo={usePanelInfo}
               useSessionAccess={useSessionAccess}
               useSessions={useSessions}
+              useSidebarHiddenSessions={useSidebarHiddenSessions}
               useSessionStatus={useSessionStatus}
               open={openSearchResult}
               onUnarchive={onSessionUnarchive}

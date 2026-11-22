@@ -1,0 +1,2 @@
+# Unified-diff context prefixes are data; preserve their exact whitespace.
+*.patch whitespace=-blank-at-eol,-space-before-tab

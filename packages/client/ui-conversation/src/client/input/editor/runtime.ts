@@ -204,6 +204,8 @@ export class DraftEditorRuntime {
       this.editor.registerCommand(KEY_BACKSPACE_COMMAND, event => this.deleteAdjacentQuote(event, true), COMMAND_PRIORITY_BEFORE_CRITICAL),
       this.editor.registerCommand(KEY_DELETE_COMMAND, event => this.deleteAdjacentQuote(event, false), COMMAND_PRIORITY_BEFORE_CRITICAL),
       this.editor.registerCommand(BLUR_COMMAND, () => {
+        // A dictation that never reported its end still has to land before focus leaves.
+        onDictationEnd()
         // Finish this batch before an explicit focus can restore its updated selection.
         this.editor.update(preserveExternalSelection, { discrete: true })
         return false
@@ -224,6 +226,8 @@ export class DraftEditorRuntime {
       },
     )
     return () => {
+      attachCompositionGuard(null)
+      releaseCompositionNodes(true)
       unregister()
       this.editor.setRootElement(null)
     }

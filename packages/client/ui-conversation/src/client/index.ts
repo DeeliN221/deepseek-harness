@@ -50,7 +50,7 @@ export type {
 } from './contract/conversation.ts'
 export { EMPTY_CONVERSATION_SNAPSHOT, conversationPhase } from './contract/snapshot.ts'
 export type {
-  ConversationPhase, ConversationSnapshot,
+  ConversationHistoryWindow, ConversationPhase, ConversationSnapshot,
 } from './contract/snapshot.ts'
 export type {
   AssistantBlock, AssistantMessageNode, AssistantProviderMetadataView, AssistantRequestConfig,
@@ -89,7 +89,7 @@ export type {
   ConversationContentInputProps, ConversationContentProps,
   ConversationInjected, ConversationSessionHeaderInjected, ConversationSessionHeaderSlotProps,
   ConversationSessionInjected, ConversationSessionSlotProps, ConversationSlotProps,
-  ConversationViewActionEntry, ConversationViewActionsOwnerProps, ConversationViewsProps,
+  ConversationViewsProps,
   ConversationWidthControlsInputProps, ConversationWidthControlsProps,
   ConversationStore, ConvViewOwnerProps, ConvViewProps, EmptyWorkspaceOwnerProps,
   HeroAgentPresetOwnerProps, HeroBrandMarkOwnerProps, HeroFrameOwnerProps, InputControlOwnerProps, InputZone,

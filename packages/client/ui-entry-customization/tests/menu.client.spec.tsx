@@ -14,8 +14,8 @@ import { EntryMenuContent } from '../src/client/EntryMenuContent.tsx'
 import { en } from '../src/client/locales.ts'
 import { apply, inject } from '../src/client/index.ts'
 
-type Seats = 'sidebar.panellist.actions' | 'conversation.session.header.views.actions' | 'sidebar.right.tab.guide.actions'
-const SEATS = ['sidebar.panellist.actions', 'conversation.session.header.views.actions', 'sidebar.right.tab.guide.actions'] as const
+type Seats = 'sidebar.panellist.actions' | 'sidebar.right.tab.guide.actions'
+const SEATS = ['sidebar.panellist.actions', 'sidebar.right.tab.guide.actions'] as const
 const runtimes = new Set<SlotTestRuntime>()
 afterEach(async () => {
   try { for (const runtime of runtimes) await runtime.dispose() }
@@ -139,7 +139,7 @@ function Frame({ renderSlot }: PropsRenderSlots<Seats>) {
   return <>
     {SEATS.map(seat => <div key={seat} role="menu" aria-label={seat}>
       {renderSlot(seat, {
-        entries: seat === 'conversation.session.header.views.actions' ? [] : entries,
+        entries,
         onOpen: (id) => { setOpened(`${seat}:${id}`) },
         onPinnedChange: (_id, next) => { setPinned(next) },
         onDismiss: () => {},
@@ -170,7 +170,6 @@ async function bench(
   })
   await runtime.root.declare({
     'sidebar.panellist.actions': { kind: 'list', scope: 'root' },
-    'conversation.session.header.views.actions': { kind: 'list', scope: 'root' },
     'sidebar.right.tab.guide.actions': { kind: 'list', scope: 'root' },
   }, Frame)
   const plugin = await runtime.mount({ inject: [...inject], apply })
@@ -220,10 +219,8 @@ describe('More menu registrations', () => {
 
   it.each([
     ['en', 'sidebar.panellist.actions', 'Create a DSH plugin with a left sidebar entry.'],
-    ['en', 'conversation.session.header.views.actions', 'Create a DSH conversation view plugin.'],
     ['en', 'sidebar.right.tab.guide.actions', 'Create a DSH plugin with a right sidebar entry.'],
     ['zh', 'sidebar.panellist.actions', '创建一个带左侧栏入口的 DSH 插件。'],
-    ['zh', 'conversation.session.header.views.actions', '创建一个 DSH 会话视图插件。'],
     ['zh', 'sidebar.right.tab.guide.actions', '创建一个带右侧栏入口的 DSH 插件。'],
   ] as const)('starts an unsent %s Creator draft from %s', async (language, seat, prompt) => {
     const b = await bench(language)
@@ -236,7 +233,6 @@ describe('More menu registrations', () => {
 
   it.each([
     ['sidebar.panellist.actions', 'sidebar'],
-    ['conversation.session.header.views.actions', 'conversation'],
     ['sidebar.right.tab.guide.actions', 'rightbar'],
   ] as const)('reports both footer actions of %s as the %s region before acting', async (seat, region) => {
     const b = await bench()
