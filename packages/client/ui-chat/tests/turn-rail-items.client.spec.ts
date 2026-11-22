@@ -39,9 +39,9 @@ describe('mergeTurnRailItems', () => {
         turn: 2,
         prompt: 'two from outline',
         response: 'answer two from outline',
-        anchor: { kind: 'loaded', key: 'anchor-2' },
+        anchor: { kind: 'loaded', key: 'anchor-2', seq: 8 },
       },
-      { turn: 3, prompt: 'p3', response: 'r3', anchor: { kind: 'loaded', key: 'anchor-3' } },
+      { turn: 3, prompt: 'p3', response: 'r3', anchor: { kind: 'loaded', key: 'anchor-3', seq: 16 } },
     ])
   })
 

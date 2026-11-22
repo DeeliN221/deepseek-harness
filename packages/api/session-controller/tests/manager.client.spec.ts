@@ -94,6 +94,21 @@ describe('SessionManager instances', () => {
     expect(manager.getListSnapshot().items[0]?.blank).toBe(true)
   })
 
+  it('accepts a saved Session with an exact nonblank projection before its list row', async ({ mock, remote }) => {
+    const manager = makeManager(mock, remote)
+    remote.session.projections.mockResolvedValueOnce(ok({ kind: 'sequenced', asOfSeq: 0, values: {
+      sessionListMetadata: { blank: false, lastPromptAt: 1200 },
+    } }))
+    try {
+      await manager.refreshProjections(S1)
+      expect(() => manager.resolveTarget(S2)).toThrow('sessions.retain: unknown session fk-m2')
+      expect(manager.resolveTarget(S1)).toBe(S1)
+      expect(manager.get(S1).getSnapshot()).toMatchObject({ blank: false, running: false })
+    } finally {
+      await manager.dispose()
+    }
+  })
+
   it('retains running for an unlisted child with only a retained address', async ({ mock, remote }) => {
     const address: SubagentAddress = { parentSessionId: S1, childSessionId: S2, mode: 'continuable' }
     const manager = makeManager(mock, remote)
@@ -417,6 +432,70 @@ describe('SessionManager query lifetime', () => {
       await manager.refreshList()
       expect(manager.getListSnapshot()).toMatchObject({ state: 'error', error: failure })
     } finally {
+      await manager.dispose()
+    }
+  })
+
+  it('aborts a shared projection query only after its final waiter leaves', async ({ mock, remote }) => {
+    const manager = makeManager(mock, remote)
+    const first = new AbortController()
+    const second = new AbortController()
+    const reason = new Error('navigation replaced')
+    let hostSignal: AbortSignal | undefined
+    remote.session.projections.mockImplementation((_request, signal) => {
+      if (signal === undefined) throw new Error('session projection read did not receive an AbortSignal')
+      hostSignal = signal
+      return new Promise((resolve) => {
+        signal.addEventListener('abort', () => { resolve(ok(null)) }, { once: true })
+      })
+    })
+    const firstRead = manager.refreshProjections(S1, first.signal)
+    const secondRead = manager.refreshProjections(S1, second.signal)
+    try {
+      first.abort(reason)
+      await expect(firstRead).rejects.toBe(reason)
+      await vi.waitFor(() => { expect(hostSignal).toBeDefined() })
+      expect(hostSignal?.aborted).toBe(false)
+
+      second.abort(reason)
+      await expect(secondRead).rejects.toBe(reason)
+      await vi.waitFor(() => {
+        expect(hostSignal?.aborted).toBe(true)
+        expect(manager.getListSnapshot().projectionsBySession[S1]?.state).toBe('idle')
+      })
+      expect(remote.session.projections).toHaveBeenCalledOnce()
+    } finally {
+      first.abort(reason)
+      second.abort(reason)
+      await manager.dispose()
+    }
+  })
+
+  it('keeps a shared projection read for an uncancellable caller', async ({ mock, remote }) => {
+    const manager = makeManager(mock, remote)
+    const cancellable = new AbortController()
+    const reason = new Error('navigation replaced')
+    const response = Promise.withResolvers<Awaited<ReturnType<typeof remote.session.projections>>>()
+    let hostSignal: AbortSignal | undefined
+    remote.session.projections.mockImplementation((_request, signal) => {
+      if (signal === undefined) throw new Error('session projection read did not receive an AbortSignal')
+      hostSignal = signal
+      return response.promise
+    })
+    const retainedRead = manager.refreshProjections(S1)
+    const navigationRead = manager.refreshProjections(S1, cancellable.signal)
+    try {
+      expect(manager.refreshProjections(S1)).toBe(retainedRead)
+      expect(hostSignal).toBeDefined()
+      cancellable.abort(reason)
+      await expect(navigationRead).rejects.toBe(reason)
+      expect(hostSignal?.aborted).toBe(false)
+      response.resolve(ok(null))
+      await retainedRead
+      expect(manager.getListSnapshot().projectionsBySession[S1]?.state).toBe('ready')
+      expect(remote.session.projections).toHaveBeenCalledOnce()
+    } finally {
+      cancellable.abort(reason)
       await manager.dispose()
     }
   })
@@ -885,7 +964,7 @@ describe('subagent catalogs', () => {
           mode: 'continuable',
         },
         activate: true, assistantStream: true,
-        maxMessages: 500,
+        maxEvents: 2000, maxMessages: 500,
         turnWindow: { minMessages: 50, minTurns: 2 },
       },
     ])

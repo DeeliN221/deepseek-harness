@@ -1,4 +1,4 @@
-/** Busy-Enter preference stored in the Host user-settings document. */
+/** Conversation preferences projected from the Host configuration form. */
 
 import z from '@deepseek-ai/schemastery'
 
@@ -17,15 +17,27 @@ export type BusyEnterBehavior = typeof BUSY_ENTER_BEHAVIORS[number]
 /** Default preserves Enter-as-Queue for running conversations. */
 export const DEFAULT_BUSY_ENTER_BEHAVIOR: BusyEnterBehavior = 'queue'
 
+/** Field carrying the ordered Conversation View tabs in the Session header. */
+export const VIEW_TABS_FIELD = 'viewTabs'
+
+/** Ordered View ids placed before unlisted Views, or null for registration order. */
+export type ViewTabSelection = readonly string[] | null
+
+/** Browser-visible default: registration order after the fixed View. */
+export const DEFAULT_VIEW_TAB_SELECTION: ViewTabSelection = null
+
 /** Durable conversation section shared by the Host schema and the browser scope. */
 export interface ConversationSettings {
   /** Delivery mode for plain Enter while the addressed agent is busy. */
   busyEnter: BusyEnterBehavior
+  /** Ordered View ids; ids not listed follow in registration order. */
+  viewTabs: ViewTabSelection
 }
 
 /** Durable conversation schema; also the wire envelope the browser scope validates against. */
 export const ConversationSettingsFields = {
   [BUSY_ENTER_FIELD]: z.union([...BUSY_ENTER_BEHAVIORS]).default(DEFAULT_BUSY_ENTER_BEHAVIOR),
+  [VIEW_TABS_FIELD]: z.union([z.array(z.string()), z.const(null)]).default(DEFAULT_VIEW_TAB_SELECTION),
 }
 
 /** Schema for shared configuration values. */

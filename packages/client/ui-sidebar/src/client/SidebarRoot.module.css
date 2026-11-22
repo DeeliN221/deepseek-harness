@@ -308,6 +308,31 @@
   letter-spacing: 0.04em;
 }
 
+/* Empty name occupants opt into a compact mark-only header. Other brands and
+   the local-build fallback retain their existing layout and controls. */
+.brandName:is(:empty, :has(> [data-slot='sidebar.brand.name']:empty)) {
+  display: none;
+}
+
+.brand:has(.brandName:empty, .brandName > [data-slot='sidebar.brand.name']:empty) {
+  flex: 0 0 44px;
+  height: 44px;
+  justify-content: center;
+  margin-inline-end: auto;
+}
+
+.logoRow:has(.brandName:empty, .brandName > [data-slot='sidebar.brand.name']:empty) {
+  height: 52px;
+  padding: 4px 0;
+}
+
+@media (pointer: coarse) {
+  .logoRow:has(.brandName:empty, .brandName > [data-slot='sidebar.brand.name']:empty) > .toggle {
+    width: 44px;
+    height: 44px;
+  }
+}
+
 .fallbackBrandName {
   font-size: 17px;
   letter-spacing: 0px;

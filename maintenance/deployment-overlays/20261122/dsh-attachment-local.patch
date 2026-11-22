@@ -1,0 +1,24 @@
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -4,7 +4,7 @@
+ import { dshCachePath, resolveDshHome } from "@deepseek-ai/dsh-home-paths";
+ import { createHash, randomUUID } from "node:crypto";
+ import { constants, createReadStream } from "node:fs";
+-import { chmod, link, mkdir, open, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
++import { chmod, link, mkdir, open, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+ import { createLazyRequire } from "@deepseek-ai/dsh-lazy-require";
+ //#region lib/types/compression-limiter.js
+ /** Instance-owned concurrency bound for native image transformations. */
+@@ -384,7 +384,11 @@
+ 		recursive: true,
+ 		mode: 448
+ 	});
+-	await chmod(target, 448);
++	// Shared DSH_HOME can already be private while owned by the host UID.
++	// Avoid requiring CAP_FOWNER for a no-op chmod; retain enforcement otherwise.
++	const info = await stat(target);
++	if (!info.isDirectory()) throw new Error(`attachment-local: expected a directory: ${target}`);
++	if ((info.mode & 511) !== 448) await chmod(target, 448);
+ 	let level = target;
+ 	while (level !== stop) {
+ 		const parent = dirname(level);

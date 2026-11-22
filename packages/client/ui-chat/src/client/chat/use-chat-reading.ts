@@ -28,6 +28,8 @@ export class ChatReading {
   private sampleTimer: number | null = null
   private probeFrame: number | null = null
   private sampled: ((sample: ReadingSample) => void) | null = null
+  private renderedGlobalTail = true
+  private advanceRenderWindow: () => boolean = () => false
 
   constructor(
     private readonly viewport: ChatViewport,
@@ -53,6 +55,12 @@ export class ChatReading {
    * @param store - scroll memory for the current Session.
    */
   setStore(store: PositionStore): void { this.store = store }
+
+  /** Adopt the current bounded render window's tail and advancement policy. */
+  setRenderWindowPolicy(renderedGlobalTail: boolean, advanceRenderWindow: () => boolean): void {
+    this.renderedGlobalTail = renderedGlobalTail
+    this.advanceRenderWindow = advanceRenderWindow
+  }
 
   /**
    * Connect history policy to settled reading observations.
@@ -159,8 +167,20 @@ export class ChatReading {
   readonly onScroll = (scroll: ViewportScroll): void => {
     // Native follow animation progress is not reader movement; scrollend settles it.
     if (this.follow.animating) return
+    const atFloor = Math.abs(scroll.metrics.top - scroll.metrics.floor) < 1
+    if (scroll.movedByReader && atFloor && !this.renderedGlobalTail) {
+      const position = this.viewport.capturePosition()
+      if (position !== null) {
+        this.viewport.beginPreserving(position)
+        if (this.advanceRenderWindow()) {
+          this.pauseFollowing()
+          return
+        }
+        this.viewport.stopPreserving()
+      }
+    }
     if ((!scroll.movedByReader && this.state.followingTail)
-      || (scroll.movedByReader && Math.abs(scroll.metrics.top - scroll.metrics.floor) < 1)) {
+      || (scroll.movedByReader && atFloor && this.renderedGlobalTail)) {
       this.followTail()
       this.sampled?.({ position: null, movedByReader: scroll.movedByReader, followingTail: true })
       return
@@ -245,7 +265,8 @@ export class ChatReading {
     this.cancelPending()
     const scroll = this.viewport.readScroll()
     if (scroll === null) return
-    const followingTail = this.follow.sample(scroll.metrics, scroll.movedByReader)
+    const followSample = this.follow.sample(scroll.metrics, scroll.movedByReader)
+    const followingTail = this.renderedGlobalTail && followSample
     let position: ChatScrollPosition | null = null
     if (!scroll.movedByReader && followingTail) this.followTail()
     else {
@@ -268,6 +289,7 @@ export class ChatReading {
  */
 export function useChatReading(
   viewport: ChatViewport, store: PositionStore, initialTurn: number | null,
+  renderedGlobalTail: boolean, advanceRenderWindow: () => boolean,
 ): { reading: ChatReading; state: ChatReadingState } {
   const [state, setState] = useState<ChatReadingState>(() => ({
     initialized: false,
@@ -277,6 +299,9 @@ export function useChatReading(
   const follow = useScrollFollow(state.followingTail, FOLLOW_THRESHOLD + 1)
   const [reading] = useState(() => new ChatReading(viewport, store, state, setState, follow))
   useLayoutEffect(() => { reading.setStore(store) }, [reading, store])
+  useLayoutEffect(() => { reading.setRenderWindowPolicy(renderedGlobalTail, advanceRenderWindow) }, [
+    reading, renderedGlobalTail, advanceRenderWindow,
+  ])
   useLayoutEffect(() => reading.bindFolds(), [reading])
   useLayoutEffect(() => () => { reading.dispose() }, [reading])
   return { reading, state }

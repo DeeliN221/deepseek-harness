@@ -22,6 +22,7 @@ import css from './ChatGroupSeat.module.css'
 type SeatProps = Omit<ComponentProps<typeof ChatNodeSeat>, 'nodeKey' | 'groupPart'>
 type ChatGroupSeatProps = SeatProps & {
   readonly groupKey: GroupKey
+  readonly visibleNodeKeys?: ReadonlySet<string>
   readonly useChatGroup: ChatFlowSlotProps['useChatGroup']
   readonly useGroupHeaderAction: ChatFlowSlotProps['useGroupHeaderAction']
 }
@@ -130,13 +131,16 @@ const ProcessGroupHeader = memo(function ProcessGroupHeader({ groupKey, useChatG
 })
 
 /** Render a process group with local disclosure and the existing outer-Turn visibility. */
-export const ChatGroupSeat = memo(function ChatGroupSeat({ groupKey, useChatGroup, useGroupHeaderAction, ...props }: ChatGroupSeatProps) {
+export const ChatGroupSeat = memo(function ChatGroupSeat({
+  groupKey, visibleNodeKeys, useChatGroup, useGroupHeaderAction, ...props
+}: ChatGroupSeatProps) {
   const members = useChatGroup(groupKey, group => group?.members)
+  const visibleMembers = members?.filter(member => visibleNodeKeys === undefined || visibleNodeKeys.has(member.key)) ?? []
   const turn = useChatGroup(groupKey, group => group?.data.turn)
   const closed = useChatGroup(groupKey, group => group?.data.closed)
   const foldCompleted = props.usePresentation(policy => policy.foldCompletedTurns)
   const { expanded: open, setExpanded: setOpen } = useDisclosure()
-  const firstKey = members?.[0]?.key ?? ''
+  const firstKey = visibleMembers[0]?.key ?? ''
   const bottom = props.useChatNodeBottom(firstKey)
   const deferCollapse = bottom === true && props.deferCollapse
   const presentation = props.useChatNodeProcess(firstKey)
@@ -184,7 +188,7 @@ export const ChatGroupSeat = memo(function ChatGroupSeat({ groupKey, useChatGrou
   const shownCap = !grouped ? false : open ? true : undefined
   const [closingCap, setClosingCap] = useState(shownCap ?? true)
   if (shownCap !== undefined && shownCap !== closingCap) setClosingCap(shownCap)
-  if (members === undefined) return null
+  if (members === undefined || visibleMembers.length === 0) return null
   const capped = grouped && (!deferCompletedTurns || (shownCap ?? closingCap))
   const classes = [css.body, !capped ? css.expandedBody : '',
     capped && edges.canScrollUp ? css.fadeTop : '', capped && edges.canScrollDown ? css.fadeBottom : '']
@@ -201,7 +205,7 @@ export const ChatGroupSeat = memo(function ChatGroupSeat({ groupKey, useChatGrou
         data-scroll-up={edges.canScrollUp || undefined} data-scroll-down={edges.canScrollDown || undefined}
         {...events}>
         <div ref={contentRef} className={css.content} data-step-process-content data-chat-flow="">
-          <GroupMembers {...props} members={members} />
+          <GroupMembers {...props} members={visibleMembers} />
         </div>
       </div>
     </div>

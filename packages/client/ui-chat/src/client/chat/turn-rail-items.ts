@@ -19,7 +19,7 @@ export interface TurnRailItem {
   readonly response: string
   /** How the rail reaches the Turn. */
   readonly anchor:
-    | { readonly kind: 'loaded'; readonly key: string }
+    | { readonly kind: 'loaded'; readonly key: string; readonly seq?: SessionSeq }
     | { readonly kind: 'unloaded'; readonly seq: SessionSeq }
 }
 
@@ -77,11 +77,12 @@ export function mergeTurnRailItems(
   }
   for (const item of loaded) {
     const preview = byTurn.get(item.turn)
+    const seq = preview?.anchor.kind === 'unloaded' ? preview.anchor.seq : undefined
     byTurn.set(item.turn, {
       turn: item.turn,
       prompt: item.prompt !== '' ? item.prompt : preview?.prompt ?? '',
       response: item.response !== '' ? item.response : preview?.response ?? '',
-      anchor: { kind: 'loaded', key: item.anchorKey },
+      anchor: { kind: 'loaded', key: item.anchorKey, ...(seq === undefined ? {} : { seq }) },
     })
   }
   if (byTurn.size === 0) return EMPTY_ITEMS

@@ -101,9 +101,10 @@ export interface ISessions {
   /**
    * Read projections without starting migration; retry failed or migration-deferred reads.
    * @param sessionId - Session to inspect without opening its conversation.
+   * @param signal - optional cancellation; a shared Host read stops only when every joined caller is cancellable and has left.
    * @returns completion of the current or newly started refresh.
    */
-  refreshProjections(sessionId: SessionId): Promise<void>
+  refreshProjections(sessionId: SessionId, signal?: AbortSignal): Promise<void>
 
   /**
    * Refresh the Host-authoritative Session list.

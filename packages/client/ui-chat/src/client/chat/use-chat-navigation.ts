@@ -3,41 +3,60 @@ import { useLayoutEffect, useState } from 'react'
 import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionSeq } from '@deepseek-ai/dsh-session/types'
 import type { ChatNode } from '../contract/chat-nodes.ts'
-import type { ChatViewSlotProps } from '../contract/slots.ts'
+import type { ChatScrollPosition, ChatViewSlotProps } from '../contract/slots.ts'
 import type { TurnRailItem } from './turn-rail-items.ts'
 import type { ChatReading, ReadingSample } from './use-chat-reading.ts'
-import type { ChatViewport } from './use-chat-viewport.ts'
+import type { ChatViewport, ViewportLanding } from './use-chat-viewport.ts'
 
 /** History availability and loading operations for the committed Chat window. */
 export interface ChatNavigationInput extends Pick<ChatViewSlotProps, 'loadOlder' | 'loadThrough' | 'consumeOlder'> {
+  readonly sessionId: string
   readonly firstSeq: ChatNode['anchorSeq'] | null
   readonly hasMore: boolean
   readonly loadingOlder: boolean
   readonly historyLoadStatus: SessionSnapshot['historyLoadStatus']
   readonly isOpen: boolean
+  /** Reattempt local turn reveal after a Conversation history page commits. */
+  readonly historyRevision?: number
+  readonly beforeLoadOlder?: () => void
+  readonly revealEarlier?: () => boolean
+  /** Key-based fallback when no durable outline sequence is available. */
+  readonly revealTurn?: (turn: number) => boolean
+  /** Reveal a loaded Turn after matching its durable outline sequence. */
+  readonly revealThrough?: (turn: number, seq: SessionSeq) => boolean
+  /** Update the request's semantic anchor after reader movement. */
+  readonly readerPositionChanged?: (position: ChatScrollPosition | null) => void
 }
 
 interface TurnJump {
   readonly turn: number
   readonly seq: SessionSeq
   phase: 'loading' | 'settled'
-  landing: 'pending' | 'landed' | 'interrupted'
+  landing: 'pending' | 'revealing' | 'landed' | 'interrupted'
   repageHead: ChatNavigationInput['firstSeq']
 }
 
 type HistoryIntent = 'none' | 'auto' | 'manual'
 
+type NavigationViewport = Pick<ChatViewport,
+  'preserving' | 'beginPreserving' | 'beginPaging' | 'stopPreserving' | 'preserve' | 'capturePosition'
+  | 'scrollToTurn' | 'scrollToTurnAtOrAfter' | 'beginManualPaging' | 'historyConsumption'
+  | 'beginHistoryPrepend' | 'cancelHistoryPrepend' | 'confirmHistoryStart'>
+type NavigationReading = Pick<ChatReading,
+  'pending' | 'followingTail' | 'pauseFollowing' | 'acceptNavigation' | 'preservePosition'>
+
 /** Owns one replaceable turn jump and the anchor retained while history loads. */
 export class ChatNavigation {
   private jump: TurnJump | null = null
+  private localLanding: { readonly turn: number; readonly seq: SessionSeq | undefined } | null = null
   private settleFrame: number | null = null
   private historyFrame: number | null = null
   private historyIntent: HistoryIntent = 'none'
   private historyRequested = false
 
   constructor(
-    private readonly viewport: ChatViewport,
-    private readonly reading: ChatReading,
+    private readonly viewport: NavigationViewport,
+    private readonly reading: NavigationReading,
     private input: ChatNavigationInput,
     private readonly onBusyTurn: (turn: number | null) => void,
     private readonly onHistoryIntent: (intent: HistoryIntent) => void = () => {},
@@ -81,6 +100,7 @@ export class ChatNavigation {
   private clearTask(): void {
     this.cancelFrame()
     this.jump = null
+    this.localLanding = null
     this.viewport.stopPreserving()
     this.viewport.cancelHistoryPrepend()
   }
@@ -90,27 +110,24 @@ export class ChatNavigation {
    * @param item - loaded anchor or unloaded turn to fetch before landing.
    */
   readonly navigateToTurn = (item: TurnRailItem): void => {
-    if (item.anchor.kind === 'loaded') {
-      this.cancel()
-      const landing = this.viewport.scrollToTurn(item.turn)
-      if (landing === null) return
-      this.reading.acceptNavigation(landing)
-      if (this.input.loadingOlder) this.viewport.beginPreserving(landing.position)
-      return
-    }
     this.cancel()
+    if (item.anchor.kind === 'loaded') {
+      const landing = this.viewport.scrollToTurn(item.turn)
+      if (landing !== null) {
+        this.reading.acceptNavigation(landing)
+        if (this.input.loadingOlder) this.viewport.beginPreserving(landing.position)
+        return
+      }
+    }
     this.viewport.beginPreserving()
     this.reading.pauseFollowing()
-    const jump: TurnJump = {
-      turn: item.turn,
-      seq: item.anchor.seq,
-      phase: 'loading',
-      landing: 'pending',
-      repageHead: null,
-    }
-    this.jump = jump
-    this.onBusyTurn(jump.turn)
-    this.request(jump)
+    const target = { turn: item.turn, seq: item.anchor.seq }
+    this.localLanding = target
+    this.onBusyTurn(item.turn)
+    if (this.revealLocal(target)) return
+    this.localLanding = null
+    if (target.seq !== undefined) this.startRemoteJump(target.turn, target.seq)
+    else this.finishWithoutSequence(target.turn)
   }
 
   /** Request and consume one page, retaining the click until success, exhaustion, or failure. */
@@ -118,8 +135,12 @@ export class ChatNavigation {
     this.cancel()
     this.setHistoryIntent('manual')
     this.reading.pauseFollowing()
+    // A bounded render window may hide rows the Session already loaded: revealing
+    // them is synchronous so the click never waits for a frame or the Host.
+    if (this.input.revealEarlier?.() === true) return
     if (this.input.historyLoadStatus === 'error') {
       this.historyRequested = true
+      this.input.beforeLoadOlder?.()
       this.input.loadOlder()
     } else this.requestHistoryCheck()
   }
@@ -190,9 +211,13 @@ export class ChatNavigation {
       this.consumeHistory(mode)
       return
     }
+    // A bounded render window may hide rows the Session already loaded: reveal
+    // those before asking the Host for another page.
+    if (input.revealEarlier?.() === true) return
     if (!input.hasMore || this.historyIntent !== 'manual' && (this.reading.followingTail
       || !this.viewport.confirmHistoryStart())) return
     if (this.historyIntent === 'none') this.setHistoryIntent('auto')
+    input.beforeLoadOlder?.()
     this.historyRequested = true
     input.loadOlder()
   }
@@ -211,9 +236,24 @@ export class ChatNavigation {
    * Preserve reader ownership across pending history work.
    * @param sample - settled reader movement that can update or interrupt an anchor.
    */
+  readerMoved(movedByReader: boolean): void {
+    if (movedByReader && this.input.loadingOlder && this.viewport.preserving) {
+      this.input.readerPositionChanged?.(this.viewport.capturePosition())
+    }
+  }
+
   readerSampled(sample: ReadingSample): void {
     if (sample.movedByReader && this.jump?.landing === 'landed') this.jump.landing = 'interrupted'
-    if (sample.followingTail || sample.movedByReader) this.viewport.stopPreserving()
+    if (sample.followingTail) {
+      this.input.readerPositionChanged?.(null)
+      this.viewport.stopPreserving()
+      return
+    }
+    if (!sample.movedByReader) return
+    this.input.readerPositionChanged?.(sample.position)
+    if (this.input.loadingOlder && this.jump === null && sample.position !== null) {
+      this.viewport.beginPreserving(sample.position)
+    } else this.viewport.stopPreserving()
   }
 
   /**
@@ -221,8 +261,36 @@ export class ChatNavigation {
    * @returns whether the retained anchor handled the layout change.
    */
   contentCommitted(): boolean {
-    if (!this.viewport.preserving || this.reading.pending) return false
+    if (this.reading.pending) return false
+    if (this.localLanding !== null) {
+      const target = this.localLanding
+      const landing = this.viewport.scrollToTurn(target.turn)
+      if (landing !== null) {
+        this.localLanding = null
+        this.onBusyTurn(null)
+        this.reading.acceptNavigation(landing)
+        this.retainLandingDuringHistory(landing)
+        return true
+      }
+      if (this.revealLocal(target)) {
+        const retained = this.viewport.preserve()
+        if (retained !== null) this.reading.preservePosition(retained)
+        return true
+      }
+      this.localLanding = null
+      if (target.seq !== undefined) this.startRemoteJump(target.turn, target.seq)
+      else this.finishWithoutSequence(target.turn)
+      return true
+    }
+    const jump = this.jump
+    if (jump?.landing === 'revealing') jump.landing = 'pending'
     if (this.landJump(false)) return true
+    if (this.jump?.landing === 'revealing') {
+      const retained = this.viewport.preserve()
+      if (retained !== null) this.reading.preservePosition(retained)
+      return true
+    }
+    if (!this.viewport.preserving) return false
     const landing = this.viewport.preserve()
     if (landing === null) return false
     this.reading.preservePosition(landing)
@@ -239,6 +307,7 @@ export class ChatNavigation {
     }
     if (this.input.loadingOlder) return
     if (this.landJump(true)) return
+    if (jump.landing === 'revealing') return
     const uncovered = this.input.firstSeq === null || this.input.firstSeq > jump.seq
     if (uncovered && this.input.hasMore && jump.repageHead !== this.input.firstSeq) {
       jump.repageHead = this.input.firstSeq
@@ -259,7 +328,14 @@ export class ChatNavigation {
       return false
     }
     const landing = this.viewport.scrollToTurn(jump.turn)
-    if (landing === null) return false
+    if (landing === null) {
+      if (this.input.revealThrough?.(jump.turn, jump.seq) === true
+        || this.input.revealTurn?.(jump.turn) === true) {
+        jump.landing = 'revealing'
+        this.onBusyTurn(jump.turn)
+      }
+      return false
+    }
     this.reading.acceptNavigation(landing)
     if (settle) this.cancel()
     else {
@@ -267,6 +343,35 @@ export class ChatNavigation {
       jump.landing = 'landed'
     }
     return true
+  }
+
+  private revealLocal(target: { readonly turn: number; readonly seq: SessionSeq | undefined }): boolean {
+    return (target.seq !== undefined
+      && this.input.revealThrough?.(target.turn, target.seq) === true)
+      || this.input.revealTurn?.(target.turn) === true
+  }
+
+  private startRemoteJump(turn: number, seq: SessionSeq): void {
+    const jump: TurnJump = {
+      turn, seq, phase: 'loading', landing: 'pending', repageHead: null,
+    }
+    this.jump = jump
+    this.onBusyTurn(turn)
+    this.request(jump)
+  }
+
+  private finishWithoutSequence(turn: number): void {
+    const fallback = this.viewport.scrollToTurnAtOrAfter(turn)
+    this.onBusyTurn(null)
+    if (fallback !== null) {
+      this.reading.acceptNavigation(fallback)
+      this.retainLandingDuringHistory(fallback)
+    } else this.viewport.stopPreserving()
+  }
+
+  private retainLandingDuringHistory(landing: ViewportLanding): void {
+    if (this.input.loadingOlder) this.viewport.beginPreserving(landing.position)
+    else this.viewport.stopPreserving()
   }
 
   private request(jump: TurnJump): void {

@@ -171,7 +171,7 @@ export function apply(ctx: Context): void {
     },
   })
   ctx.effect(() => ctx.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }), 'ui-workspace: dictionaries')
-  const shortcutControls = createWorkspaceShortcutControls()
+  const shortcutControls = createWorkspaceShortcutControls(uiWorkspace.searchHandler.dispatch)
 
   const searchSessions: WorkspaceBrowserInjected['searchSessions'] = async (query, signal) => {
     const result = await sessions.search(query, signal)
@@ -364,6 +364,7 @@ export function apply(ctx: Context): void {
     closeAddWorkspace: shortcutControls.closeAdd,
     setDirectoryBusy: shortcutControls.directoryBusy,
     hooks: { workspaceActionRequest, contextMenuTarget: ctx.contextMenus.active, directoryFlow: browserFlowSource, hostInfo,
+      sidebarHiddenSessions: uiWorkspace.sidebarHiddenSessions,
       workspaceShortcuts: shortcutControls.state, shortcuts: ctx.shortcuts.catalog },
   })
   const pickerInjected = (directoryFlow: HostObservable<boolean>) => (): WorkspacePickerInjected => ({
