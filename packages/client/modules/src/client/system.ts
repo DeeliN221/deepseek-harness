@@ -10,7 +10,7 @@ import { MainScriptRealm } from './main-realm.ts'
 import { notifySubscribers } from './notify.ts'
 import type {
   BootManifest, BootModuleRow, ClientBundleRegistration, ClientBundleRequire, ClientModuleLoader, ClientModuleRecord,
-  ClientModuleSystemOptions,
+  ClientModuleSystemOptions, DeferredEntryInfo, DeferredEntryStatus,
 } from './manifest.ts'
 
 /** Replace the rev query while preserving absolute, protocol-relative, or path-relative form. */
@@ -419,6 +419,22 @@ export class ClientModuleSystem implements ClientModuleLoader {
 
   importError(id: string): Error | undefined {
     return this.importErrors.get(stripClientSuffix(id))
+  }
+
+  deferredEntries(): readonly DeferredEntryInfo[] {
+    return this.entries.deferredEntries()
+  }
+
+  activateDeferred(id: string): Promise<void> {
+    return this.entries.activate(id)
+  }
+
+  deferredStatus(id: string): DeferredEntryStatus | undefined {
+    return this.entries.deferredStatus(id)
+  }
+
+  onDeferredChange(listener: () => void): () => void {
+    return this.entries.onDeferredChange(listener)
   }
 
   /**
