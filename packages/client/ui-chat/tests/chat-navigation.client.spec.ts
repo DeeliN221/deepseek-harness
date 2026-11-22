@@ -53,7 +53,7 @@ function makeReading(overrides: Partial<NavigationReading> = {}): NavigationRead
 
 function input(overrides: Partial<ChatNavigationInput> = {}): ChatNavigationInput {
   return {
-    sessionId: 'session-1', firstSeq: SessionSeq(0), hasMore: true, loadingOlder: false,
+    firstSeq: SessionSeq(0), hasMore: true, loadingOlder: false,
     isOpen: true, historyLoadStatus: 'idle', consumeOlder: vi.fn(() => false),
     loadOlder: vi.fn(), loadThrough: vi.fn<ChatNavigationInput['loadThrough']>(async () => {}),
     ...overrides,

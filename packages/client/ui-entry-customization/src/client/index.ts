@@ -1,10 +1,11 @@
-/** Plugin discovery and Creator rows for the left sidebar's More menu. */
+/** Plugin discovery and Creator rows for the More menus that expose them. */
 import type { Context } from '@deepseek-ai/cordis'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-product-analytics/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { EntryMenuContent, type EntryMenuInjected, type EntryRegion } from './EntryMenuContent.tsx'
@@ -52,5 +53,11 @@ export function apply(ctx: Context): void {
   ctx.slots.inject('sidebar.panellist.actions', () => ctx.slots.register({
     name: 'sidebar.panellist.actions', id: 'entry-customization', locale: 'entryCustomization',
     inject: () => injected('sidebar'),
+  }, EntryMenuContent))
+  // The Conversation header's View actions menu was replaced by the ordered View
+  // tab strip, so this plugin only registers the regions that still expose a More menu.
+  ctx.slots.inject('sidebar.right.tab.guide.actions', () => ctx.slots.register({
+    name: 'sidebar.right.tab.guide.actions', id: 'entry-customization', locale: 'entryCustomization',
+    inject: () => injected('rightbar'),
   }, EntryMenuContent))
 }

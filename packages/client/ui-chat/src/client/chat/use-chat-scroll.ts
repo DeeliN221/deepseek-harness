@@ -10,6 +10,8 @@ import type { FlowMotionRows } from './flow-motion.ts'
 
 /** Committed content and Session operations used to reconcile scroll ownership. */
 export interface ChatScrollInput extends ChatNavigationInput {
+  /** Session whose saved reading position and navigation state this hook owns. */
+  readonly sessionId: string
   readonly chatScroll: ChatViewSlotProps['chatScroll']
   readonly order: readonly string[]
   /** Rendered Chat suffix/slice; `order` remains the complete paging/navigation authority. */
@@ -64,14 +66,14 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
     viewport, chatScroll, loadedTurns.at(-1)?.turn ?? null, renderedGlobalTail, advanceRenderWindow,
   )
   const navigationInput = useMemo(() => ({
-    sessionId, firstSeq, loadingOlder, hasMore, historyLoadStatus, isOpen, loadOlder, consumeOlder, loadThrough,
+    firstSeq, loadingOlder, hasMore, historyLoadStatus, isOpen, loadOlder, consumeOlder, loadThrough,
     ...(historyRevision === undefined ? {} : { historyRevision }),
     ...(beforeLoadOlder === undefined ? {} : { beforeLoadOlder }),
     ...(revealEarlier === undefined ? {} : { revealEarlier }),
     ...(revealTurn === undefined ? {} : { revealTurn }),
     ...(revealThrough === undefined ? {} : { revealThrough }),
     ...(input.readerPositionChanged === undefined ? {} : { readerPositionChanged: input.readerPositionChanged }),
-  }), [sessionId, firstSeq, loadingOlder, hasMore, historyLoadStatus, isOpen, loadOlder, consumeOlder, loadThrough,
+  }), [firstSeq, loadingOlder, hasMore, historyLoadStatus, isOpen, loadOlder, consumeOlder, loadThrough,
     historyRevision, beforeLoadOlder, revealEarlier, revealTurn, revealThrough, input.readerPositionChanged])
   const { navigation, busyTurn, historyPending, historyProcessing } = useChatNavigation(viewport, reading, navigationInput)
   const navigationSession = useRef(sessionId)
@@ -173,7 +175,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
   useLayoutEffect(() => {
     const previous = content.current.input
     content.current.input = {
-      order, renderOrder, renderedGlobalTail, advanceRenderWindow,
+      sessionId, order, renderOrder, renderedGlobalTail, advanceRenderWindow,
       lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running, loadedTurns,
       chatScroll, deferCompletedTurns, transcriptView, ...navigationInput,
     }

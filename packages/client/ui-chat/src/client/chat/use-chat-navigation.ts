@@ -10,7 +10,6 @@ import type { ChatViewport, ViewportLanding } from './use-chat-viewport.ts'
 
 /** History availability and loading operations for the committed Chat window. */
 export interface ChatNavigationInput extends Pick<ChatViewSlotProps, 'loadOlder' | 'loadThrough' | 'consumeOlder'> {
-  readonly sessionId: string
   readonly firstSeq: ChatNode['anchorSeq'] | null
   readonly hasMore: boolean
   readonly loadingOlder: boolean

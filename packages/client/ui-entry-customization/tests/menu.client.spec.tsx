@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** The plugin fills the left sidebar's More menu with discovery and Creator actions only. */
+/** The plugin fills each region's More menu with the discovery and Creator actions. */
 import type { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
@@ -14,6 +14,8 @@ import { EntryMenuContent } from '../src/client/EntryMenuContent.tsx'
 import { en } from '../src/client/locales.ts'
 import { apply, inject } from '../src/client/index.ts'
 
+type Seats = 'sidebar.panellist.actions' | 'sidebar.right.tab.guide.actions'
+const SEATS = ['sidebar.panellist.actions', 'sidebar.right.tab.guide.actions'] as const
 const runtimes = new Set<SlotTestRuntime>()
 afterEach(async () => {
   try { for (const runtime of runtimes) await runtime.dispose() }
@@ -130,12 +132,21 @@ describe('More menu rows', () => {
   })
 })
 
-type Seats = 'sidebar.panellist.actions'
-
 function Frame({ renderSlot }: PropsRenderSlots<Seats>) {
-  return <div role="menu" aria-label="sidebar.panellist.actions">
-    {renderSlot('sidebar.panellist.actions', { entries: [], onOpen: () => {}, onPinnedChange: () => {}, onDismiss: () => {} })}
-  </div>
+  const [pinned, setPinned] = useState(true)
+  const [opened, setOpened] = useState('')
+  const entries = [{ id: 'notes', label: 'Notes', pinned }]
+  return <>
+    {SEATS.map(seat => <div key={seat} role="menu" aria-label={seat}>
+      {renderSlot(seat, {
+        entries,
+        onOpen: (id) => { setOpened(`${seat}:${id}`) },
+        onPinnedChange: (_id, next) => { setPinned(next) },
+        onDismiss: () => {},
+      })}
+    </div>)}
+    <output data-testid="opened">{opened}</output>
+  </>
 }
 
 async function bench(
@@ -157,19 +168,24 @@ async function bench(
       if (analytics) ctx.provide('productAnalytics', { track } as never)
     },
   })
-  await runtime.root.declare({ 'sidebar.panellist.actions': { kind: 'list', scope: 'root' } }, Frame)
+  await runtime.root.declare({
+    'sidebar.panellist.actions': { kind: 'list', scope: 'root' },
+    'sidebar.right.tab.guide.actions': { kind: 'list', scope: 'root' },
+  }, Frame)
   const plugin = await runtime.mount({ inject: [...inject], apply })
   const view = runtime.renderRoot()
   return { runtime, openList, startSession, track, plugin, view }
 }
 
-describe('left sidebar More menu rows', () => {
+describe('More menu registrations', () => {
   it('shows plugin discovery only while the Plugins page navigation is present', async () => {
     const b = await bench('en', { navigation: false })
-    const sidebar = (): ReturnType<typeof within> => within(b.view.getByRole('menu', { name: 'sidebar.panellist.actions' }))
+    const sidebar = () => within(b.view.getByRole('menu', { name: 'sidebar.panellist.actions' }))
     expect(sidebar().queryByRole('menuitem', { name: 'Browse other plugins' })).toBeNull()
     expect(sidebar().getByRole('menuitem', { name: 'Create your plugin' })).toBeTruthy()
     expect(sidebar().queryByRole('separator')).toBeNull()
+    const injected = b.runtime.slots.entries('sidebar.panellist.actions')[0]!.inject!() as { browsePlugins: () => void }
+    expect(() => { injected.browsePlugins() }).not.toThrow()
 
     const navigation = await b.runtime.mount({
       inject: [],
@@ -184,46 +200,55 @@ describe('left sidebar More menu rows', () => {
     expect(sidebar().queryByRole('menuitem', { name: 'Browse other plugins' })).toBeNull()
   })
 
-  it('registers the sidebar rows once and removes them when the plugin unloads', async () => {
+  it('registers one row set per region and removes all of them when the plugin unloads', async () => {
     const b = await bench()
-    expect(b.runtime.slots.entries('sidebar.panellist.actions').map(entry => entry.options.id)).toEqual(['entry-customization'])
+    for (const seat of SEATS) {
+      expect(b.runtime.slots.entries(seat).map(entry => entry.options.id)).toEqual(['entry-customization'])
+      expect(within(b.view.getByRole('menu', { name: seat })).getAllByRole('menuitem').map(row => row.textContent))
+        .toEqual(['Browse other plugins', 'Create your plugin'])
+    }
     const sidebar = within(b.view.getByRole('menu', { name: 'sidebar.panellist.actions' }))
-    expect(sidebar.getAllByRole('menuitem').map(row => row.textContent))
-      .toEqual(['Browse other plugins', 'Create your plugin'])
     fireEvent.click(sidebar.getByRole('menuitem', { name: 'Browse other plugins' }))
     expect(b.openList).toHaveBeenCalledExactlyOnceWith()
     await b.plugin.dispose()
-    expect(b.runtime.slots.entries('sidebar.panellist.actions')).toEqual([])
-    expect(sidebar.queryByRole('menuitem')).toBeNull()
+    for (const seat of SEATS) {
+      expect(b.runtime.slots.entries(seat)).toEqual([])
+      expect(within(b.view.getByRole('menu', { name: seat })).queryByRole('menuitem')).toBeNull()
+    }
   })
 
   it.each([
-    ['en', 'Create a DSH plugin with a left sidebar entry.'],
-    ['zh', '创建一个带左侧栏入口的 DSH 插件。'],
-  ] as const)('starts an unsent %s Creator draft from the sidebar', async (language, prompt) => {
+    ['en', 'sidebar.panellist.actions', 'Create a DSH plugin with a left sidebar entry.'],
+    ['en', 'sidebar.right.tab.guide.actions', 'Create a DSH plugin with a right sidebar entry.'],
+    ['zh', 'sidebar.panellist.actions', '创建一个带左侧栏入口的 DSH 插件。'],
+    ['zh', 'sidebar.right.tab.guide.actions', '创建一个带右侧栏入口的 DSH 插件。'],
+  ] as const)('starts an unsent %s Creator draft from %s', async (language, seat, prompt) => {
     const b = await bench(language)
-    fireEvent.click(within(b.view.getByRole('menu', { name: 'sidebar.panellist.actions' }))
+    fireEvent.click(within(b.view.getByRole('menu', { name: seat }))
       .getByRole('menuitem', { name: language === 'zh' ? '创建你的插件' : 'Create your plugin' }))
     expect(b.startSession).toHaveBeenCalledExactlyOnceWith(undefined, {
       agentPreset: 'cordis', prompt, whenDraftExists: 'append',
     })
   })
 
-  it('reports both sidebar actions as the sidebar region before acting', async () => {
+  it.each([
+    ['sidebar.panellist.actions', 'sidebar'],
+    ['sidebar.right.tab.guide.actions', 'rightbar'],
+  ] as const)('reports both footer actions of %s as the %s region before acting', async (seat, region) => {
     const b = await bench()
-    const menu = within(b.view.getByRole('menu', { name: 'sidebar.panellist.actions' }))
+    const menu = within(b.view.getByRole('menu', { name: seat }))
     fireEvent.click(menu.getByRole('menuitem', { name: 'Browse other plugins' }))
-    expect(b.track).toHaveBeenCalledExactlyOnceWith('more_menu_item_click', { region: 'sidebar', action: 'browse_plugins' })
+    expect(b.track).toHaveBeenCalledExactlyOnceWith('more_menu_item_click', { region, action: 'browse_plugins' })
     expect(b.track.mock.invocationCallOrder[0]).toBeLessThan(b.openList.mock.invocationCallOrder[0]!)
     fireEvent.click(menu.getByRole('menuitem', { name: 'Create your plugin' }))
-    expect(b.track).toHaveBeenLastCalledWith('more_menu_item_click', { region: 'sidebar', action: 'create_plugin' })
+    expect(b.track).toHaveBeenLastCalledWith('more_menu_item_click', { region, action: 'create_plugin' })
     expect(b.track.mock.invocationCallOrder[1]).toBeLessThan(b.startSession.mock.invocationCallOrder[0]!)
     expect(b.track).toHaveBeenCalledTimes(2)
   })
 
-  it('keeps both rows working without the analytics service', async () => {
+  it('keeps both footer actions working without the analytics service', async () => {
     const b = await bench('en', { analytics: false })
-    const menu = within(b.view.getByRole('menu', { name: 'sidebar.panellist.actions' }))
+    const menu = within(b.view.getByRole('menu', { name: 'sidebar.right.tab.guide.actions' }))
     fireEvent.click(menu.getByRole('menuitem', { name: 'Browse other plugins' }))
     fireEvent.click(menu.getByRole('menuitem', { name: 'Create your plugin' }))
     expect(b.openList).toHaveBeenCalledExactlyOnceWith()
