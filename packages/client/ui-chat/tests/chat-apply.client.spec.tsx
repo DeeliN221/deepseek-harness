@@ -28,7 +28,8 @@ import type {
 import type { QuotaNoticeInjected } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { PerformanceUsageRowInjected } from '../src/client/settings/PerformanceUsageRow.tsx'
 import { CHAT_SETTINGS_NAMESPACE, type ChatSettings } from '../src/chat-settings.ts'
-import { ActivityPill, UsagePill } from '../src/client/chat/StatsPills.tsx'
+import { ActivityPill } from '../src/client/chat/StatsPills.tsx'
+import { ElapsedPill } from '../src/client/chat/RunningStatus.tsx'
 import { createFlowMotion, type InputFoldDriver } from '../src/client/chat/flow-motion.ts'
 import { CHAT_FLOW_INJECT, CHAT_NODE_INJECT } from '../src/client/apply.ts'
 import { UserContent } from '../src/client/chat/UserContent.tsx'
@@ -206,9 +207,9 @@ describe('Chat apply wiring', () => {
       b.runtime.slots.entriesOfSlot('conversation.composer.dock')
         .map((entry): [string, unknown] => [entry.options.id ?? '', entry.component]),
     )
-    expect(winners()).toEqual({ activity: PluginActivity, usage: UsagePill })
+    expect(winners()).toEqual({ activity: PluginActivity, usage: ElapsedPill })
     dispose()
-    expect(winners()).toEqual({ activity: ActivityPill, usage: UsagePill })
+    expect(winners()).toEqual({ activity: ActivityPill, usage: ElapsedPill })
   })
 
   it.each([
@@ -282,7 +283,7 @@ describe('Chat apply wiring', () => {
     b.chatSettings.publish({ value: { linkOpening: 'sidebar', transcriptView: 'compact', performanceUsage: 'compact' } })
     expect(face.hooks.performanceUsage.getSnapshot()).toBe('compact')
     for (const entry of [
-      ...b.runtime.slots.entries('conversation.composer.dock'),
+      ...b.runtime.slots.entries('conversation.composer.dock').filter(entry => entry.options.id === 'activity'),
       b.runtime.slots.entries('conversation.chat.node').find(entry => entry.options.key === 'turn-tail')!,
     ]) {
       const injected = (entry.inject as () => Pick<PerformanceUsageRowInjected, 'hooks'>)()

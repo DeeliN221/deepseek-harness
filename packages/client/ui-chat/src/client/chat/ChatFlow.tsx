@@ -1,4 +1,4 @@
-/** Ordered Chat rows, local echoes, and running status share the flow slot's parent. */
+/** Ordered Chat rows and local echoes share the flow slot's parent. */
 import { memo, type ReactElement } from 'react'
 import type { PendingSubmission } from '@deepseek-ai/dsh-api-session-controller/client'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
@@ -7,7 +7,6 @@ import { ChatNodeSeat } from './ChatNodeSeat.tsx'
 import { ChatGroupSeat } from './ChatGroupSeat.tsx'
 import { PendingSteeringBubble, PendingSubmissionBubble } from './MessageItem.tsx'
 import { chatRenderKey } from './render-entry.ts'
-import { RunningStatus } from './RunningStatus.tsx'
 
 /** A local submission echo, or a Host-pending steering item without a local submission. */
 type PendingInput = ChatFlowSlotProps['pendingInputs'][number]
@@ -25,26 +24,11 @@ function isTranscriptEcho(item: PendingInput): boolean {
 /** Render the flow without adding a DOM parent or changing keyed row positions. */
 export const ChatFlow = memo(function ChatFlow({
   entries, visibleNodeKeys, pendingInputs, lastInputTurn, deferCollapse,
-  useSession, useChat, useChatNode, useChatNodeBottom, useChatNodeProcess, useChatGroup, usePresentation, useConnectionState,
+  useChat, useChatNode, useChatNodeBottom, useChatNodeProcess, useChatGroup, usePresentation,
   useStore, actions, renderSlot, renderFactorySlot, t, useGroupAction, useGroupHeaderAction,
   cwd, openFile, inspectCall, forkAt, loadImage,
 }: ChatFlowSlotProps) {
   const nodeStore = useChat(snapshot => snapshot.nodes)
-  const running = useSession(snapshot => snapshot.running)
-  const stopRequestedAt = useSession(snapshot => snapshot.stopping?.requestedAt)
-  const disconnected = useConnectionState(state => state === 'disconnected' || state === 'connecting')
-  const latestTurnAnchor = useChat(snapshot => snapshot.navigation.items().at(-1)?.anchorKey)
-  const runningStartTime = useChatNode(latestTurnAnchor ?? '', (node) => {
-    const location = node?.location
-    return location?.kind === 'turn' || location?.kind === 'step'
-      ? location.turn.status === 'open' ? location.turn.start?.time : undefined
-      : undefined
-  })
-  const latestTurnOpen = useChatNode(latestTurnAnchor ?? '', (node) => {
-    const location = node?.location
-    return (location?.kind === 'turn' || location?.kind === 'step') && location.turn.status === 'open'
-  })
-  const holding = !running && latestTurnOpen
   const seatProps = {
     nodeStore, useChatNode, useChatNodeBottom, useChatNodeProcess, usePresentation,
     useStore, actions, renderSlot, t, useGroupAction, deferCollapse,
@@ -81,8 +65,7 @@ export const ChatFlow = memo(function ChatFlow({
         return assertNever(entry)
     }
   })
-  // Transcript echoes open the running Turn and precede the status; steering
-  // and Inbox echoes follow it, so the status stays on the running Turn's tail.
+  // Transcript echoes open the next Turn before steering and Inbox echoes.
   // The first transcript echo opens the next Turn, whose first claim takes the
   // steering already pending ahead of it before that prompt; those echoes lead
   // the same Turn in claim order.
@@ -108,13 +91,5 @@ export const ChatFlow = memo(function ChatFlow({
     && node.location.turn.status === 'open' && node.location.turn.turn !== lastInputTurn) {
     rows.splice(rows.length - 1, 0, ...leadingRows.splice(0))
   }
-  // Rows enter before the keyed status and echoes after it, so React never moves its DOM node. The
-  // running bit and the Turn's end arrive separately: after the bit clears, an open latest Turn keeps
-  // the status slot (hidden) until its actions row takes the slot in the same commit.
-  return [
-    ...rows, ...leadingRows, ...openingRows,
-    ...running || holding ? [<RunningStatus key="running" startTime={runningStartTime} paused={disconnected}
-      holding={holding} stopRequestedAt={stopRequestedAt} t={t} />] : [],
-    ...pendingRows,
-  ]
+  return [...rows, ...leadingRows, ...openingRows, ...pendingRows]
 })
