@@ -682,10 +682,6 @@ function turnProcessControl(container: HTMLElement): HTMLButtonElement | null {
   return container.querySelector<HTMLButtonElement>('[data-turn-process]')
 }
 
-function runningContent(container: HTMLElement): HTMLElement | null {
-  return container.querySelector<HTMLElement>('[data-chat-running] > :last-child')
-}
-
 function withClock(time: number, run: () => void): () => void {
   return () => {
     vi.useFakeTimers()
@@ -2495,9 +2491,9 @@ describe('ChatView', () => {
     expect(writeText).toHaveBeenCalledWith('interrupt now')
     expect(within(pendingBubble as HTMLElement).queryByRole('button', { name: '在新对话中分支' })).toBeNull()
     expect(turnProcessControl(view.container)).toBeNull()
-    expect(runningContent(view.container)?.textContent).toMatch(/^深度求索中，用时 \d+秒 ···$/)
-    // The status stays on the running Turn's tail; the steering waiting for the next Step follows it.
-    expect(view.getByRole('status').compareDocumentPosition(view.getByText('interrupt now'))
+    expect(view.container.querySelector('[data-chat-running]')).toBeNull()
+    expect(view.queryByRole('status')).toBeNull()
+    expect(view.getByText('working').compareDocumentPosition(pendingBubble!)
       & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
 
     act(() => {
@@ -2737,16 +2733,16 @@ describe('ChatView', () => {
     const h = makeHarness({}, { pendingSubmissions: [...steers, next], testInbox: inbox })
     const view = render(<h.ChatView {...h.props} />)
     const flow = () => [...view.container.querySelectorAll<HTMLElement>(
-      '[data-submission-echo], [data-chat-flow-kind="turn-process"], [data-chat-running]',
-    )].map(element => element.hasAttribute('data-chat-running') ? 'status'
-      : element.matches('[data-chat-flow-kind="turn-process"]') ? 'title'
-        : String([...steers, next].find(input => element.textContent?.includes(input.text))?.requestId))
+      '[data-submission-echo], [data-chat-flow-kind="turn-process"]',
+    )].map(element => element.matches('[data-chat-flow-kind="turn-process"]') ? 'title'
+      : String([...steers, next].find(input => element.textContent?.includes(input.text))?.requestId))
     // The next Turn's first claim logs the pending steering before the prompt.
     expect(flow()).toEqual(['s1', 's2', 'next'])
     act(() => { h.setSession({ running: true }) })
-    expect(flow()).toEqual(['s1', 's2', 'next', 'status'])
+    expect(flow()).toEqual(['s1', 's2', 'next'])
     act(() => { h.setChat({ turnTimings: new Map([[1, { startTime: 1_000 }]]) }) })
-    expect(flow()).toEqual(['s1', 's2', 'next', 'title', 'status'])
+    expect(flow()).toEqual(['s1', 's2', 'next', 'title'])
+    expect(view.container.querySelector('[data-chat-running]')).toBeNull()
   })
 
   it('keeps the rest of a stopped Turn\'s claim as echoes after the empty control as its rows become durable', () => {
@@ -2762,29 +2758,29 @@ describe('ChatView', () => {
     const view = render(<h.ChatView {...h.props} />)
     const flow = () => [...view.container.querySelectorAll<HTMLElement>(
       '[data-submission-echo], [data-chat-flow-kind="steering"], [data-chat-flow-kind="user"], '
-      + '[data-chat-flow-kind="turn-process"], [data-chat-running]',
-    )].map(element => element.hasAttribute('data-chat-running') ? 'status'
-      : element.matches('[data-chat-flow-kind="turn-process"]') ? 'title'
-        : String(inputs.find(input => element.textContent?.includes(input.text))?.requestId)
-          + (element.hasAttribute('data-submission-echo') ? '*' : ''))
+      + '[data-chat-flow-kind="turn-process"]',
+    )].map(element => element.matches('[data-chat-flow-kind="turn-process"]') ? 'title'
+      : String(inputs.find(input => element.textContent?.includes(input.text))?.requestId)
+        + (element.hasAttribute('data-submission-echo') ? '*' : ''))
     const durableSteering = (seq: number, item: typeof steers[number]) => ({
       ...steering(seq, item.text, 1), source: { kind: 'user' as const, rpcId: item.requestId },
     })
-    expect(flow()).toEqual(['s1*', 's2*', 'next*', 'title', 'status'])
+    expect(flow()).toEqual(['s1*', 's2*', 'next*', 'title'])
     // The claim logs both steering rows before its prompt. The remaining echoes
     // follow the running Turn's empty control, which has no height; the
     // stylesheet keeps them at the input gap (turn-tail-spacing spec).
     act(() => { h.setChat({ nodes: [durableSteering(2, steers[0]!)] }) })
-    expect(flow()).toEqual(['s1', 'title', 's2*', 'next*', 'status'])
+    expect(flow()).toEqual(['s1', 'title', 's2*', 'next*'])
     act(() => { h.setChat({ nodes: [durableSteering(2, steers[0]!), durableSteering(3, steers[1]!)] }) })
-    expect(flow()).toEqual(['s1', 's2', 'title', 'next*', 'status'])
+    expect(flow()).toEqual(['s1', 's2', 'title', 'next*'])
     const prompt: UserMessageNode & { turn: number } = {
       ...user(4, next.text), turn: 1, source: { kind: 'user', rpcId: next.requestId },
     }
     act(() => {
       h.setChat({ nodes: [durableSteering(2, steers[0]!), durableSteering(3, steers[1]!), prompt] })
     })
-    expect(flow()).toEqual(['s1', 's2', 'next', 'title', 'status'])
+    expect(flow()).toEqual(['s1', 's2', 'next', 'title'])
+    expect(view.container.querySelector('[data-chat-running]')).toBeNull()
   })
 
   it('leaves an opening echo below an empty historical Turn title', () => {
@@ -3324,7 +3320,7 @@ describe('ChatView', () => {
     const view = render(<h.ChatView {...h.props} />)
     expect(renderedFlowKinds(view.container)).toEqual(['user', 'turn-process', 'context'])
     expect(turnProcessControl(view.container)).toBeNull()
-    expect(runningContent(view.container)?.textContent).toMatch(/^深度求索中，用时 \d+秒 ···$/)
+    expect(view.container.querySelector('[data-chat-running]')).toBeNull()
     expect(view.container.querySelector('[data-chat-flow-kind="system-prompt"]')).toBeNull()
 
     act(() => {
@@ -3471,7 +3467,7 @@ describe('ChatView', () => {
     })
     const view = render(<h.ChatView {...h.props} />)
     expect(turnProcessControl(view.container)).toBeNull()
-    expect(runningContent(view.container)?.textContent).toMatch(/^深度求索中，用时 \d+秒 ···$/)
+    expect(view.container.querySelector('[data-chat-running]')).toBeNull()
     const processRow = view.getByText('inspect').closest('[data-chat-flow-kind="assistant-step"]') as HTMLElement
     expect(processRow.getAttribute('hidden')).toBeNull()
 
@@ -3484,7 +3480,7 @@ describe('ChatView', () => {
       })
     })
     const toggle = turnProcessControl(view.container)!
-    expect(runningContent(view.container)).toBeNull()
+    expect(view.container.querySelector('[data-chat-running]')).toBeNull()
     expect(toggle.textContent).toBe('已完成，用时 5秒')
     expect(toggle.disabled).toBe(false)
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
@@ -4297,9 +4293,9 @@ describe('ChatView', () => {
     const view = render(<h.ChatView {...h.props} />)
     expect(view.getByTestId('tool-seat-r1')).toBeTruthy()
     expect(h.toolOwners[0]?.block).toMatchObject({ callId: 'r1', argsRaw: '{"command":"cmd-r1"}' })
-    expect(view.getByRole('status').textContent).toBe('深度求索中')
+    expect(view.queryByRole('status')).toBeNull()
     expect(turnProcessControl(view.container)).toBeNull()
-    expect(runningContent(view.container)?.textContent).toMatch(/^深度求索中，用时 \d+秒 ···$/)
+    expect(view.container.querySelector('[data-chat-running]')).toBeNull()
   }))
 
   it('keeps the Tool renderer mounted when a running call settles into log order', () => {
@@ -4348,104 +4344,6 @@ describe('ChatView', () => {
     expect(mounted).toHaveBeenCalledTimes(1)
     expect(unmounted).not.toHaveBeenCalled()
   })
-
-  it('the running clock uses turn/start, ignores steering, and stays out of the live region', withClock(126_000, () => {
-    const startTime = 1_000
-    const trigger = { ...userInTurn(1, 'go', 1), time: 120_000 }
-    const h = makeHarness(
-      { nodes: [trigger], turnTimings: new Map([[1, { startTime }]]) },
-      { running: true },
-    )
-    const view = render(<h.ChatView {...h.props} />)
-    const status = view.getByRole('status')
-    const content = runningContent(view.container)!
-    expect(content.textContent).toMatch(/^深度求索中，用时 \d+分\d+秒 ···$/)
-    expect(turnProcessControl(view.container)).toBeNull()
-    expect(status.textContent).toBe('深度求索中')
-    expect(status.getAttribute('aria-live')).toBe('polite')
-    expect(status.getAttribute('aria-atomic')).toBe('true')
-    expect(content.closest('[aria-live]')).toBeNull()
-    expect(view.container.querySelector('[data-chat-flow-kind="assistant-step"]')).toBeNull()
-    act(() => {
-      h.setSession({ testInbox: { 'next-turn': [], 'next-step': [{
-        id: 'steering-occurrence' as never,
-        content: [{ type: 'text', text: 'also' }],
-
-        role: 'user', source: { kind: 'user' },
-      }] } })
-    })
-    expect(content.textContent).toMatch(/^深度求索中，用时 \d+分\d+秒 ···$/)
-    const beforeTick = content.textContent
-    act(() => { vi.advanceTimersByTime(2_000) })
-    expect(content.textContent).toMatch(/^深度求索中，用时 \d+分\d+秒 ···$/)
-    expect(content.textContent).not.toBe(beforeTick)
-    expect(view.getByRole('status')).toBe(status)
-    expect(status.textContent).toBe('深度求索中')
-    act(() => {
-      h.setSession({ testInbox: { 'next-turn': [], 'next-step': [] } })
-      h.setChat({ nodes: [trigger, { ...steering(2, 'also', 1), time: 128_000 }] })
-    })
-    expect(runningContent(view.container)).toBe(content)
-    expect(content.textContent).toMatch(/^深度求索中，用时 \d+分\d+秒 ···$/)
-    expect(view.getByText('also').closest('[data-pending-steering]')).toBeNull()
-    act(() => { vi.advanceTimersByTime(1_000) })
-    expect(content.textContent).toMatch(/^深度求索中，用时 \d+分\d+秒 ···$/)
-    expect(status.textContent).toBe('深度求索中')
-    view.unmount()
-    expect(vi.getTimerCount()).toBe(0)
-  }))
-
-  it('shows stopping and freezes the clock without pretending the Session is idle', withClock(10_000, () => {
-    const h = makeHarness(
-      { nodes: [{ ...userInTurn(1, 'go', 1), time: 2_000 }], turnTimings: new Map([[1, { startTime: 1_000 }]]) },
-      { running: true },
-    )
-    const view = render(<h.ChatView {...h.props} />)
-    act(() => { h.setSession({ stopping: { requestedAt: 10_000 } }) })
-    expect(runningContent(view.container)?.textContent).toBe('正在停止，已用时 9秒，等待当前操作收尾')
-    act(() => { vi.advanceTimersByTime(5_000) })
-    expect(runningContent(view.container)?.textContent).toBe('正在停止，已用时 9秒，等待当前操作收尾')
-    expect(view.getByRole('status').textContent).toBe('正在停止，等待当前操作收尾')
-  }))
-
-  it('the running clock freezes while the connection is recovering', withClock(10_000, () => {
-    const h = makeHarness(
-      { nodes: [{ ...userInTurn(1, 'go', 1), time: 2_000 }], turnTimings: new Map([[1, { startTime: 1_000 }]]) },
-      { running: true },
-    )
-    const view = render(<h.ChatView {...h.props} />)
-    const content = runningContent(view.container)!
-    expect(content.textContent).toBe('深度求索中，用时 9秒 ···')
-    act(() => { h.setConnection('connecting') })
-    act(() => { vi.advanceTimersByTime(5_000) })
-    expect(content.textContent).toBe('深度求索中，用时 9秒 ···')
-    act(() => { h.setConnection('disconnected') })
-    act(() => { vi.advanceTimersByTime(5_000) })
-    expect(content.textContent).toBe('深度求索中，用时 9秒 ···')
-    act(() => { h.setConnection('connected') })
-    expect(content.textContent).toBe('深度求索中，用时 19秒 ···')
-  }))
-
-  it('the running clock reads hours once the turn passes an hour', withClock(3_600_000, () => {
-    const startTime = 1_000
-    const trigger = { ...userInTurn(1, 'go', 1), time: startTime + 1 }
-    const h = makeHarness(
-      { nodes: [trigger], turnTimings: new Map([[1, { startTime }]]) },
-      { running: true },
-    )
-    const view = render(<h.ChatView {...h.props} />)
-    const content = runningContent(view.container)!
-    expect(content.textContent).toMatch(/^深度求索中，用时 \d+分\d+秒 ···$/)
-    act(() => { vi.advanceTimersByTime(1_000) })
-    expect(content.textContent).toMatch(/^深度求索中，用时 \d+小时\d+分\d+秒 ···$/)
-    const hourlyText = content.textContent
-    act(() => { vi.advanceTimersByTime(303_000) })
-    expect(content.textContent).toMatch(/^深度求索中，用时 \d+小时\d+分\d+秒 ···$/)
-    expect(content.textContent).not.toBe(hourlyText)
-    expect(view.getByRole('status').textContent).toBe('深度求索中')
-    view.unmount()
-    expect(vi.getTimerCount()).toBe(0)
-  }))
 
   it('hands each ordered root call to the keyed business-node slot', () => {
     const block = toolResult(3, 'a')
@@ -5327,28 +5225,20 @@ describe('ChatView', () => {
     expect(failedView.container.querySelector('[data-state="error"]')).not.toBeNull()
   })
 
-  it('appends the running status at the transcript bottom only while the Session runs', () => {
+  it('keeps the standalone running row absent while running, stopping, and closing the Turn', () => {
     const h = makeHarness({ nodes: [user(1, 'do the thing'), assistant(2, 'working')] }, { running: true })
     const view = render(<h.ChatView {...h.props} />)
-    const column = view.container.querySelector('[data-chat-flow]')!
-    const status = column.querySelector('[data-chat-running]')
-    expect([...column.children].filter(child => !child.hasAttribute('data-text-interaction-surface')).at(-1)).toBe(status)
-    expect(within(status as HTMLElement).getByRole('status').textContent).toBe('深度求索中')
-    expect(status?.lastElementChild?.textContent).toBe('深度求索中')
-    const icon = status?.querySelector('svg')?.parentElement
-    expect(icon?.getAttribute('aria-hidden')).toBe('true')
-    expect(icon?.firstElementChild?.tagName).toBe('SPAN')
-    expect(icon?.querySelectorAll('path')).toHaveLength(1)
-    expect(icon?.getAttribute('style')).toBeNull()
-    expect(status?.querySelector('animate')).toBeNull()
-    // The running bit clears before the Turn closes: the status keeps its slot unseen and unannounced.
+    expect(view.container.querySelector('[data-chat-running]')).toBeNull()
+    expect(view.queryByRole('status')).toBeNull()
+    act(() => { h.setSession({ stopping: { requestedAt: 10_000 } }) })
+    expect(view.container.querySelector('[data-chat-running]')).toBeNull()
+    expect(view.queryByRole('status')).toBeNull()
     act(() => { h.setSession({ running: false }) })
-    const held = column.querySelector<HTMLElement>('[data-chat-running]')
-    expect(held?.hasAttribute('data-holding')).toBe(true)
-    expect(held?.getAttribute('aria-hidden')).toBe('true')
-    expect(within(held!).queryByRole('status')).toBeNull()
+    expect(view.container.querySelector('[data-chat-running]')).toBeNull()
+    expect(view.queryByRole('status')).toBeNull()
     act(() => { h.setChat({ turnEnds: new Map([[1, 2]]) }) })
-    expect(column.querySelector('[data-chat-running]')).toBeNull()
+    expect(view.container.querySelector('[data-chat-running]')).toBeNull()
+    expect(view.getByRole('status').textContent).toBe('已完成')
   })
 
   it('marks the steering row whose data carries a batch start, and no other input', () => {

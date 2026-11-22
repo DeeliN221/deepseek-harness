@@ -36,7 +36,8 @@ import { ChatView } from './chat/ChatView.tsx'
 import { ChatFlow } from './chat/ChatFlow.tsx'
 import { registerChatNodeRenderers } from './chat/register-node-renderers.ts'
 import { UserContent } from './chat/UserContent.tsx'
-import { ActivityPill, UsagePill } from './chat/StatsPills.tsx'
+import { ActivityPill } from './chat/StatsPills.tsx'
+import { ElapsedPill } from './chat/RunningStatus.tsx'
 import { registerConversationNodes } from './conversation-nodes/register.ts'
 import { registerFenceLayers } from './fence/register.ts'
 import { QuotaNoticeHost } from './chat/QuotaNoticeHost.tsx'
@@ -345,8 +346,9 @@ export function apply(ctx: Context): void {
       name: 'conversation.composer.dock', id: 'activity', order: 0, locale: NS, inject: statPillInject,
     }, ActivityPill)
     yield ctx.slots.register({
-      name: 'conversation.composer.dock', id: 'usage', order: 1, locale: NS, inject: statPillInject,
-    }, UsagePill)
+      name: 'conversation.composer.dock', id: 'usage', order: 1, locale: NS,
+      inject: () => ({ hooks: { connectionState, performanceUsage } }),
+    }, ElapsedPill)
   })
 
   ctx.slots.inject('conversation.approval.detail', () =>

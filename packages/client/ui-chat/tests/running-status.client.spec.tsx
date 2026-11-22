@@ -8,96 +8,92 @@ import { RunningStatus } from '../src/client/chat/RunningStatus.tsx'
 import { zh } from '../src/client/locale.ts'
 
 const t = makeTranslate(zh, commonZh)
-
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(5_000) })
-afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks() })
 
 function statusHarness(startTime?: number) {
   const view = render(<RunningStatus startTime={startTime} paused={false} t={t} />)
   return {
     ...view,
-    content: () => view.container.querySelector('[data-chat-running] > :last-child'),
-    set: (nextStartTime?: number, paused = false, stopRequestedAt?: number) => {
-      view.rerender(<RunningStatus startTime={nextStartTime} paused={paused} stopRequestedAt={stopRequestedAt} t={t} />)
+    set: (nextStartTime?: number, paused = false, stopRequestedAt?: number, endTime?: number) => {
+      view.rerender(<RunningStatus startTime={nextStartTime} paused={paused}
+        stopRequestedAt={stopRequestedAt} endTime={endTime} t={t} />)
     },
   }
 }
 
-describe('RunningStatus', () => {
-  it('freezes at the stop request, announces cleanup, and resumes after rejection', () => {
-    const view = statusHarness(1_000)
-    view.set(1_000, false, 5_000)
-    expect(view.content()?.textContent).toBe('正在停止，已用时 4秒，等待当前操作收尾')
-    expect(view.getByRole('status').textContent).toBe('正在停止，等待当前操作收尾')
-    expect(view.content()?.querySelector('[data-shimmer="true"]')).toBeNull()
-    expect(vi.getTimerCount()).toBe(0)
-    act(() => { vi.advanceTimersByTime(5_000) })
-    expect(view.content()?.textContent).toBe('正在停止，已用时 4秒，等待当前操作收尾')
-    view.set(1_000)
-    expect(view.content()?.textContent).toBe('深度求索中，用时 9秒 ···')
-    expect(vi.getTimerCount()).toBe(1)
-  })
-
-  it('keeps the stop timestamp frozen after remounting during cleanup', () => {
-    vi.setSystemTime(30_000)
-    const view = render(<RunningStatus startTime={1_000} paused={false} stopRequestedAt={5_000} t={t} />)
-    expect(view.container.textContent).toContain('正在停止，已用时 4秒，等待当前操作收尾')
-    expect(vi.getTimerCount()).toBe(0)
-  })
-
-  it('waits for an open Turn start before allocating its clock', () => {
+describe('composer Turn clock', () => {
+  it('waits for a recorded start and clears its interval when the reading disappears', () => {
     const view = statusHarness()
-    expect(view.content()?.textContent).toBe('深度求索中')
+    expect(view.queryByRole('timer')).toBeNull()
     expect(vi.getTimerCount()).toBe(0)
     view.set(1_000)
-    expect(view.content()?.textContent).toMatch(/^深度求索中，用时 \d+秒 ···$/)
-    expect(view.content()?.querySelectorAll('[data-shimmer="true"]')).toHaveLength(1)
+    expect(view.getByRole('timer').textContent).toBe('0:04')
     expect(vi.getTimerCount()).toBe(1)
     view.set()
-    expect(view.content()?.textContent).toBe('深度求索中')
+    expect(view.queryByRole('timer')).toBeNull()
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it('keeps the indicator mounted while a continuous run moves to the next Turn', () => {
+  it('updates digital seconds with a clear accessible name and no live announcements', () => {
     const view = statusHarness(1_000)
-    const content = view.content()
-    const status = view.getByRole('status')
-    const initialText = content?.textContent
+    const timer = view.getByRole('timer', { name: '用时 4秒' })
+    expect(timer.getAttribute('aria-live')).toBe('off')
+    expect(view.queryByRole('status')).toBeNull()
     act(() => { vi.advanceTimersByTime(2_000) })
-    expect(content?.textContent).toMatch(/^深度求索中，用时 \d+秒 ···$/)
-    expect(content?.textContent).not.toBe(initialText)
-    view.set(7_000)
-    expect(view.content()).toBe(content)
-    expect(content?.textContent).toMatch(/^深度求索中，用时 \d+秒 ···$/)
-    expect(vi.getTimerCount()).toBe(1)
-    const nextTurnText = content?.textContent
-    act(() => { vi.advanceTimersByTime(2_000) })
-    expect(content?.textContent).toMatch(/^深度求索中，用时 \d+秒 ···$/)
-    expect(content?.textContent).not.toBe(nextTurnText)
-    expect(view.getByRole('status')).toBe(status)
-    expect(status.textContent).toBe('深度求索中')
+    expect(view.getByRole('timer')).toBe(timer)
+    expect(timer.textContent).toBe('0:06')
+    expect(timer.getAttribute('aria-label')).toBe('用时 6秒')
     view.unmount()
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it('keeps the duration nonnegative when the start is ahead of the local clock', () => {
-    const view = statusHarness(6_000)
-    expect(view.content()?.textContent).toMatch(/^深度求索中，用时 \d+秒 ···$/)
-    expect(view.content()?.textContent).not.toContain('-')
-    act(() => { vi.advanceTimersByTime(3_000) })
-    expect(view.content()?.textContent).toMatch(/^深度求索中，用时 \d+秒 ···$/)
-    expect(view.content()?.textContent).not.toContain('-')
-  })
-
-  it('freezes the duration while paused and resumes from the Turn start', () => {
+  it('freezes on local stop intent and resumes if the stop is rejected', () => {
     const view = statusHarness(1_000)
-    expect(view.content()?.textContent).toBe('深度求索中，用时 4秒 ···')
-    view.set(1_000, true)
+    view.set(1_000, false, 5_000)
     expect(vi.getTimerCount()).toBe(0)
     act(() => { vi.advanceTimersByTime(5_000) })
-    expect(view.content()?.textContent).toBe('深度求索中，用时 4秒 ···')
+    expect(view.getByRole('timer').textContent).toBe('0:04')
     view.set(1_000)
-    expect(view.content()?.textContent).toBe('深度求索中，用时 9秒 ···')
+    expect(view.getByRole('timer').textContent).toBe('0:09')
     expect(vi.getTimerCount()).toBe(1)
   })
+
+  it('retains the recorded final duration after completion and remount', () => {
+    const view = statusHarness(1_000)
+    view.set(1_000, true, undefined, 4_000)
+    expect(vi.getTimerCount()).toBe(0)
+    act(() => { vi.advanceTimersByTime(20_000) })
+    expect(view.getByRole('timer').textContent).toBe('0:03')
+    view.unmount()
+    const reopened = render(<RunningStatus startTime={1_000} endTime={4_000} paused={true} t={t} />)
+    expect(reopened.getByRole('timer').textContent).toBe('0:03')
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('freezes while disconnected and catches up from the original start on reconnect', () => {
+    const view = statusHarness(1_000)
+    view.set(1_000, true)
+    act(() => { vi.advanceTimersByTime(5_000) })
+    expect(view.getByRole('timer').textContent).toBe('0:04')
+    view.set(1_000)
+    expect(view.getByRole('timer').textContent).toBe('0:09')
+  })
+
+  it('resets to a new Turn and clamps starts ahead of the client clock', () => {
+    const view = statusHarness(1_000)
+    view.set(6_000)
+    expect(view.getByRole('timer').textContent).toBe('0:00')
+    act(() => { vi.advanceTimersByTime(3_000) })
+    expect(view.getByRole('timer').textContent).toBe('0:02')
+    expect(vi.getTimerCount()).toBe(1)
+  })
+
+  it.each([[967_000, '16:07'], [3_723_000, '1:02:03'], [60_000, '1:00']])(
+    'formats a recorded %i millisecond duration as %s', (elapsed, text) => {
+      const view = render(<RunningStatus startTime={1_000} endTime={1_000 + elapsed} paused={true} t={t} />)
+      expect(view.getByRole('timer').textContent).toBe(text)
+      expect(vi.getTimerCount()).toBe(0)
+    },
+  )
 })
