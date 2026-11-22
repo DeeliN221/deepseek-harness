@@ -95,6 +95,7 @@ function makeHost() {
     reportEntryError: () => {},
     reportFactoryError: () => {},
     specOf: key => key === 'k.session' ? { kind: 'single', scope: 'session' } : undefined,
+    deferralOf: () => undefined,
     isLive: () => true,
     storeOf: () => undefined,
     factoryStoreOf: () => undefined,

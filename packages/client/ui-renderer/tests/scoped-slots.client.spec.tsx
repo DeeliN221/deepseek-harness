@@ -162,6 +162,7 @@ function makeHost() {
     },
     reportFactoryError: () => {},
     specOf: key => specs.get(key),
+    deferralOf: () => undefined,
     isLive: entry => live.has(entry),
     storeOf: (entry, scopeBinding) => {
       if (entry.store === undefined) return undefined

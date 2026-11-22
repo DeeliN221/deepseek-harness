@@ -3,7 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ReactNode } from 'react'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type {
-  SessionAreaProps, SlotEntryDef, SlotScope, SlotSpec, StoredEntry, StoredFactory, Translate,
+  DeferredSlotView, SessionAreaProps, SlotEntryDef, SlotScope, SlotSpec, StoredEntry, StoredFactory, Translate,
 } from './index.ts'
 
 /**
@@ -186,6 +186,14 @@ export interface SlotRendererHost {
    * @returns the spec, or undefined while the key is undeclared (outlets render empty).
    */
   specOf(key: string): SlotSpec<SlotEntryDef> | undefined
+  /**
+   * Deferral hint for one slot key: a deferred client entry declares it will
+   * fill this slot, so an outlet with no contribution renders a skeleton (and
+   * runs the first-need trigger) instead of the owner's empty fallback.
+   * @param key - slot key.
+   * @returns the pending/failed deferral, or undefined when the key is not deferred.
+   */
+  deferralOf(key: string): DeferredSlotView | undefined
   /**
    * Stale-authorization check: whether the entry is still in the ledger.
    * @param entry - a previously rendered entry.
