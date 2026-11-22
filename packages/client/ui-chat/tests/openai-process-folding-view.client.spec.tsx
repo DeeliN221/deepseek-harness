@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useEffect, useRef } from 'react'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { contextMenuHook, allowAllAccess, bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import type { SessionProviderComponent } from '@deepseek-ai/dsh-client-ui-slots'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SessionEventLikeEntry, SessionLiveEventEntry } from '@deepseek-ai/dsh-api-session-controller/client'
 import {
@@ -12,7 +13,7 @@ import {
   inspectRequestPrompt,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { SessionSeq, type SessionEvent, type SessionEventMap, type SessionId } from '@deepseek-ai/dsh-session/types'
-import { MessageId, ToolCallId } from '@deepseek-ai/dsh-llm/brand'
+import { MessageId, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 import { inspectSystemPrompt } from '../../ui-conversation/src/client/contract/system-prompt.ts'
@@ -31,15 +32,18 @@ import { turnMaxTokensDefinition } from '../src/client/conversation-nodes/turn-m
 import { turnTailDefinition } from '../src/client/conversation-nodes/turn-tail.ts'
 import { processEvidenceDefinition, turnProcessDefinition } from '../src/client/conversation-nodes/turn-process.ts'
 import { createChatStore } from '../src/client/stores.ts'
-import { derivePresentationPolicy, type CollapseTiming, type FoldedReplies, type TranscriptViewMode } from '../src/client/presentation-policy.ts'
+import { derivePresentationPolicy, type CollapseTiming, type FoldedReplies } from '../src/client/presentation-policy.ts'
+import type { TranscriptViewMode } from '../src/chat-settings.ts'
 import { en } from '../src/client/locale.ts'
 import { ChatNodeSeat } from '../src/client/chat/ChatNodeSeat.tsx'
 import { TurnProcessNodeView } from '../src/client/chat/TurnProcessNodeView.tsx'
 import { AssistantNodeView } from '../src/client/chat/AssistantNodeView.tsx'
 import { CHAT_NODE_INJECT } from '../src/client/apply.ts'
 import type { ChatNode, ChatSnapshot } from '@deepseek-ai/dsh-client-ui-chat/client'
-import type { ChatFlowSlotProps, ChatNodeHookContext, ChatNodeOwnerProps } from '../src/client/contract/slots.ts'
-import { renderReasoningSlot } from './reasoning-component-fixture.tsx'
+import type {
+  ChatFlowSlotProps, ChatNodeHookContext, ChatNodeOwnerProps, ChatNodeViewProps,
+} from '../src/client/contract/slots.ts'
+import { renderReasoningSlot, unusedImageLoader } from './reasoning-component-fixture.tsx'
 
 const DEFINITIONS: readonly ConversationNodeDefinition[] = [
   nextStepInboxDefinition,
@@ -81,11 +85,9 @@ function at<Type extends keyof SessionEventMap>(
   }
 }
 
-function userEvent(seq: number, turn: number, text: string): SessionLiveEventEntry {
+function userEvent(seq: number, text: string): SessionLiveEventEntry {
   return at(seq, 'user/message', {
-    turn,
-    step: 1,
-    message: { id: MessageId(`u-${seq}`), role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } },
+    id: MessageId(`u-${seq}`), role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' },
   })
 }
 
@@ -112,7 +114,6 @@ function toolResultEvent(seq: number, turn: number, step: number, callId: string
   return at(seq, 'tool/result', {
     turn,
     step,
-    callId: ToolCallId(callId),
     message: {
       id: MessageId(`tr-${seq}`),
       role: 'tool',
@@ -147,33 +148,69 @@ function renderSeats(entries: readonly SessionEventLikeEntry[]) {
     }, [hidden])
     return ref
   }
+  // Framework standard seats for hand-built component props; renderers here read only t and access.
+  const SessionProvider: SessionProviderComponent = ({ children }) => <>{children}</>
+  const standard = {
+    ...allowAllAccess,
+    useChat: (() => undefined) as never,
+    useSession: (() => undefined) as never,
+    sessionId: 's1' as SessionId,
+    useProjection: (() => undefined) as never,
+    useConversation: (() => undefined) as never,
+    useInput: (() => undefined) as never,
+    inputActions: {} as never,
+    useTrajectory: (() => undefined) as never,
+    useSessions: (() => undefined) as never,
+    useSessionRetainInfo: () => undefined,
+    useWorkspaces: (() => undefined) as never,
+    useContextMenu: contextMenuHook(),
+    useResource: (() => ({ status: 'none' as const, value: undefined, failure: undefined })) as never,
+    usePanelInfo: ((selector: (value: unknown) => unknown) => selector({ activePanelId: null })) as never,
+    useSessionStatus: (() => undefined) as never,
+    SessionProvider,
+  }
+  const renderFactorySlot: ChatNodeViewProps['renderFactorySlot'] = (name) => {
+    throw new Error(`Unexpected Chat Factory: ${name}`)
+  }
   const renderSlot: ChatFlowSlotProps['renderSlot'] = (slotName, owner, opts) => {
     if (slotName !== 'conversation.chat.node') return null
-    const typed = owner as ChatNodeOwnerProps & { readonly node: ChatNode }
+    const typed = owner as unknown as ChatNodeOwnerProps & { readonly node: ChatNode }
     const hookContext = opts?.hookContext as ChatNodeHookContext
     if (typed.node.kind === 'turn-process') {
       return (
         <TurnProcessNodeView
+          {...standard}
           node={typed.node}
           turnProcess={typed.turnProcess}
+          openFile={vi.fn()}
+          inspectCall={vi.fn()}
+          forkAt={vi.fn()}
+          loadImage={unusedImageLoader}
+          renderFactorySlot={renderFactorySlot}
+          useTurnData={CHAT_NODE_INJECT.hooks.turnData(standard, hookContext)}
+          useDisclosure={CHAT_NODE_INJECT.hooks.disclosure(standard, hookContext)}
+          useGroupAction={useGroupAction}
           t={t}
-          {...allowAllAccess}
         />
       )
     }
     if (typed.node.kind === 'assistant-step') {
       return (
         <AssistantNodeView
+          {...standard}
           node={typed.node}
-          groupPart={typed.groupPart}
+          {...(typed.groupPart === undefined ? {} : { groupPart: typed.groupPart })}
           turnProcess={typed.turnProcess}
           openFile={vi.fn()}
-          loadImage={vi.fn()}
-          fileMentions={() => ({})}
+          inspectCall={vi.fn()}
+          forkAt={vi.fn()}
+          loadImage={unusedImageLoader}
+          renderFactorySlot={renderFactorySlot}
+          fileMentions={() => ({ resolve: () => undefined })}
           resolveFilePath={p => p}
-          useDisclosure={CHAT_NODE_INJECT.hooks.disclosure({}, hookContext)}
+          useDisclosure={CHAT_NODE_INJECT.hooks.disclosure(standard, hookContext)}
           useGroupAction={useGroupAction}
-          useTurnData={CHAT_NODE_INJECT.hooks.turnData({}, hookContext)}
+          useTurnData={CHAT_NODE_INJECT.hooks.turnData(standard, hookContext)}
           usePresentation={usePresentation}
           renderSlot={(name, subOwner, subOpts) =>
             name === 'conversation.chat.message.images'
@@ -182,14 +219,13 @@ function renderSeats(entries: readonly SessionEventLikeEntry[]) {
           t={t}
           sessionId={'s1' as SessionId}
           useContextMenu={() => ({ getTriggerProps })}
-          {...allowAllAccess}
         />
       )
     }
     if (typed.node.kind === 'tool-call') {
       return <div data-testid={`tool-${typed.node.data.root.name}`}>{typed.node.data.root.name}</div>
     }
-    if (typed.node.kind === 'user-message') {
+    if (typed.node.kind === 'user') {
       return <div data-testid="user-msg">user</div>
     }
     return null
@@ -214,7 +250,7 @@ function renderSeats(entries: readonly SessionEventLikeEntry[]) {
           openFile={vi.fn()}
           inspectCall={vi.fn()}
           forkAt={vi.fn()}
-          loadImage={vi.fn()}
+          loadImage={unusedImageLoader}
         />
       ))}
     </div>,
@@ -229,7 +265,7 @@ describe('OpenAI process folding DOM presentation', () => {
   it('folds intermediate commentary and tool progress by default while keeping the final answer expanded, and allows manual expansion', () => {
     const view = renderSeats([
       at(1, 'turn/start', { turn: 1 }),
-      userEvent(2, 1, 'check this'),
+      userEvent(2, 'check this'),
       at(3, 'step/start', { turn: 1, step: 1 }),
       assistantEvent(4, 1, 1, [
         { type: 'text', text: 'Commentary: inspecting files' },
@@ -266,7 +302,7 @@ describe('OpenAI process folding DOM presentation', () => {
   it('keeps unbounded OpenAI Turns (no reliable final answer) visible in the DOM', () => {
     const view = renderSeats([
       at(1, 'turn/start', { turn: 1 }),
-      userEvent(2, 1, 'run tool'),
+      userEvent(2, 'run tool'),
       at(3, 'step/start', { turn: 1, step: 1 }),
       assistantEvent(4, 1, 1, [
         { type: 'text', text: 'Tool-only step commentary' },
@@ -289,7 +325,7 @@ describe('OpenAI process folding DOM presentation', () => {
   it('keeps DeepSeek intermediate replies visible by default while folding reasoning/tools', () => {
     const view = renderSeats([
       at(1, 'turn/start', { turn: 1 }),
-      userEvent(2, 1, 'deepseek question'),
+      userEvent(2, 'deepseek question'),
       at(3, 'step/start', { turn: 1, step: 1 }),
       assistantEvent(
         4,
