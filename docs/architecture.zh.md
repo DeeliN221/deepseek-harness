@@ -151,6 +151,7 @@ seam 正是替换一个提供方就能改变整个产品的原因。文件系统
 
 | 目标 | 机制 |
 |---|---|
+| 接入完整外部 Agent | 在 `ctx.agents` 注册 ACP 驱动器，通过 `externalAgents` 提供目录与已确认选择 |
 | 添加模型提供方 | 在 `ctx.llm` 上注册其适配器 |
 | 添加面向模型的能力 | 在 `ctx.tools` 上注册；其 schema 加入提示词组装 |
 | 让某个会话拥有不同的能力集合 | 组装一个 agent preset；其中的服务行需要 `isolate` realm |

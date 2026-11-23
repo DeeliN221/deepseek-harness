@@ -8,7 +8,7 @@ import { typertOwnedValue } from '@deepseek-ai/dsh-typert-protocol'
 import { createSessionControlStream } from './transport.ts'
 import { ClientSessions } from './sessions/service.ts'
 import type { SessionRemotes } from './sessions/remotes.ts'
-import type {} from '../remote-events.ts'
+export type * from '../remote-events.ts'
 
 export {
   createSessionControlStream,

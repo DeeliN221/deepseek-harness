@@ -27,6 +27,8 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
+可选 `externalAgents` 服务贡献完整 Agent 的模型组、已确认选择和内容准入，不注册 LLM 适配器。跨引擎选择返回新 `sessionId`，两个模型选择入口均在确认后打开该会话。外部执行限定 owner，保留普通提示幂等性、Session 历史与取消；外部会话恢复跳过原生预设组合。`external-agents/catalog-updated` 通过既有 Remote 事件载体刷新共享目录。
+
 提示重试按首次已提交入队记录中的请求标识去重，消息被领取或删除后仍然有效。异步附件准备结束后再次检查，因此并发重试只接受一条输入。接受确认入队，不代表执行或完成。
 
 控制器通过可选服务方法 `agentPresets.presetForSession(session)` 读取 Session 已记录的预设。null 结果表示未记录预设；服务缺席表示控制器无法获知预设身份。

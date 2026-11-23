@@ -27,6 +27,8 @@ Desktop analytics follows the [product collection policy](../../client/product-a
 <a id="use-this-package"></a>
 ## Use this package
 
+The optional `externalAgents` service contributes full-Agent model groups, confirmed selections and content admission without registering an LLM adapter. A cross-engine selection returns a new `sessionId`; both model-selector entries open that session after confirmation. Owner-only external execution keeps ordinary prompt idempotency, Session history and cancellation, while external sessions skip native preset composition on resume. `external-agents/catalog-updated` refreshes the shared directory through the normal Remote event carrier.
+
 Prompt retries use the request identity in the first committed inbox insertion, including after the message is claimed or removed. Admission checks again after asynchronous attachment preparation, so concurrent retries accept one input. Acceptance acknowledges insertion, not execution or completion.
 
 The controller reads a Session's recorded preset through the optional `agentPresets.presetForSession(session)` service method. A null result means no preset was recorded; an absent service means preset identity is unavailable to the controller.

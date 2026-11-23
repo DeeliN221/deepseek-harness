@@ -27,6 +27,10 @@ Use `dsh-agent` to create or resume live agents, send follow-up or steering inpu
 
 Mount `dsh-agent` with `dsh-session-projection`: it provides `ctx.agents`, the `Agent` handle, and `turnBoundaryOf(session)` for recorded turn and step positions. Creating or resuming an Agent also requires a driver to register a factory; the shipped driver is `dsh-agent-loop`. [Session model selection](#model-selection) is available on each handle as `agent.model`.
 
+### Full-Agent drivers
+
+`registerDriver('acp', provider)` registers a synchronous full `AgentDriver` constructor; `acquireDriver()` holds its provider lifetime. Provider unload waits for the existing Agent lifecycle teardown. An ACP session records `execution/bound`; missing binding identifies a native or legacy session, and an unavailable or conflicting ACP binding fails closed. External model choices enter the shared selection projection only through `execution/model-confirmed`, after the external engine confirms its real id and display name. This registration does not create an LLM adapter.
+
 ### Create or resume an agent
 
 `ctx.agents.create()` builds a fresh agent and session under one identity; `ctx.agents.resume()` loads a persisted session and rebuilds the agent on it. Both delegate to the registered factory and return an `AgentHandle` — the only object that can tear that agent down. See [`AgentFactory`](src/index.ts) for publication and failure-cleanup timing. `get(id)` and `list()` find live agents. The [subagent service](../../subagent/subagent/README.md) owns delegated execution and runtime tree membership.

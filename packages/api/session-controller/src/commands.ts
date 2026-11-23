@@ -4,6 +4,7 @@ import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import { continuationProjectionDefinition, type ContinuationState } from './continuation.ts'
 
 import { modelAvailable } from './catalog.ts'
+import type {} from './external-agents.ts'
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
@@ -24,7 +25,7 @@ import type { Session, SessionEvent, SessionHeader, SessionId, UserMessage } fro
 import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
 import { SessionTitleInvalidError } from '@deepseek-ai/dsh-session-title'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
-import { RemoteError, remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
+import { RemoteError, remoteErrorOf, type Principal } from '@deepseek-ai/dsh-typert-protocol'
 import type { Workspace } from '@deepseek-ai/dsh-workspace'
 import {
   ApiSessionAgentController,
@@ -111,6 +112,13 @@ export class SessionCommandController {
     private readonly defaultCwd: string,
   ) {}
 
+  /** Reject non-owner callers from every mutating External Agent entry point. */
+  private assertExternalOwner(agent: Agent, principal: Principal | undefined): void {
+    if (principal !== undefined && this.ctx.agents.executionOf(agent.session) === 'acp') {
+      throw new RemoteError('session/agent-busy', 'External Agents require the owner browser identity.', { reason: 'OWNER_REQUIRED' })
+    }
+  }
+
   /**
    * Create one ordinary Session for a new conversation, reusing the named
    * blank Session while it is an unarchived member of the requested Workspace.
@@ -167,6 +175,11 @@ export class SessionCommandController {
     const agent = await this.resolveAgent(request.sessionId)
     return this.agents.serializeImageAdmission(agent, async () => {
       try {
+        const external = this.ctx.get('externalAgents')
+        if (external?.handlesSelection(agent, request)) return await external.selectModel(agent, request)
+        if (request.execution === 'acp' || request.provider.startsWith('acp:')) {
+          throw new RemoteError('session/model-unavailable', 'External Agent runtime is not installed.', { provider: request.provider, model: request.model })
+        }
         await this.requireModel(request)
         const selected: AgentModelSelection = {
           provider: request.provider,
@@ -318,9 +331,15 @@ export class SessionCommandController {
    * @param source - caller metadata recorded on the accepted ordinary or retry user message.
    * @returns acknowledgement that the Agent accepted the prompt.
    */
-  async prompt(request: SessionPromptRequest, source: MessageSource): Promise<SessionPromptValue> {
+  async prompt(
+    request: SessionPromptRequest,
+    source: MessageSource,
+    principal?: Principal,
+  ): Promise<SessionPromptValue> {
     const agent = await this.resolveAgent(request.sessionId)
+    this.assertExternalOwner(agent, principal)
     if (this.hasPromptRequest(agent.session, request.requestId)) return { accepted: true }
+    this.ctx.get('externalAgents')?.validatePrompt(agent, request)
     if (request.content.length === 0) {
       try {
         return await agent.runMaintenance(() => {
@@ -444,7 +463,7 @@ export class SessionCommandController {
    * @param request - Session, queue item, and requested mutation.
    * @returns acknowledgement that the queue mutation was applied.
    */
-  async updateQueue(request: SessionUpdateQueueRequest): Promise<SessionUpdateQueueValue> {
+  async updateQueue(request: SessionUpdateQueueRequest, principal?: Principal): Promise<SessionUpdateQueueValue> {
     if (request.action.kind === 'edit') {
       // oxlint-disable-next-line typescript/no-unnecessary-condition -- Remote callers can submit untyped JSON.
       if (request.action.content.some(block => block.type !== 'text')) {
@@ -471,6 +490,7 @@ export class SessionCommandController {
       }
       agent = found.agent
     }
+    this.assertExternalOwner(agent, principal)
     if (hasApiSessionSubagentOwner(agent.session)) {
       const identity = this.ctx.sessionProjections
         .snapshot(agent.session, ['subagent'])
@@ -523,7 +543,7 @@ export class SessionCommandController {
    * @param request - Session whose active Agent turn is cancelled.
    * @returns acknowledgement that cancellation was requested.
    */
-  cancel(request: SessionCancelRequest): SessionCancelValue {
+  cancel(request: SessionCancelRequest, principal?: Principal): SessionCancelValue {
     const agent = this.ctx.agents.get(request.sessionId)
     if (agent === undefined) {
       throw new RemoteError(
@@ -532,6 +552,7 @@ export class SessionCommandController {
         { sessionId: request.sessionId },
       )
     }
+    this.assertExternalOwner(agent, principal)
     if (hasApiSessionSubagentOwner(agent.session)) {
       throw apiSessionSubagentOwnershipError(request.sessionId)
     }

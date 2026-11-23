@@ -147,6 +147,7 @@ New behavior attaches to a documented extension point. Changing the loop itself 
 
 | Goal | Mechanism |
 |---|---|
+| Add a complete external Agent | register an ACP driver on `ctx.agents`; contribute its catalog and confirmed selections through `externalAgents` |
 | Add a model provider | register its adapter on `ctx.llm` |
 | Add a model-facing capability | register on `ctx.tools`; its schema joins prompt assembly |
 | Give one session a different capability set | compose an agent preset; a service row there needs an `isolate` realm |

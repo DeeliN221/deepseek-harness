@@ -17,9 +17,9 @@ import { z } from 'zod'
  * default again instead of pinning it as a choice.
  */
 export interface ModelSelectionProjectionState {
-  /** Selection used by the latest recorded model request. */
+  /** Selection used by the latest native request or confirmed by the external driver. */
   readonly lastUsed: ModelSelection | null
-  /** Later recorded selection not yet used by a matching model request. */
+  /** Later selection not yet used by a matching request or external confirmation. */
   readonly pending: ModelSelection | null
 }
 
@@ -41,7 +41,8 @@ function toSelection(provider: string, model: string, reasoningEffort: Reasoning
  * @returns whether both selections name the same route.
  */
 function sameRoute(left: ModelSelection, right: ModelSelection): boolean {
-  return left.provider === right.provider && left.model === right.model
+  return (left.execution ?? 'llm') === (right.execution ?? 'llm')
+    && left.provider === right.provider && left.model === right.model
 }
 
 /**
@@ -61,6 +62,8 @@ function selectionOfHeader({ config, adapterDefaults }: EpochHeader): ModelSelec
 }
 
 const selectionSchema = z.object({
+  execution: z.enum(['llm', 'acp']).exactOptional(),
+  displayName: z.string().exactOptional(),
   provider: z.string().min(1),
   model: z.string().min(1),
   reasoningEffort: z.string().min(1).transform(brandString<ReasoningEffortId>).exactOptional(),
@@ -68,16 +71,23 @@ const selectionSchema = z.object({
 
 /**
  * Session selection fold: recorded selections become
- * the pending choice, and each request header retires a matching one.
+ * the pending choice; matching native requests or external confirmations retire it.
  */
 export const modelSelectionProjectionDefinition: Required<ProjectionDefinition<'modelSelection', ModelSelectionProjectionState>> = {
   key: 'modelSelection',
-  stateVersion: 3,
+  stateVersion: 4,
   stateSchema: z.object({ lastUsed: selectionSchema, pending: selectionSchema }),
   init: () => ({ lastUsed: null, pending: null }),
   apply: (state, event) => {
     if (event.type === 'model/selection') {
       return sameModelSelection(state.pending, event.data) ? state : { ...state, pending: event.data }
+    }
+    if (event.type === 'execution/model-confirmed') {
+      const lastUsed = { ...event.data }
+      const pending = sameModelSelection(state.pending, lastUsed) ? null : state.pending
+      return sameModelSelection(state.lastUsed, lastUsed)
+        && state.lastUsed?.displayName === lastUsed.displayName && pending === state.pending
+        ? state : { lastUsed, pending }
     }
     if (event.type !== 'request/header') return state
     const lastUsed = selectionOfHeader(event.data.header)
@@ -107,12 +117,15 @@ export class AgentModel implements Model {
     const recorded = this.recordedSelection()
     if (recorded !== null) return { ...recorded }
     const { provider, model, reasoningEffort } = this.options
-    return provider && model ? toSelection(provider, model, reasoningEffort) : undefined
+    return provider && model ? {
+      ...toSelection(provider, model, reasoningEffort),
+      ...this.options.execution === undefined ? {} : { execution: this.options.execution },
+    } : undefined
   }
 
   select(selection: Readonly<ModelSelection>): void {
     if (sameModelSelection(this.recordedSelection(), selection)) return
-    this.session.append('model/selection', toSelection(selection.provider, selection.model, selection.reasoningEffort))
+    this.session.append('model/selection', { ...selection })
   }
 
   private recordedSelection(): ModelSelection | null {
