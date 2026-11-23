@@ -844,7 +844,7 @@ export class ClientModuleRegistry extends Service {
       if (hint !== undefined) hinted.set(record.entry.id, hint)
     }
     if (hinted.size === 0) return hinted
-    const rows = [...this.table.values()].map((record) => ({
+    const rows = [...this.table.values()].map(record => ({
       id: record.entry.id,
       inject: record.meta.inject ?? [],
       lazy: hinted.has(record.entry.id),
@@ -886,7 +886,7 @@ export class ClientModuleRegistry extends Service {
   private compose(): WebBootGraph {
     const deferred = this.deferredIds()
     const ordered = orderByModuleGraph([...this.table.values()].map(record => record.entry))
-    const entries = ordered.map(entry => {
+    const entries = ordered.map((entry) => {
       const hint = deferred.get(entry.id)
       if (hint === undefined) return entry
       return {

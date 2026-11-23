@@ -128,6 +128,14 @@ interface Agent {
   followup(message: UserMessage): void
 
   /**
+     * Wake already-persisted inbox work without inserting or reclassifying input.
+     * A maintenance owner latches this wake until its reservation settles.
+     * Providers without this capability cannot recover an existing inbox.
+     * @throws when a live driver already owns the Agent.
+     */
+  resumePending?(): void
+
+  /**
    * Submit steering for the nearest step. An idle driver starts a turn;
    * a running driver consumes it at its next step boundary.
    * A rejected step leaves steering parked in the inbox until the next
