@@ -9,7 +9,7 @@ import {
   type ClientBundleRegistration, type ClientModuleLoader, type ClientModuleLoaderTarget,
   type WebBootEntry, type WebBootGraph,
 } from '@deepseek-ai/dsh-client-modules/client'
-import { describe, expect, it, onTestFinished, vi } from 'vitest'
+import { describe, expect, it, onTestFinished } from 'vitest'
 import { bootClient, type EntryStateLabel } from '../src/boot-client.ts'
 
 const BOOTSTRAP_ID = '@deepseek-ai/dsh-client-modules'
@@ -31,10 +31,14 @@ function modulesOf(graph: WebBootGraph, staticModules: Record<string, unknown>):
   const target: ClientModuleLoaderTarget = {
     mode: 'queue',
     pendingQueue,
-    load: registration => { pendingQueue.push(registration) },
+    load: (registration) => { pendingQueue.push(registration) },
     create: options => createClientModuleSystem(target, { id: BOOTSTRAP_ID, exports: {} }, options),
   }
-  const modules = target.create({ boot: graph, staticModules, loadBundle: async (url) => { loaded.push(url) } })
+  const modules = target.create({
+    boot: graph,
+    staticModules: Object.entries(staticModules).map(([id, exports]) => ({ id, factory: () => exports })),
+    loadBundle: async (url) => { loaded.push(url) },
+  })
   return { modules, loaded }
 }
 
@@ -96,5 +100,5 @@ describe('bootClient over deferred rows', () => {
     await expect(bootClient({ ctx, modules, manifest: modules.manifest })).resolves.toBeUndefined()
     await expect(modules.activateDeferred('dsh-broken')).rejects.toThrow(/^dsh-broken: import failed: /)
     expect(modules.deferredStatus('dsh-broken')?.phase).toBe('failed')
-      })
+  })
 })

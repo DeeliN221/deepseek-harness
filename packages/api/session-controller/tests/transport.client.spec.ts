@@ -585,9 +585,14 @@ describe('Session Client stream adapters', () => {
     await stream.open({ maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } })
     await vi.waitFor(() => { expect(remote.followRequests).toHaveLength(2) })
 
+    // The replacement generation asks to continue after entry 2; because it
+    // answered without the resume marker, the full snapshot replaced the window.
     expect(remote.followRequests).toEqual([
       { address: ADDRESS, activate: true, assistantStream: true, maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } },
-      { address: ADDRESS, activate: true, assistantStream: true, maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } },
+      {
+        address: ADDRESS, activate: true, assistantStream: true, maxMessages: 500,
+        turnWindow: { minMessages: 50, minTurns: 2 }, afterSeq: 2,
+      },
     ])
     expect(remote.pageRequests).toEqual([])
     expect(changes.map(change => change.type)).toEqual(['replace', 'append', 'replace'])
@@ -618,7 +623,7 @@ describe('Session Client stream adapters', () => {
     await vi.waitFor(() => { expect(remote.followRequests).toHaveLength(2) })
     expect(remote.followRequests).toEqual([
       { address: ADDRESS, activate: true, assistantStream: true },
-      { address: ADDRESS, activate: true, assistantStream: true },
+      { address: ADDRESS, activate: true, assistantStream: true, afterSeq: 0 },
     ])
     expect(remote.pageRequests).toEqual([])
     await stream.dispose()
