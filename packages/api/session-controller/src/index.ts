@@ -488,6 +488,7 @@ export class SessionController extends TypertRemoteService {
       kind: request.content.length === 0 ? 'retry' : 'user',
       rpcId: request.requestId,
       ...(clientTimeZone === undefined ? {} : { clientTimeZone }),
+      ...(request.content.length === 0 || request.asyncDispatch === undefined ? {} : { asyncDispatch: request.asyncDispatch }),
       ...(principal === undefined ? {} : { principal }),
     }
     return this.commands.prompt(request, source)

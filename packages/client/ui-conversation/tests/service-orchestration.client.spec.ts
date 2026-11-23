@@ -48,7 +48,7 @@ async function bench(maxConcurrentFileUploads = 2) {
     return session.uploadImage(...args)
   }
   const prompt = vi.fn((
-    _content?: unknown, _mode?: unknown, _signal?: AbortSignal, _rpcId?: string,
+    _content?: unknown, _mode?: unknown, _signal?: AbortSignal, _rpcId?: string, _asyncDispatch?: boolean,
   ) => Promise.resolve({ ok: true as const, value: { accepted: true as const } }))
   const updateQueue = vi.fn(() => Promise.resolve({ ok: true as const, value: { accepted: true as const } }))
   const cancel = vi.fn(() => Promise.resolve({ ok: true as const, value: { accepted: true as const } }))
@@ -75,6 +75,49 @@ async function bench(maxConcurrentFileUploads = 2) {
 }
 
 describe('ConversationController', () => {
+  it('refuses an immediate send after a failed selection without affecting another session', async () => {
+    const b = await bench()
+    try {
+      const first = b.runtime.sessions.binding('s1')!.session
+      const secondPrompt = vi.fn(() => Promise.resolve({ ok: true as const, value: { accepted: true as const } }))
+      await b.runtime.sessions.add({ id: 's2', session: { prompt: secondPrompt } })
+      const reference = b.runtime.sessions.retain('s2' as SessionId)
+      await reference.ready
+      const second = b.runtime.sessions.binding('s2')!.session
+      const receipt = Promise.withResolvers<string | null>()
+      const saving = b.root.selectAsyncDispatch(first, true, () => receipt.promise)
+      const sending = b.root.sendSession(first, 'keep draft', [], 'queue')
+      const failedSend = expect(sending).rejects.toThrow('selection refused')
+      await expect(b.root.sendSession(second, 'unrelated', [], 'queue')).resolves.toEqual({ kind: 'success' })
+      expect(secondPrompt).toHaveBeenCalled()
+      expect(b.prompt).not.toHaveBeenCalled()
+      receipt.resolve('selection refused')
+      await expect(saving).resolves.toContain('selection refused')
+      await failedSend
+      expect(b.prompt).not.toHaveBeenCalled()
+      reference.release()
+    } finally { await b.runtime.dispose() }
+  })
+  it.each([true, false])('waits for an in-flight choice and freezes the confirmed %s value before its projection arrives', async (enabled) => {
+    const b = await bench()
+    try {
+      const session = b.runtime.sessions.binding('s1')!.session
+      const projection = session.projections.faceOf('asyncDispatch')
+      vi.spyOn(projection, 'getSnapshot').mockReturnValue(!enabled)
+      const receipt = Promise.withResolvers<string | null>()
+      const saving = b.root.selectAsyncDispatch(session, enabled, () => receipt.promise)
+      const sending = b.root.sendSession(session, 'immediate send', [], 'queue')
+      expect(b.prompt).not.toHaveBeenCalled()
+      receipt.resolve(null)
+      await expect(saving).resolves.toBeNull()
+      await expect(sending).resolves.toEqual({ kind: 'success' })
+      expect(b.prompt.mock.calls[0]?.[4]).toBe(enabled)
+      // The public send path shares the same confirmed choice even before a control frame.
+      await b.scoped.send('public send')
+      expect(b.prompt.mock.calls[1]?.[4]).toBe(enabled)
+    } finally { await b.runtime.dispose() }
+  })
+
   it('does not revive a withdrawn generation when an old input submits before scoped cleanup', async () => {
     const b = await bench()
     try {
@@ -99,7 +142,7 @@ describe('ConversationController', () => {
     await b.scoped.updateQueue('item-1' as never, { kind: 'remove' })
     await b.scoped.cancel()
     await b.scoped.loadOlder()
-    expect(b.prompt).toHaveBeenCalledWith([{ type: 'text', text: 'hello' }], 'queue')
+    expect(b.prompt).toHaveBeenCalledWith([{ type: 'text', text: 'hello' }], 'queue', undefined, undefined, false)
     expect(b.updateQueue).toHaveBeenCalledWith('item-1', { kind: 'remove' })
     expect(b.cancel).toHaveBeenCalledOnce()
     expect(b.loadOlder).toHaveBeenCalledOnce()
@@ -550,7 +593,7 @@ describe('ConversationController', () => {
     expect(b.prompt).toHaveBeenCalledWith([
       { type: 'file', receiptId: 'send-receipt' },
       { type: 'text', text: 'read' },
-    ], 'queue', undefined, expect.any(String))
+    ], 'queue', undefined, expect.any(String), false)
     expect(b.root.resolveDraftAttachments([attachment.id])).toHaveLength(1)
     expect(b.prompt.mock.calls[0]?.[3]).toBe('file-rpc-id')
     retire?.({
@@ -658,6 +701,7 @@ describe('sendSession submission echo', () => {
         'queue',
         undefined,
         'req-echo',
+        false,
       )
       // The draft stays registered until the echo's observed retirement.
       expect(b.root.resolveDraftAttachments([attachment!.id])).toHaveLength(1)
@@ -912,7 +956,7 @@ describe('sendSession submission echo', () => {
     try {
       const session = b.runtime.sessions.binding('s1')!.session
       await expect(b.root.sendSession(session, '纯文本', [], 'queue')).resolves.toEqual({ kind: 'success' })
-      expect(b.prompt).toHaveBeenCalledWith([{ type: 'text', text: '纯文本' }], 'queue', undefined, 'req-echo')
+      expect(b.prompt).toHaveBeenCalledWith([{ type: 'text', text: '纯文本' }], 'queue', undefined, 'req-echo', false)
     } finally {
       vi.unstubAllGlobals()
       b.restore()
@@ -928,7 +972,7 @@ describe('sendSession submission echo', () => {
       const sending = b.root.sendSession(session, '后台标签', [], 'queue')
       expect(b.prompt).not.toHaveBeenCalled()
       await expect(sending).resolves.toEqual({ kind: 'success' })
-      expect(b.prompt).toHaveBeenCalledWith([{ type: 'text', text: '后台标签' }], 'queue', undefined, 'req-echo')
+      expect(b.prompt).toHaveBeenCalledWith([{ type: 'text', text: '后台标签' }], 'queue', undefined, 'req-echo', false)
     } finally {
       vi.unstubAllGlobals()
       b.restore()
@@ -953,7 +997,7 @@ describe('sendSession submission echo', () => {
     const echo = beginSubmission.mock.results[0]
     const requestId = echo?.type === 'return' ? echo.value.requestId : undefined
     expect(requestId).toEqual(expect.any(String))
-    expect(prompt).toHaveBeenCalledWith([{ type: 'text', text: '继续' }], 'queue', undefined, requestId)
+    expect(prompt).toHaveBeenCalledWith([{ type: 'text', text: '继续' }], 'queue', undefined, requestId, false)
     await b.runtime.dispose()
   })
 })

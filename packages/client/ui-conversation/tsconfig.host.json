@@ -7,7 +7,9 @@
   },
   "files": [
     "src/submission-settings.ts",
-    "src/index.ts"
+    "src/index.ts",
+    "src/dispatch-types.ts",
+    "src/host/async-dispatch.ts"
   ],
   "references": [
     {
@@ -18,6 +20,27 @@
     },
     {
       "path": "../../settings/settings"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../core/system-prompt"
+    },
+    {
+      "path": "../../interaction/commands"
+    },
+    {
+      "path": "../../session/session-projection"
+    },
+    {
+      "path": "../../util/brand"
+    },
+    {
+      "path": "../../api/session-controller/tsconfig.host.json"
     }
   ]
 }

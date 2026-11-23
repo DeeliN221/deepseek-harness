@@ -518,6 +518,17 @@ export function apply(ctx: Context, config: Config = Config({})): void {
       return {
         registerFileIntake: fileIntake,
         keyboard: shell,
+        setAsyncDispatch: async (enabled) => {
+          const session = sessions.binding(sessionId)?.session
+          const commands = ctx.get('remote.commands')
+          if (session === undefined || commands === undefined) return t('dispatch.unavailable')
+          return conversation.selectAsyncDispatch(session, enabled, async () => {
+            const result = await commands.execute(sessionId, `/async-dispatch ${enabled ? 'on' : 'off'}`, [])
+            if (!result.ok) return result.error.message
+            if (result.value === undefined) return t('dispatch.unavailable')
+            return result.value.result.kind === 'error' ? (result.value.result.text ?? t('dispatch.failed')) : null
+          })
+        },
         addFiles: (files, directories = new Set()) => {
           if (sessions.binding(sessionId) === undefined) return t('file.sessionUnavailable')
           const { phase } = shell.snapshot
