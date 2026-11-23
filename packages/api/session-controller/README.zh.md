@@ -29,6 +29,8 @@ kind: "package-reference"
 
 提示重试按首次已提交入队记录中的请求标识去重，消息被领取或删除后仍然有效。异步附件准备结束后再次检查，因此并发重试只接受一条输入。接受确认入队，不代表执行或完成。
 
+带 `recovery: { endingSeq, throughSeq }` 的空排队提示请求无人工授权的自动续跑。准入要求日志仍处于观测切点、结尾明确属于崩溃或传输/超时中断、没有待处理交互或运行中的自有后台任务且会话未归档。已有持久化输入通过原生驱动器恢复，不追加重试消息；持久化的 `recovery/queued` 回执对唤醒去重，并保留各输入的身份与异步派发策略。人工取消即使发生在空闲期也会持久撤销恢复资格。工具结果未知、审批或问询活动、非活动目标、无效请求和终结状态均不符合条件。[单次巡检脚本](../../../scripts/session-recovery/README.zh.md) 通过已有脚本调度器提供持久去重与有限退避；接受入队仍区别于观测到执行。
+
 控制器通过可选服务方法 `agentPresets.presetForSession(session)` 读取 Session 已记录的预设。null 结果表示未记录预设；服务缺席表示控制器无法获知预设身份。
 
 历史页与 follow opening 快照为每个持久 Session 事件携带一条 `{ type: 'event', event: SessionWireEvent }` record。Client 把每条已接受 record 保留为一个持久 `SessionEventLikeEntry`；Assistant token 边界保留在 `assistant/message` 或 `assistant/attempt` 的紧凑流内。工具参数、结果内容、失败信息和 `tool/result.data.meta` 原样通过；控制器不解析工具定义、不运行展示转换器，也不附加 UI 数据。

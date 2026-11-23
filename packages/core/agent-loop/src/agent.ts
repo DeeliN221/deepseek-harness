@@ -181,6 +181,13 @@ export class ReactLoopAgent implements Agent {
     this.send(input, 'next-turn', true)
   }
 
+  resumePending(): void {
+    if (this.phase.kind !== 'idle' && this.phase.kind !== 'maintenance') {
+      throw new Error(`agent "${this.id}" already has active work`)
+    }
+    if (this.inbox.hasPending) this.wakeDriver()
+  }
+
   steer(input: UserMessage): void {
     this.send(input, 'next-step', true)
   }

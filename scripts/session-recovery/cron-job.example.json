@@ -1,0 +1,10 @@
+{
+  "id": "dsh-session-recovery",
+  "title": "恢复非人工中断会话",
+  "enabled": true,
+  "cron": "* * * * *",
+  "timeZone": "UTC",
+  "command": ["python3", "/data/workspace/dsh-session-recovery/scan.py", "--config", "/data/dsh/session-recovery/config.json"],
+  "timeoutSeconds": 240,
+  "catchUp": false
+}

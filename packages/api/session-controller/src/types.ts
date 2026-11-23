@@ -18,6 +18,8 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
     /** Eligible latest failed turn/end for an empty prompt, or null. */
     conversationContinuation: SessionSeq | null
+    /** Complete-history unattended recovery eligibility; admission rechecks the exact log cut. */
+    automaticRecovery: RecoveryState
     /** Persisted facts used to summarize a Session without activating it. */
     sessionListMetadata: SessionListMetadata
     /**
@@ -320,6 +322,24 @@ export interface SessionForkValue {
   readonly sessionId: SessionId
 }
 
+declare module '@deepseek-ai/dsh-session/types' {
+  interface SessionEventMap {
+    /** Explicit operator stop revokes unattended recovery, including while the Agent is idle. */
+    'recovery/revoked': { readonly reason: 'user' }
+    /** Accepted wake of existing durable input; no synthetic message is inserted. */
+    'recovery/queued': { readonly requestId: SessionRequestId; readonly endingSeq: number }
+  }
+}
+
+/** Durable facts used to admit unattended empty continuation. */
+export interface RecoveryState {
+  readonly candidate: { readonly endingSeq: number; readonly time: number; readonly kind: 'interrupted' | 'transport' } | null
+  readonly admitted: boolean
+  readonly protected: boolean
+  readonly goalBlocked: boolean
+  readonly humanSeq: number
+}
+
 /** Session prompt request. */
 export interface SessionPromptRequest {
   /** Client-minted identity persisted on the accepted inbox input, including empty continuation. */
@@ -331,6 +351,11 @@ export interface SessionPromptRequest {
   readonly clientTimeZone?: string
   /** Orchestration preference captured by this submission; omitted means off. */
   readonly asyncDispatch?: boolean
+  /** Unattended empty continuation, conditional on an unchanged log and eligible interruption. */
+  readonly recovery?: {
+    readonly endingSeq: number
+    readonly throughSeq: number
+  }
 }
 
 /** Receipt after one prompt enters the target Agent inbox. */

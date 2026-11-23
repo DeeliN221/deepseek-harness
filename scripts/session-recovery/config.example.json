@@ -1,0 +1,11 @@
+{
+  "enabled": true,
+  "origin": "http://127.0.0.1:3000",
+  "tokenFile": "/data/dsh/bootstrap-url.txt",
+  "stateDir": "/data/dsh/session-recovery",
+  "cooldownSeconds": 60,
+  "maxBackoffSeconds": 1800,
+  "maxAttempts": 5,
+  "requestTimeoutSeconds": 10,
+  "maxSessions": 2000
+}

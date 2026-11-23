@@ -1,7 +1,10 @@
 /** Session commands whose activation policy is explicit at each Remote method. */
 
+import type {} from '@deepseek-ai/dsh-jobs'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import { continuationProjectionDefinition, type ContinuationState } from './continuation.ts'
+import { recoveryProjectionDefinition } from './recovery.ts'
+import type { RecoveryState } from './types.ts'
 
 import { modelAvailable } from './catalog.ts'
 import { randomUUID } from 'node:crypto'
@@ -94,10 +97,12 @@ export class SessionCommandController {
   }>()
 
   private continuation!: ProjectionHandle<ContinuationState>
+  private recovery!: ProjectionHandle<RecoveryState>
 
   /** Register complete-history empty-prompt eligibility. @returns when command admission is ready. */
   async initialize(): Promise<void> {
     this.continuation = await this.ctx.sessionProjections.register(continuationProjectionDefinition)
+    this.recovery = await this.ctx.sessionProjections.register(recoveryProjectionDefinition)
   }
 
   /**
@@ -319,17 +324,42 @@ export class SessionCommandController {
    * @returns acknowledgement that the Agent accepted the prompt.
    */
   async prompt(request: SessionPromptRequest, source: MessageSource): Promise<SessionPromptValue> {
+    if (request.recovery !== undefined && (request.content.length !== 0 || request.mode !== 'queue')) {
+      throw new RemoteError('gateway/bad-request', 'automatic recovery requires an empty queued retry', {})
+    }
     const agent = await this.resolveAgent(request.sessionId)
-    if (this.hasPromptRequest(agent.session, request.requestId)) return { accepted: true }
+    const previouslyAccepted = this.hasPromptRequest(agent.session, request.requestId)
+    if (previouslyAccepted && (request.recovery === undefined || agent.status !== 'idle' || agent.inbox.nextTurn.length === 0 && agent.inbox.nextStep.length === 0)) {
+      return { accepted: true }
+    }
     if (request.content.length === 0) {
       try {
         return await agent.runMaintenance(() => {
           const inbox = agent.inbox
-          if (request.mode !== 'queue' || this.continuation.stateOf(agent.session).ending === null
-            || inbox.nextTurn.length > 0 || inbox.nextStep.some(message => message.source.kind === 'user')) {
+          const recovery = request.recovery
+          const eligible = recovery === undefined
+            ? this.continuation.stateOf(agent.session).ending !== null
+            : this.recovery.stateOf(agent.session).candidate?.endingSeq === recovery.endingSeq
+              && (previouslyAccepted || Number(agent.session.seq) - 1 === recovery.throughSeq)
+              && !this.ctx.workspaceRegistry.archivedSessionIds.includes(agent.id)
+              && !this.ctx.typertGateway.getPendingRemoteEvents().some(item => String(item.agentId) === agent.id)
+              && !this.ctx.get('jobs')?.list(agent.id).some(job => job.owner === agent.id
+                && (job.status === 'running' || job.status === 'stopping'))
+          if (previouslyAccepted && !eligible) return Promise.resolve({ accepted: true as const })
+          if (request.mode !== 'queue' || !eligible
+            || (recovery === undefined && (inbox.nextTurn.length > 0
+              || inbox.nextStep.some(message => message.source.kind === 'user')))) {
             throw new RemoteError('session/agent-busy', 'generation continuation is unavailable', { reason: 'NO_CONTINUABLE_FAILURE_OR_PENDING_INPUT' })
           }
-          agent.followup(createUserMessage({ content: [], source }))
+          if (recovery !== undefined && (inbox.nextTurn.length > 0 || inbox.nextStep.length > 0)) {
+            if (agent.resumePending === undefined) {
+              throw new RemoteError('session/agent-busy', 'Agent provider cannot resume pending input', { reason: 'QUEUE_WAKE_UNAVAILABLE' })
+            }
+            if (!previouslyAccepted) agent.session.append('recovery/queued', { requestId: request.requestId, endingSeq: recovery.endingSeq })
+            agent.resumePending()
+          } else {
+            agent.followup(createUserMessage({ content: [], source }))
+          }
           return Promise.resolve({ accepted: true as const })
         })
       } catch (error: unknown) {
@@ -396,6 +426,10 @@ export class SessionCommandController {
     if (receipts.offset !== session.seq) {
       // oxlint-disable-next-line typescript/no-deprecated -- Existing prompt retry history read, retained for acceptance recovery.
       for (const event of session.snapshotEvents(receipts.offset)) {
+        if (event.type === 'recovery/queued') {
+          receipts.requests.add(event.data.requestId)
+          continue
+        }
         if (event.type !== 'agent/inbox/spliced' && event.type !== 'user/message') continue
         const messages = event.type === 'agent/inbox/spliced' ? event.data.inserted : [event.data]
         for (const message of messages) {
@@ -535,6 +569,7 @@ export class SessionCommandController {
     if (hasApiSessionSubagentOwner(agent.session)) {
       throw apiSessionSubagentOwnershipError(request.sessionId)
     }
+    agent.session.append('recovery/revoked', { reason: 'user' })
     agent.cancel({ kind: 'user' }, { keepInbox: true })
     return { accepted: true }
   }
