@@ -45,7 +45,7 @@ The served HTML carries one document base, `<base href="./">`, ahead of every in
 
 The fallback's synchronous `auth` selector requires `required` for root and configured-index requests and declares other files `anonymous`. WebServer centralizes admission through Connection before file serving; anonymous assets skip credential verification, not Connection's source policy. The resource receives the admitted Peer directly and captures it for index rendering without another authentication call. Token middleware handles the root Cookie exchange before routing. After reading index bytes, rendering checks that both request and Peer remain live.
 
-Browsers revalidate every served file except the index. Such a response carries `cache-control: no-cache` and a weak ETag built from a SHA-1 of the file's bytes, so a file whose content changes gets a new ETag even when its name stays the same; a request whose `If-None-Match` equals the current ETag receives an empty 304. The rendered index carries no cache headers.
+Browsers may cache a content-hashed file for a year. A content hash is Vite's `[name]-[hash][extname]` name whose hash is at least eight base64url characters and holds a letter — which a numeric version or date tail such as `app-20240101` fails — and such a response carries `cache-control: public, max-age=31536000, immutable`, `Vary: Accept-Encoding`, and no validator. When the build wrote a brotli sidecar beside it (`<file>.br`) and the request's `Accept-Encoding` admits brotli, those bytes are served as the `br` variant; every other client, and every mutable file, receives the identity bytes, which the webserver compresses when it is configured to. A file without a content hash revalidates: it carries `cache-control: no-cache` and a weak ETag built from a SHA-1 of its bytes, so a file whose content changes gets a new ETag even when its name stays the same, and a request whose `If-None-Match` equals the current ETag receives an empty 304. The rendered index is never stored — it carries `cache-control: no-store` and no validator, because a replayed boot graph would address plugin resources the running Host no longer serves.
 
 ### Observable failures
 
@@ -71,7 +71,7 @@ The function plugin wraps `serveStatic`, which maps a Fetch `Request` to a `Resp
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | `serveStatic` and `apply`: fallback resource, traversal rejection, index authorization and rendering, revalidation, MIME table |
+| [`src/index.ts`](src/index.ts) | `serveStatic` and `apply`: fallback resource, traversal rejection, index authorization and rendering, immutable and revalidating cache contracts, brotli sidecar negotiation, MIME table |
 
 </details>
 
@@ -105,7 +105,7 @@ None; this package neither assembles nor sends a provider request.
 
 These limits define when a served asset class is not yet covered. They are current package constraints, not a task backlog.
 
-- **The starter MIME table is minimal** — it covers the Vite-emitted asset set plus the shipped PWA manifest; other extensions fall back to `application/octet-stream` until an asset class ships.
+- **The starter MIME table is minimal** — it covers the Vite-emitted asset set, including woff2, woff, and ttf font faces, plus the shipped PWA manifest; other extensions fall back to `application/octet-stream` until an asset class ships.
 - **Pathname routing is explicit** — the current client enters through the root or configured index path and has no History API pathname routes. Adding one requires an explicit server rule and real-composition coverage rather than a broad fallback for every miss.
 
 <a id="dev-note"></a>

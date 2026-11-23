@@ -3,13 +3,16 @@
  * vendored Loader mounts the webserver and frontend-static rows, and every
  * assertion observes the served HTTP surface — asset serving, explicit index
  * entry points with index taps, 404 misses, traversal rejection, 405 on non-
- * GET/HEAD, and seat release on fiber disposal (HMR safety).
+ * GET/HEAD, cache contracts for hashed and unhashed names, precompressed
+ * brotli sidecars, and seat release on fiber disposal (HMR safety).
  */
 
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { request as httpRequest, type IncomingHttpHeaders } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { brotliCompressSync, brotliDecompressSync, gunzipSync } from 'node:zlib'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
@@ -43,6 +46,18 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 let root: string | undefined
 let context: Context | undefined
 
+/** A Vite-shaped chunk name and the bytes its brotli sidecar compresses. */
+const HASHED_NAME = 'index-BgUyXZcc.js'
+const HASHED_SOURCE = 'export const hashed = "shell chunk"'
+const HASHED_BROTLI = brotliCompressSync(Buffer.from(HASHED_SOURCE))
+
+/** A hashed name whose build emitted no sidecar: the pre-change dist shape. */
+const NO_SIDECAR_NAME = 'nosidecar-CickPsom.js'
+const NO_SIDECAR_SOURCE = 'compressible shell response '.repeat(8)
+
+/** Cache contracts the dist server promises. */
+const IMMUTABLE = 'public, max-age=31536000, immutable'
+
 afterEach(async () => {
   heldIndex.path = undefined
   heldIndex.entered = undefined
@@ -54,7 +69,7 @@ afterEach(async () => {
 })
 
 /** Write a dist fixture and the authenticated Web rows, then boot them through the real Loader. */
-async function loadComposition(): Promise<Context> {
+async function loadComposition(gzip = false): Promise<Context> {
   root = await mkdtemp(join(tmpdir(), 'dsh-frontend-static-'))
   const dist = join(root, 'dist')
   await mkdir(dist)
@@ -66,6 +81,27 @@ async function loadComposition(): Promise<Context> {
   await writeFile(join(dist, 'manifest.webmanifest'), '{}')
   await writeFile(join(dist, 'icon-192.png'), 'PNG')
   await mkdir(join(dist, 'empty'))
+  const assets = join(dist, 'assets')
+  await mkdir(join(assets, 'fonts'), { recursive: true })
+  // A Vite-named shell chunk with the brotli sidecar its build emits.
+  await writeFile(join(assets, HASHED_NAME), HASHED_SOURCE)
+  await writeFile(join(assets, `${HASHED_NAME}.br`), HASHED_BROTLI)
+  // The same hashed shape without a sidecar: a dist built before the shell
+  // build emitted them, or by a build that skipped precompression.
+  await writeFile(join(assets, NO_SIDECAR_NAME), NO_SIDECAR_SOURCE)
+  // A hashed name whose sidecar an interrupted build left empty.
+  await writeFile(join(assets, 'truncated-CickPsom.js'), 'truncated shell chunk')
+  await writeFile(join(assets, 'truncated-CickPsom.js.br'), '')
+  // A sidecar beside a name without a content hash: it must never be served as
+  // the br variant, because that name may change its bytes in place.
+  await writeFile(join(assets, 'app.js'), 'export {}')
+  await writeFile(join(assets, 'app.js.br'), brotliCompressSync(Buffer.from('export {}')))
+  // A numeric tail is a version, not a content hash.
+  await writeFile(join(assets, 'dated-20240101.js'), 'export {}')
+  // Font faces the first paint blocks on, under Vite's hashed asset names.
+  await writeFile(join(assets, 'fonts', 'montserrat-regular-DYep38cA.woff2'), 'WOFF2')
+  await writeFile(join(assets, 'fonts', 'legacy-C3H0VqGB.woff'), 'WOFF')
+  await writeFile(join(assets, 'fonts', 'legacy-D1sUS0GD.ttf'), 'TTF')
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, [
     "- name: '@deepseek-ai/dsh-credentials-local'",
@@ -76,6 +112,7 @@ async function loadComposition(): Promise<Context> {
     '  config:',
     "    host: '127.0.0.1'",
     '    port: 0',
+    ...(gzip ? ['    compression: gzip', '    compressionThresholdBytes: 16'] : []),
     "- name: '@deepseek-ai/dsh-client-connection'",
     "- name: '@deepseek-ai/dsh-host-authentication-token'",
     '- id: frontend',
@@ -124,6 +161,33 @@ async function request(
     type: response.headers.get('content-type'),
     body: await response.text(),
   }
+}
+
+/** One node:http exchange, so a transport encoding reaches the assertion undecoded. */
+async function rawRequest(
+  port: number | undefined,
+  path: string,
+  init: { method?: string; headers?: Record<string, string> } = {},
+): Promise<{ status: number; headers: IncomingHttpHeaders; body: Buffer }> {
+  if (port === undefined) throw new Error('frontend-static test: the listener has not bound a port')
+  const { promise, resolve, reject } = Promise.withResolvers<{ status: number; headers: IncomingHttpHeaders; body: Buffer }>()
+  const outgoing = httpRequest({
+    host: '127.0.0.1', port, path, method: init.method ?? 'GET', headers: init.headers,
+  }, (incoming) => {
+    const chunks: Buffer[] = []
+    incoming.on('data', (chunk: Buffer) => chunks.push(chunk))
+    incoming.on('end', () => {
+      resolve({
+        status: incoming.statusCode ?? 0,
+        headers: incoming.headers,
+        body: Buffer.concat(chunks),
+      })
+    })
+    incoming.on('error', reject)
+  })
+  outgoing.on('error', reject)
+  outgoing.end()
+  return promise
 }
 
 describe('real Loader composition', () => {
@@ -385,7 +449,7 @@ describe('real Loader composition', () => {
     expect((await read('/')).status).toBe(404)
   })
 
-  it('lets browsers revalidate every file except the index', { timeout: 60_000 }, async () => {
+  it('lets browsers revalidate every mutable file while the shell is never stored', { timeout: 60_000 }, async () => {
     const loaded = await loadComposition()
     const base = `http://127.0.0.1:${String(loaded.webServer.port)}`
     const first = await fetch(`${base}/app.js`)
@@ -410,12 +474,135 @@ describe('real Loader composition', () => {
     expect(rebuilt.headers.get('etag')).not.toBe(etag)
     expect(await rebuilt.text()).toBe('export const rebuilt = true')
 
-    // Only the rendered index carries no cache headers; another HTML file revalidates.
+    // Another HTML file revalidates; the rendered shell is never stored, and
+    // carries no validator a conditional request could match.
     const html = await fetch(`${base}/preview.html`)
     expect([html.status, html.headers.get('cache-control')]).toEqual([200, 'no-cache'])
     expect(html.headers.get('etag')).toMatch(/^W\//)
     expect(await html.text()).toBe('<body>preview</body>')
     const index = await loaded.webServer.readResource(new Request(`${base}/`), reader)
-    expect([index.status, index.headers.get('cache-control'), index.headers.get('etag')]).toEqual([200, null, null])
+    expect([index.status, index.headers.get('cache-control'), index.headers.get('etag')]).toEqual([200, 'no-store', null])
+  })
+
+  it('marks only Vite content-hashed names immutable and serves font faces as fonts', { timeout: 60_000 }, async () => {
+    const loaded = await loadComposition()
+    const port = loaded.webServer.port
+
+    const hashed = await rawRequest(port, `/assets/${HASHED_NAME}`)
+    expect([hashed.status, hashed.headers['content-type'], hashed.headers['cache-control']]).toEqual([
+      200, 'text/javascript; charset=utf-8', IMMUTABLE,
+    ])
+    expect(hashed.headers.etag).toBeUndefined()
+    expect(hashed.headers.vary).toBe('Accept-Encoding')
+    expect(hashed.body.toString()).toBe(HASHED_SOURCE)
+    // A validator from before the switch cannot turn an immutable file into a 304.
+    expect((await rawRequest(port, `/assets/${HASHED_NAME}`, { headers: { 'if-none-match': 'W/"stale"' } })).status).toBe(200)
+
+    // Font faces keep their font MIME, and their hashed names make them immutable.
+    for (const [path, type] of [
+      ['/assets/fonts/montserrat-regular-DYep38cA.woff2', 'font/woff2'],
+      ['/assets/fonts/legacy-C3H0VqGB.woff', 'font/woff'],
+      ['/assets/fonts/legacy-D1sUS0GD.ttf', 'font/ttf'],
+    ] as const) {
+      const font = await rawRequest(port, path)
+      expect([font.status, font.headers['content-type'], font.headers['cache-control']]).toEqual([200, type, IMMUTABLE])
+    }
+
+    // A numeric tail is a version, not a content hash: it keeps revalidating.
+    const dated = await rawRequest(port, '/assets/dated-20240101.js')
+    expect(dated.headers['cache-control']).toBe('no-cache')
+    expect(dated.headers.etag).toMatch(/^W\/"[A-Za-z0-9_-]+"$/)
+    // The sidecar file itself is not a hashed asset name either.
+    const sidecarPath = await rawRequest(port, `/assets/${HASHED_NAME}.br`)
+    expect([sidecarPath.status, sidecarPath.headers['cache-control']]).toEqual([200, 'no-cache'])
+    // A hashed-looking path outside the dist root stays traversal, never a cache hit.
+    expect((await rawRequest(port, `/..%2f..%2fassets%2f${HASHED_NAME}`)).status).toBe(403)
+  })
+
+  it('serves the build-time brotli sidecar only to clients that accept it', { timeout: 60_000 }, async () => {
+    const loaded = await loadComposition()
+    const port = loaded.webServer.port
+    const asset = `/assets/${HASHED_NAME}`
+
+    const br = await rawRequest(port, asset, { headers: { 'accept-encoding': 'gzip, deflate, br' } })
+    expect([br.status, br.headers['content-encoding']]).toEqual([200, 'br'])
+    expect(br.headers['content-length']).toBe(String(HASHED_BROTLI.length))
+    expect(br.headers.vary).toBe('Accept-Encoding')
+    expect(brotliDecompressSync(br.body).toString()).toBe(HASHED_SOURCE)
+
+    // Weights and wildcards decide like any negotiated coding.
+    const negotiated = [
+      ['br', 'br'],
+      ['*', 'br'],
+      ['gzip;q=1, br;q=0.5', 'br'],
+      ['br;q=0, *', undefined],
+      ['br;q=1..', undefined],
+      ['gzip', undefined],
+      ['identity', undefined],
+      [';;', undefined],
+    ] as const
+    for (const [header, encoding] of negotiated) {
+      const variant = await rawRequest(port, asset, { headers: { 'accept-encoding': header } })
+      expect([header, variant.headers['content-encoding']]).toEqual([header, encoding])
+      const body = encoding === 'br' ? brotliDecompressSync(variant.body) : variant.body
+      expect(body.toString()).toBe(HASHED_SOURCE)
+    }
+
+    // A HEAD response advertises the same variant without a body.
+    const head = await rawRequest(port, asset, { method: 'HEAD', headers: { 'accept-encoding': 'br' } })
+    expect([head.status, head.headers['content-encoding'], head.body.length]).toEqual([200, 'br', 0])
+
+    // An in-process read sees the same negotiated bytes.
+    const reader = { principal: { kind: 'owner' } } as Connection.PeerScope
+    const inProcess = await loaded.webServer.readResource(
+      new Request(`http://reader.invalid${asset}`, { headers: { 'accept-encoding': 'br' } }),
+      reader,
+    )
+    expect(inProcess.headers.get('content-encoding')).toBe('br')
+    expect(brotliDecompressSync(Buffer.from(await inProcess.arrayBuffer())).toString()).toBe(HASHED_SOURCE)
+
+    // A hashed file the build did not precompress keeps its identity bytes.
+    const noSidecar = await rawRequest(port, '/assets/fonts/montserrat-regular-DYep38cA.woff2', { headers: { 'accept-encoding': 'br' } })
+    expect([noSidecar.headers['content-encoding'], noSidecar.body.toString()]).toEqual([undefined, 'WOFF2'])
+    const degraded = await rawRequest(port, `/assets/${NO_SIDECAR_NAME}`, { headers: { 'accept-encoding': 'br' } })
+    expect([degraded.headers['content-encoding'], degraded.body.toString()]).toEqual([undefined, NO_SIDECAR_SOURCE])
+    // An empty sidecar (an interrupted build) is not served as a variant.
+    const truncated = await rawRequest(port, '/assets/truncated-CickPsom.js', { headers: { 'accept-encoding': 'br' } })
+    expect([truncated.headers['content-encoding'], truncated.body.toString()]).toEqual([undefined, 'truncated shell chunk'])
+    // A sidecar beside a non-hashed name is never served: that name may change
+    // its bytes in place, so serving precompressed bytes would go stale.
+    const mutable = await rawRequest(port, '/assets/app.js', { headers: { 'accept-encoding': 'br' } })
+    expect([mutable.headers['content-encoding'], mutable.body.toString()]).toEqual([undefined, 'export {}'])
+    expect(mutable.headers['cache-control']).toBe('no-cache')
+  })
+
+  it('keeps one transport encoding per response when the webserver compresses', { timeout: 60_000 }, async () => {
+    const loaded = await loadComposition(true)
+    const port = loaded.webServer.port
+    const asset = `/assets/${HASHED_NAME}`
+
+    // The sidecar variant carries its own Content-Encoding, so the webserver
+    // must pass it through instead of wrapping already-encoded bytes.
+    const brVariant = await rawRequest(port, asset, { headers: { 'accept-encoding': 'br' } })
+    expect(brVariant.headers['content-encoding']).toBe('br')
+    expect(brVariant.headers['content-length']).toBe(String(HASHED_BROTLI.length))
+    expect(brotliDecompressSync(brVariant.body).toString()).toBe(HASHED_SOURCE)
+
+    // A client without brotli gets the identity bytes through the existing gzip path.
+    const gzipVariant = await rawRequest(port, asset, { headers: { 'accept-encoding': 'gzip' } })
+    expect(gzipVariant.headers['content-encoding']).toBe('gzip')
+    expect(gzipVariant.headers.vary).toContain('Accept-Encoding')
+    expect(gunzipSync(gzipVariant.body).toString()).toBe(HASHED_SOURCE)
+
+    // A sidecar-less hashed asset degrades to the identity bytes and the
+    // webserver's single gzip pass: no double encoding, no truncated body.
+    const degraded = await rawRequest(port, `/assets/${NO_SIDECAR_NAME}`, { headers: { 'accept-encoding': 'br, gzip' } })
+    expect(degraded.headers['content-encoding']).toBe('gzip')
+    expect(gunzipSync(degraded.body).toString()).toBe(NO_SIDECAR_SOURCE)
+
+    // Mutable assets keep the gzip path they had before the cache change.
+    const mutable = await rawRequest(port, '/app.js', { headers: { 'accept-encoding': 'gzip' } })
+    expect(mutable.headers['content-encoding']).toBe('gzip')
+    expect(gunzipSync(mutable.body).toString()).toBe('export {}')
   })
 })

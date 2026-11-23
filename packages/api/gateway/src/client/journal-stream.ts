@@ -15,7 +15,13 @@ function protocolViolation(message: string): RemoteError<'gateway/internal'> {
 
 /** Transport-neutral opening snapshot, durable entry, or cursorless notification. */
 export type RemoteJournalFrame<Entry, Cursor, Page, Notification = never> =
-  | { readonly type: 'opened'; readonly cursor: Cursor; readonly page: Page }
+  | {
+    readonly type: 'opened'
+    readonly cursor: Cursor
+    readonly page: Page
+    /** The page holds only entries after the resume cursor; append them to the published window. */
+    readonly resumed?: boolean
+  }
   | { readonly type: 'entry'; readonly entry: Entry }
   | ([Notification] extends [never]
     ? never
@@ -36,6 +42,18 @@ export type RemoteJournalChange<Page, Entry, Notification = never> =
     readonly hasMore: boolean
   }
   | { readonly type: 'append'; readonly entry: Entry }
+  | {
+    /**
+     * Reconnect opening that continued from the published cursor. The page is
+     * the generation's opening page; `entries` are only the new ones, already
+     * contiguous with the retained window, so the domain can rebase its
+     * opening metadata (baselines, view state) without a full-window request.
+     */
+    readonly type: 'resume'
+    readonly page: Page
+    readonly entries: readonly Entry[]
+    readonly hasMore: boolean
+  }
   | ([Notification] extends [never]
     ? never
     : { readonly type: 'notification'; readonly notification: Notification })
@@ -97,6 +115,8 @@ export abstract class RemoteJournalStream<
   private generation = 0
   private firstCursor: Cursor | undefined
   private lastCursor: Cursor | undefined
+  /** A resume attempt proved unusable; the next generation must ask for a full window. */
+  private resetResume = false
   private started = false
   private opened = false
   private disposed = false
@@ -114,7 +134,7 @@ export abstract class RemoteJournalStream<
   ) {
     this.stream = remote.$stream<RemoteJournalFrame<Entry, Cursor, Page, Notification>>({
       name: options.name,
-      open: signal => this.follow(this.initialRequest, signal),
+      open: signal => this.follow(this.generationRequest(), signal),
       ended: accepted => accepted
         ? new RemoteStreamCarrierError(`${options.name} ended without a terminal result`)
         : protocolViolation(
@@ -147,11 +167,28 @@ export abstract class RemoteJournalStream<
   protected abstract readPage(request: PageRequest, through: Cursor, signal: AbortSignal): Promise<Page>
 
   /**
-   * Derive an unbounded-tail request from the initial page request.
+   * Derive a full-window request from the initial page request.
    * @param initial - request used to open the journal window.
-   * @returns request suitable for reconnect and gap repair.
+   * @returns request suitable for the first generation and gap repair.
    */
   protected abstract repairRequest(initial: PageRequest): PageRequest
+
+  /**
+   * Derive a reconnect request that continues from the last applied cursor.
+   * A domain that cannot resume returns the full-window request; the Server
+   * decides whether the cursor is honourable.
+   * @param initial - request used to open the journal window.
+   * @param cursor - last cursor applied to the published window.
+   * @returns request suitable for one reconnect generation.
+   */
+  protected abstract resumeRequest(initial: PageRequest, cursor: Cursor): PageRequest
+
+  /** Request for the next physical generation: resume when possible, full window otherwise. */
+  private generationRequest(): PageRequest {
+    const last = this.lastCursor
+    if (this.resetResume || last === undefined) return this.repairRequest(this.initialRequest)
+    return this.resumeRequest(this.initialRequest, last)
+  }
 
   /** Cancellation lifetime shared by follow and page calls. */
   get signal(): AbortSignal {
@@ -263,13 +300,18 @@ export abstract class RemoteJournalStream<
     resumed: boolean,
   ): void {
     const opening = this.opening(initial, resumed)
+    if (opening.resumed) {
+      this.appendResumed(opening.page, opening.cursor)
+      return
+    }
+    this.resetResume = false
     this.replaceFromOpening(opening.page, opening.cursor)
   }
 
   private opening(
     item: RemoteStreamItem<RemoteJournalFrame<Entry, Cursor, Page, Notification>>,
     resumed: boolean,
-  ): { readonly cursor: Cursor; readonly page: Page } {
+  ): { readonly cursor: Cursor; readonly page: Page; readonly resumed: boolean } {
     if (item.value.type !== 'opened') {
       throw protocolViolation(`${resumed ? 'resumed ' : ''}${this.options.name} emitted an entry before its opening cursor`)
     }
@@ -282,7 +324,47 @@ export abstract class RemoteJournalStream<
     }
     this.generation = item.generation
     item.accept()
-    return { cursor, page: item.value.page }
+    return { cursor, page: item.value.page, resumed: resumed && item.value.resumed === true }
+  }
+
+  /**
+   * Publish a resumed opening as ordinary appends over the retained window.
+   * Entries the window already applied are skipped; a hole anywhere in the
+   * delta, or a delta that stops short of its cursor, discards it and asks the
+   * next generation for a full window instead.
+   * @param page - reopening page carrying only events after the resume cursor.
+   * @param cursor - durable cursor the delta must reach exactly.
+   */
+  private appendResumed(page: Page, cursor: Cursor): void {
+    const entries = [...this.options.entries(page)]
+    this.assertPage(entries)
+    let last = this.lastCursor as Cursor
+    const accepted: Entry[] = []
+    for (const entry of entries) {
+      const { first, last: end } = this.entryRange(entry)
+      if (this.options.compare(end, last) <= 0) continue
+      if (!this.options.follows(last, first)) {
+        this.restartWithoutResume()
+        return
+      }
+      if (this.firstCursor === undefined) this.firstCursor = first
+      last = end
+      accepted.push(entry)
+    }
+    if (this.options.compare(cursor, last) !== 0) {
+      this.restartWithoutResume()
+      return
+    }
+    this.lastCursor = last
+    this.setResumeCursor(last)
+    this.resetResume = false
+    this.options.publish({ type: 'resume', page, entries: accepted, hasMore: this.options.hasMore(page) })
+  }
+
+  /** Drop a contradictory resume generation and retry from a full window. */
+  private restartWithoutResume(): void {
+    this.resetResume = true
+    this.stream.restart()
   }
 
   /** Publish a generation's opening page without issuing a second Remote call. */

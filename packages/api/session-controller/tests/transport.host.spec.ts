@@ -625,7 +625,8 @@ describe('Session history and Web follow', () => {
     for (const turnWindow of [
       { minMessages: 0, minTurns: 2 },
       { minMessages: 1.5, minTurns: 2 },
-      { minMessages: 51, minTurns: 2 },
+      // The follow default admits up to 200 messages, so 201 is the first invalid minimum.
+      { minMessages: 201, minTurns: 2 },
       { minMessages: 50, minTurns: 0 },
       { minMessages: 50, minTurns: 1.5 },
     ]) {

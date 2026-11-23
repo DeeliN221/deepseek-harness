@@ -36,7 +36,10 @@ export {
 } from '../types.ts'
 
 /** Pagination fields bound to an already-addressed Session journal. */
-export type ClientSessionPageRequest = Omit<SessionPageRequest, 'address' | 'throughSeq'>
+export type ClientSessionPageRequest = Omit<SessionPageRequest, 'address' | 'throughSeq'> & {
+  /** Resume cursor accepted only by `session.follow`; page reads ignore it. */
+  readonly afterSeq?: number
+}
 
 /** Complete generated `ctx.remote.session` namespace. */
 export type SessionRemote = ClientRemote['session']
@@ -56,6 +59,12 @@ export type SessionJournalChange =
     readonly hasMore: boolean
   }
   | { readonly type: 'append'; readonly entry: SessionLiveEventEntry }
+  | {
+    readonly type: 'resume'
+    readonly page: SessionJournalPage
+    readonly entries: readonly SessionEventLikeEntry[]
+    readonly hasMore: boolean
+  }
   | { readonly type: 'assistant-stream'; readonly frame: SessionAssistantStreamFrame }
 
 function toSessionJournalChange(
@@ -73,6 +82,8 @@ function toSessionJournalChange(
         entry: change.entry as unknown as SessionLiveEventEntry,
       }
     }
+    case 'resume':
+      return { ...change, entries: historyEntries(change.entries) }
     case 'notification':
       return { type: 'assistant-stream', frame: change.notification }
   }
@@ -182,6 +193,8 @@ export class SessionEventStream extends RemoteJournalStream<
       activate: true,
       assistantStream: true,
       ...this.repairRequest(request),
+      // The resume cursor is generation state, not part of the opening window.
+      ...(request.afterSeq === undefined ? {} : { afterSeq: request.afterSeq }),
     }, signal)) {
       if (frame.type === 'snapshot') {
         for (const record of frame.records) assertSessionWireEvent(record.event)
@@ -202,6 +215,7 @@ export class SessionEventStream extends RemoteJournalStream<
             projections: frame.projections,
             assistantStream: frame.assistantStream,
           },
+          ...(frame.resumed === true ? { resumed: true } : {}),
         }
         continue
       }
@@ -234,6 +248,24 @@ export class SessionEventStream extends RemoteJournalStream<
     if (!result.ok) throw result.error
     for (const record of result.value.records) assertSessionWireEvent(record.event)
     return result.value
+  }
+
+  /**
+   * Ask a new connection generation for the events after the last applied one
+   * instead of the whole window. The Server answers `resumed` (a plain delta)
+   * or `reset` (a full window), so a Host that cannot honour the cursor never
+   * leaves the Client with a gap.
+   * @param request - opening window request retained for repair.
+   * @param cursor - last durable seq already applied locally.
+   * @returns the resume request, or the full-window fallback.
+   */
+  protected override resumeRequest(
+    request: ClientSessionPageRequest,
+    cursor: number,
+  ): ClientSessionPageRequest {
+    // -1 means no event has been applied yet: nothing to resume from.
+    if (cursor < 0) return this.repairRequest(request)
+    return { ...this.repairRequest(request), afterSeq: cursor }
   }
 
   /** @inheritdoc */

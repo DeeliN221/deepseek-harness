@@ -63,9 +63,11 @@ import type {
   SessionSelectModelValue,
   SessionProjectionsRequest,
   SessionProjectionsValue,
+  SessionFollowWindow,
   SessionUpdateQueueRequest,
   SessionUpdateQueueValue,
 } from './types.ts'
+import { DEFAULT_FOLLOW_WINDOW, MAX_HISTORY_PAGE_EVENTS } from './types.ts'
 
 export type * from './types.ts'
 export { ApiSessionNotFound } from './agent.ts'
@@ -113,10 +115,31 @@ export interface Config {
   readonly nativeOpen?: boolean
   /** Positive integral milliseconds of list work before yielding between complete rows. */
   readonly listWorkSliceMs?: number
+  /**
+   * Opening history window for `session.follow`. Request fields override it per
+   * field; omission keeps first paint on the default 500 events / 200 messages /
+   * one Turn. Paging (`loadOlder`) is unaffected and keeps its own larger budget.
+   */
+  readonly historyOpeningWindow?: {
+    /** Hard maximum durable events in one opening page. @default 500 */
+    readonly maxEvents?: number
+    /** Append-origin user and assistant message budget in one opening page. @default 200 */
+    readonly maxMessages?: number
+    /** Turn-alignment minima applied when the request supplies its own Turn window. */
+    readonly turnWindow?: {
+      /** Messages required before the page may end at a Turn start. @default 20 */
+      readonly minMessages?: number
+      /** Turn starts the opening page must cross. @default 1 */
+      readonly minTurns?: number
+    }
+  }
 }
 
 /** Deployment policy after schema defaults have been applied. */
-type ResolvedConfig = Config & { readonly listWorkSliceMs: number }
+type ResolvedConfig = Config & {
+  readonly listWorkSliceMs: number
+  readonly historyOpeningWindow: SessionFollowWindow
+}
 
 /** Host integrations replaceable by direct unit tests. */
 export interface SessionControllerInternals {
@@ -153,6 +176,14 @@ export class SessionController extends TypertRemoteService {
   static Config: z<Config, ResolvedConfig> = z.object({
     nativeOpen: z.boolean(),
     listWorkSliceMs: z.natural().min(1).default(16),
+    historyOpeningWindow: z.object({
+      maxEvents: z.natural().min(1).max(MAX_HISTORY_PAGE_EVENTS).default(DEFAULT_FOLLOW_WINDOW.maxEvents),
+      maxMessages: z.natural().min(1).default(DEFAULT_FOLLOW_WINDOW.maxMessages),
+      turnWindow: z.object({
+        minMessages: z.natural().min(1).default(DEFAULT_FOLLOW_WINDOW.turnWindow.minMessages),
+        minTurns: z.natural().min(1).default(DEFAULT_FOLLOW_WINDOW.turnWindow.minTurns),
+      }).default({ ...DEFAULT_FOLLOW_WINDOW.turnWindow }),
+    }).default({ ...DEFAULT_FOLLOW_WINDOW }),
   })
 
   private historyController!: HistoryController
@@ -169,6 +200,7 @@ export class SessionController extends TypertRemoteService {
   private readonly revealPath: (path: string, signal: AbortSignal) => Promise<void>
   private readonly canOpenPath: () => boolean
   private readonly listWorkSliceMs: number
+  private readonly historyOpeningWindow: SessionFollowWindow
   private readonly promotions = new Set<Promise<void>>()
 
   /**
@@ -178,7 +210,9 @@ export class SessionController extends TypertRemoteService {
    */
   constructor(ctx: Context, config: Config, internals: SessionControllerInternals = {}) {
     super(ctx, 'sessionController', { namespace: 'session' })
-    this.listWorkSliceMs = SessionController.Config(config).listWorkSliceMs
+    const resolved = SessionController.Config(config)
+    this.listWorkSliceMs = resolved.listWorkSliceMs
+    this.historyOpeningWindow = resolved.historyOpeningWindow
     this.fileApplications = internals.fileApplications ?? nativeFileApplications
     this.openFileApplication = internals.openFileApplication ?? openNativeFileApplication
     this.openPath = internals.openPath ?? openNativeAssociatedPath
@@ -208,7 +242,9 @@ export class SessionController extends TypertRemoteService {
     // opening frame arriving during that await would otherwise have no listener.
     this.historyController = new HistoryController(ctx)
     this.stateController = new StateController(ctx, this.historyController)
-    this.webController = new WebController(ctx, this.historyController, (observation) => { this.promote(observation) })
+    this.webController = new WebController(
+      ctx, this.historyController, (observation) => { this.promote(observation) }, this.historyOpeningWindow,
+    )
     this.listState = new ApiSessionList(ctx, this.listWorkSliceMs)
     await this.commands.initialize()
     ctx.fiber.assertActive()

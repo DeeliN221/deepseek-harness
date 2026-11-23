@@ -83,6 +83,14 @@ export interface DshProfileManifest {
   bundles?: string[]
 }
 
+/** Deferral metadata of a client row that may load after first paint. */
+export interface DshClientDeferredManifest {
+  /** Human-readable description of what materializes the row (`slot:<key>`, `command:<id>`, `route:<path>`). */
+  trigger?: string
+  /** Slot keys the row's registration fills; the shell renders a skeleton for them until the row arrives. */
+  slots?: string[]
+}
+
 /** Client module declaration read by client-modules and the client build. */
 export interface DshClientManifest {
   /** Client platform identifier; the Web consumer selects `web`. */
@@ -97,4 +105,11 @@ export interface DshClientManifest {
    * Type-only imports are erased and create no module request.
    */
   external?: string[]
+  /**
+   * Authoring intent that this row may be deferred: `true`, or the trigger and
+   * slot metadata the shell needs to materialize it on first need. It only
+   * takes effect when the running Host roster defers the package; a row that an
+   * eager row's `inject` requires is promoted back to eager either way.
+   */
+  deferred?: true | DshClientDeferredManifest
 }

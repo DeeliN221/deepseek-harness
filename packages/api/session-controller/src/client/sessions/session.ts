@@ -9,7 +9,7 @@ import type { MessageId } from '@deepseek-ai/dsh-llm/types'
 import type { UserMessage } from '@deepseek-ai/dsh-llm/types'
 import { SessionLogOffset, SessionSeq, type SessionId } from '@deepseek-ai/dsh-session/types'
 import { SessionEventStream } from '../transport.ts'
-import type { SessionJournalChange } from '../transport.ts'
+import type { ClientSessionPageRequest, SessionJournalChange } from '../transport.ts'
 import { DEFAULT_MAX_HISTORY_EVENTS } from '../../types.ts'
 import type {
   PromptContentPart,
@@ -52,6 +52,19 @@ function projectionsBaseline(value: SessionProjectionBaseline): ProjectionsBasel
 /** Minimum message count for ordinary history windows. */
 export const PAGE_MESSAGES = 50
 
+/**
+ * Opening request for the first follow page. It deliberately carries no window
+ * fields: the Host owns the (configurable) first-paint budget, so a deployment
+ * can shrink or grow it without rebuilding the Client. The returned page is
+ * self-describing (`records`, `hasMore`, `cursor`), so the Client needs no copy
+ * of those numbers.
+ */
+const OPENING_PAGE_OPTIONS: ClientSessionPageRequest = {}
+
+/**
+ * Extra history pulled by `loadOlder` and turn jumps: the full 2000-event page
+ * the Server has always allowed, independent of the smaller opening window.
+ */
 const HISTORY_PAGE_OPTIONS = {
   maxEvents: DEFAULT_MAX_HISTORY_EVENTS,
   maxMessages: 500,
@@ -127,6 +140,8 @@ export class Session implements SessionFace {
   private pendingHistory: PendingHistory | null = null
   private readonly stopObservingInbox: () => void
   private readonly assistantStream = new ClientAssistantStream()
+  /** Received durable window, including settlements held until an Assistant end frame. */
+  private durableEntries: SessionEventLikeEntry[] = []
   private running = false
   private observedTurn: number | undefined
   /** One local stop owns its receipt and feedback until its addressed turn settles. */
@@ -778,7 +793,7 @@ export class Session implements SessionFace {
     })
     this.events = events
     try {
-      await events.open(HISTORY_PAGE_OPTIONS)
+      await events.open(OPENING_PAGE_OPTIONS)
       if (generation !== this.openGeneration || this.events !== events) return
       this.openState = 'open'
     } catch (error) {
@@ -809,8 +824,18 @@ export class Session implements SessionFace {
         } else this.prependWindow(change.entries, change.hasMore)
         return
       case 'append':
+        this.durableEntries.push(change.entry)
         this.publishAssistantEntry(this.assistantStream.acceptDurable(change.entry))
         return
+      case 'resume': {
+        this.installWindow(
+          [...this.durableEntries, ...change.entries],
+          this.hasMore,
+          change.page.projections === undefined ? undefined : projectionsBaseline(change.page.projections),
+          change.page.assistantStream,
+        )
+        return
+      }
       case 'assistant-stream':
         this.publishAssistantEntry(this.assistantStream.acceptFrame(change.frame))
     }
@@ -826,7 +851,8 @@ export class Session implements SessionFace {
     // A durable gap-repair page has no assistant baseline. Clearing transient
     // attempts makes a held notification reopen follow once for an atomic
     // page/baseline pair instead of applying it to an unrelated repair cut.
-    const visible = this.assistantStream.replace(entries, assistantStream)
+    this.durableEntries = [...entries]
+    const visible = this.assistantStream.replace(this.durableEntries, assistantStream)
     if (this.olderRequest !== null && this.loadingOlder && !this.olderRequest.recovering) {
       this.olderRequest.invalidated = true
       this.olderRequest.page = null
@@ -904,6 +930,7 @@ export class Session implements SessionFace {
     this.baseSeq = entries[0] === undefined ? this.baseSeq : SessionLogOffset(entries[0].event.seq)
     this.hasMore = hasMore
     this.historyWasPartial ||= hasMore
+    this.durableEntries = [...entries, ...this.durableEntries]
     this.eventSource.prepend(entries, hasMore)
   }
 

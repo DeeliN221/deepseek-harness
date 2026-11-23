@@ -18,7 +18,8 @@ import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import { SlotCore, StaleAuthorizationError, standardHookPropName } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
-  HostObservable, LiveCompositionNode, LocaleFace, OwnerOf, RegisterFactory, SlotEntryDef, SlotMap, SlotRenderer, SlotRendererHost,
+  DeferredSlotDecl, DeferredSlotPhase, HostObservable, LiveCompositionNode, LocaleFace, OwnerOf, RegisterFactory,
+  SlotEntryDef, SlotMap, SlotRenderer, SlotRendererHost,
   RootStandardSourceContribution, ScopedStandardSourceBinding, SlotScope, SlotScopeAdapter, SlotSpec,
   StandardSourceBinding, StoredFactory,
   StoreDecl, StoreFactory, StoredEntry, StoreInstanceLike,
@@ -454,6 +455,28 @@ export class SlotRegistry extends Service {
   }
 
   /**
+   * Declare that a deferred client entry will fill one slot, so an outlet with
+   * no contribution renders a loading skeleton (and runs the first-need
+   * trigger) instead of an empty cell.
+   * @param decl - slot key, owning entry, trigger description, first-need trigger.
+   * @returns disposer withdrawing the hint.
+   */
+  deferSlot(decl: DeferredSlotDecl): () => void {
+    return this._core.declareDeferredSlot(decl)
+  }
+
+  /**
+   * Publish one deferred entry's phase to its slot hints; `ready` withdraws the
+   * skeleton, `failed` renders the entry's failure text in its place.
+   * @param entry - deferred client entry (package name).
+   * @param phase - new phase.
+   * @param message - failure text for `failed`.
+   */
+  setDeferredPhase(entry: string, phase: DeferredSlotPhase, message?: string): void {
+    this._core.setDeferredPhase(entry, phase, message)
+  }
+
+  /**
    * Subscribe to a key's registration changes (microtask-batched).
    * @param key - SlotMap key.
    * @param fn - change callback.
@@ -547,6 +570,7 @@ export class SlotRegistry extends Service {
       reportEntryError: (key, entry, error, info) => { this._core.reportEntryError(key, entry, error, info) },
       reportFactoryError: (name, registration, error) => { this._core.reportFactoryError(name, registration, error) },
       specOf: key => this._core.specDynamic(key),
+      deferralOf: key => this._core.deferralOf(key),
       isLive: entry => this._core.isLive(entry),
       storeOf: (entry, scopeBinding) =>
         entry.store === undefined

@@ -51,6 +51,7 @@ function hostOver(core: SlotCore): SlotRendererHost {
     reportEntryError: (key, entry, error, info) => { core.reportEntryError(key, entry, error, info) },
     reportFactoryError: (name, definition, error) => { core.reportFactoryError(name, definition, error) },
     specOf: key => core.specDynamic(key),
+    deferralOf: key => core.deferralOf(key),
     isLive: entry => core.isLive(entry),
     storeOf: () => undefined,
     factoryStoreOf: () => undefined,

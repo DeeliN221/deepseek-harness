@@ -39,11 +39,16 @@ import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Entry } from '@deepseek-ai/cordis-plugin-loader'
 import type { IndexInjection } from '@deepseek-ai/dsh-host-webserver'
+import type { DshClientDeferredManifest } from '@deepseek-ai/dsh-package-manifest'
 import { PACKAGE_ASSET_SEGMENT, packageAssetMediaType } from './assets.ts'
-import { exactPackageSpecifier, parseDshClient, stripClientSuffix } from './client/manifest.ts'
+import { eagerClosureIds, exactPackageSpecifier, parseDshClient, stripClientSuffix } from './client/manifest.ts'
 import type { WebBootBatch, WebBootBatchPhase, WebBootEntry, WebBootGraph, WebBootRelease } from './client/manifest.ts'
+import { DEFAULT_DEFERRED_ROWS, DEFERRED_ROSTER_ENV, resolveDeferredRoster } from './roster.ts'
+import type { DeferredRowHint, ResolvedDeferredRoster } from './roster.ts'
 
 export { stripClientSuffix } from './client/manifest.ts'
+export { DEFAULT_DEFERRED_ROWS, DEFERRED_ROSTER_ENV, resolveDeferredRoster } from './roster.ts'
+export type { DeferredRowConfig, DeferredRowHint, ResolvedDeferredRoster } from './roster.ts'
 export type {
   BootManifest, BootModuleRow, BootPluginRow, WebBootBatch, WebBootBatchPhase, WebBootEntry, WebBootGraph, WebBootRelease,
 } from './client/manifest.ts'
@@ -80,6 +85,8 @@ interface PkgMeta extends WebBootRowFields {
   clientPath: string
   /** The package's own manifest; package-asset requests resolve against it as a self-reference. */
   manifestPath: string
+  /** The package's `dsh.client.deferred` authoring intent, when it declared one. */
+  declared?: true | DshClientDeferredManifest
 }
 
 interface ResolvedPkgMeta {
@@ -660,6 +667,10 @@ export class ClientModuleRegistry extends Service {
   private batchResponses = new Map<string, LazyResponse>()
   /** One prior graph generation covers a request racing the HMR recomposition that replaced its URL. */
   private previousBatchResponses = new Map<string, LazyResponse>()
+  /** Deferred-row roster resolved from the shipped default plus the operator's environment tokens. */
+  private readonly roster: ResolvedDeferredRoster = resolveDeferredRoster(DEFAULT_DEFERRED_ROWS, process.env[DEFERRED_ROSTER_ENV])
+  /** Promotion warnings already reported, so one flush loop cannot spam the log. */
+  private readonly warnedPromotions = new Set<string>()
   private flushQueued = false
   private composed: WebBootGraph
 
@@ -818,14 +829,82 @@ export class ClientModuleRegistry extends Service {
     return () => { this.graphListeners.delete(listener) }
   }
 
+  /**
+   * Ids this composition defers, after dependency safety: a row the roster or
+   * its own declaration defers is promoted back to eager when any eager row's
+   * `inject` reaches it, because that eager entry waits on a service only the
+   * deferred row provides. The closure is a fixpoint over the whole row set, so
+   * declaration order cannot hide a promotion.
+   * @returns entry id → deferral metadata, for rows that stay deferred.
+   */
+  private deferredIds(): Map<string, DeferredRowHint> {
+    const hinted = new Map<string, DeferredRowHint>()
+    for (const record of this.table.values()) {
+      const hint = this.deferralHint(record)
+      if (hint !== undefined) hinted.set(record.entry.id, hint)
+    }
+    if (hinted.size === 0) return hinted
+    const rows = [...this.table.values()].map(record => ({
+      id: record.entry.id,
+      inject: record.meta.inject ?? [],
+      lazy: hinted.has(record.entry.id),
+    }))
+    const eager = eagerClosureIds(rows)
+    for (const id of [...hinted.keys()]) {
+      if (!eager.has(id)) continue
+      hinted.delete(id)
+      if (this.warnedPromotions.has(id)) continue
+      this.warnedPromotions.add(id)
+      this.ctx.logger.warn(
+        `client-modules: promoting deferred row "${id}" back to eager — an eager row injects it, `
+        + 'so deferring it would leave that entry waiting for its service',
+      )
+    }
+    return hinted
+  }
+
+  /**
+   * Whether one composed row is a deferral candidate: the roster names it or
+   * its own `dsh.client.deferred` asks for it, and it is neither bootstrap
+   * infrastructure nor a stage-one `immediately` row.
+   * @param record - active client row.
+   * @returns its deferral metadata, or undefined when it must stay eager.
+   */
+  private deferralHint(record: WebPluginRecord): DeferredRowHint | undefined {
+    const id = record.entry.id
+    if (id === CLIENT_MODULES_ID || record.meta.immediately) return undefined
+    if (this.roster.removed.has(id)) return undefined
+    const declared = record.meta.declared
+    const configured = this.roster.rows.get(id)
+    if (declared === undefined && configured === undefined) return undefined
+    const declaredMeta = declared === undefined || declared === true ? undefined : declared
+    const slots = [...new Set([...configured?.slots ?? [], ...declaredMeta?.slots ?? []])]
+    const trigger = declaredMeta?.trigger ?? configured?.trigger ?? `deferred client entry ${id}`
+    return { slots, trigger }
+  }
+
   private compose(): WebBootGraph {
-    const entries = orderByModuleGraph([...this.table.values()].map(record => record.entry))
+    const deferred = this.deferredIds()
+    const ordered = orderByModuleGraph([...this.table.values()].map(record => record.entry))
+    const entries = ordered.map((entry) => {
+      const hint = deferred.get(entry.id)
+      if (hint === undefined) return entry
+      return {
+        ...entry,
+        lazy: true as const,
+        ...(hint.trigger === undefined ? {} : { trigger: hint.trigger }),
+        ...(hint.slots.length === 0 ? {} : { slots: [...hint.slots] }),
+      }
+    })
     const bootstrap = PARSER_PRELOAD_IDS
       .map(id => this.table.get(id))
       .filter((record): record is WebPluginRecord => record !== undefined)
     const bootstrapIds = new Set(bootstrap.map(record => record.entry.id))
+    // Deferred rows belong to no batch: that is what keeps their bytes off the
+    // first paint (an application batch is both preloaded in <head> and fetched
+    // by the first entry that imports one of its rows).
     const application = entries
-      .filter(entry => !bootstrapIds.has(entry.id))
+      .filter(entry => !bootstrapIds.has(entry.id) && !deferred.has(entry.id))
       .map(entry => this.table.get(entry.id))
       .filter((record): record is WebPluginRecord => record !== undefined)
     const artifacts: BatchArtifact[] = []
@@ -913,6 +992,7 @@ export class ClientModuleRegistry extends Service {
       ...(decl.inject !== undefined ? { inject: decl.inject } : {}),
       external: decl.external ?? [],
       immediately: decl.immediately === true,
+      ...(decl.deferred === undefined ? {} : { declared: decl.deferred }),
     }
     return { packageName, meta }
   }

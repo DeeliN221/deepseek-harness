@@ -500,6 +500,29 @@ export interface SessionWireEvent {
 export const DEFAULT_MAX_HISTORY_EVENTS = 2_000
 export const MAX_HISTORY_PAGE_EVENTS = 5_000
 
+/**
+ * Opening history window a `session.follow` request gets when it omits the
+ * window fields. It is deliberately much smaller than a paging request: first
+ * paint only needs the tail the Client renders, while `loadOlder` keeps the
+ * full 2000-event page. The Host deployment policy may replace these numbers
+ * through `historyOpeningWindow` without rebuilding the Client.
+ */
+export const DEFAULT_FOLLOW_WINDOW = {
+  maxEvents: 500,
+  maxMessages: 200,
+  turnWindow: { minMessages: 20, minTurns: 1 },
+} as const
+
+/** Opening history window after Host configuration resolution. */
+export interface SessionFollowWindow {
+  readonly maxEvents: number
+  readonly maxMessages: number
+  readonly turnWindow: {
+    readonly minMessages: number
+    readonly minTurns: number
+  }
+}
+
 /** One event-bounded backwards-history request. */
 export interface SessionPageRequest {
   readonly address: SessionAddress
@@ -528,6 +551,14 @@ export interface SessionFollowRequest extends Pick<SessionPageRequest, 'maxEvent
   readonly activate?: boolean
   /** Include process-local assistant presentation frames for the Web client. */
   readonly assistantStream?: true
+  /**
+   * Highest event seq the caller already applied. A Host that can prove the log
+   * tail from here is replayable answers with those events only and marks the
+   * snapshot `resumed`; otherwise it answers a bounded full window marked
+   * `reset`. A cursor ahead of the log is rejected as `gateway/bad-request`.
+   * Omission keeps the plain full-window opening.
+   */
+  readonly afterSeq?: number
 }
 
 /** One active assistant attempt in a reconnect opening snapshot. */
@@ -598,6 +629,10 @@ export type SessionFollowFrame =
     readonly hasMore: boolean
     readonly projections: SessionProjectionBaseline
     readonly assistantStream?: SessionAssistantStreamBaseline
+    /** Present only when `records` are exactly the events strictly after the request's `afterSeq`. */
+    readonly resumed?: true
+    /** Present only when a resume was requested but could not be honoured, so `records` is a fresh window. */
+    readonly reset?: true
   }
   | SessionEventEntry
   | { readonly type: 'assistant-stream'; readonly frame: SessionAssistantStreamFrame }

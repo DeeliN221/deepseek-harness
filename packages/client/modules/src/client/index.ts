@@ -26,9 +26,10 @@ export { exactPackageSpecifier, parseBootManifest, parseDshClient, stripClientSu
 export type {
   BootManifest, BootModuleRow, BootPluginRow, ClientBootstrapModule, ClientBundleRegistration,
   ClientModuleCreateOptions, ClientModuleLoader, ClientModuleLoaderTarget, ClientModuleRecord,
-  ClientModuleSystemOptions, DshWindow,
+  ClientModuleSystemOptions, DeferredEntryInfo, DeferredEntryPhase, DeferredEntryStatus, DshWindow,
   WebBootEntry, WebBootGraph, WebBootRelease,
 } from './manifest.ts'
+export { eagerClosureIds } from './manifest.ts'
 
 /**
  * Build the live module system from the HTML facade's materialized modules bundle.

@@ -13,7 +13,10 @@ import { SessionSeq } from '@deepseek-ai/dsh-session/types'
 import { paginate } from '../src/history.ts'
 import { HistoryController } from '../src/history/controller.ts'
 import { WebController } from '../src/web/controller.ts'
-import type { SessionFollowFrame, SessionPage, SessionWireEvent } from '@deepseek-ai/dsh-api-session-controller/types'
+import {
+  DEFAULT_FOLLOW_WINDOW,
+  type SessionFollowFrame, type SessionFollowWindow, type SessionPage, type SessionWireEvent,
+} from '@deepseek-ai/dsh-api-session-controller/types'
 import { createSessionTestRemote, installSessionReadTestServices } from './test-remote.ts'
 
 type CheckpointSource = Extract<MessageSource, { readonly kind: 'compact-checkpoint' }>
@@ -813,6 +816,7 @@ describe('Session history raw journal', () => {
       const abort = new AbortController()
       const stream = remote.follow({
         address: { kind: 'session', sessionId: session.id },
+        maxEvents: 2_000,
         maxMessages: 500,
         turnWindow: { minMessages, minTurns: 2 },
       }, abort.signal)[Symbol.asyncIterator]()
@@ -1129,5 +1133,119 @@ describe('Session history raw journal', () => {
       await iterator.next()
       await ctx.fiber.dispose()
     }
+  })
+
+  it('resumes a follow with only the events after the caller cursor', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    appendUserText(session, 'one')
+    appendUserText(session, 'two')
+    const { web } = await controllers(ctx)
+    const abort = new AbortController()
+    const iterator = web.follow({
+      address: { kind: 'session', sessionId: session.id },
+    }, abort.signal)[Symbol.asyncIterator]()
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { type: 'snapshot', cursor: 1 },
+    })
+    abort.abort()
+    await iterator.return?.()
+    appendUserText(session, 'three')
+
+    const resumedAbort = new AbortController()
+    const resumedIterator = web.follow({
+      address: { kind: 'session', sessionId: session.id },
+      afterSeq: 1,
+    }, resumedAbort.signal)[Symbol.asyncIterator]()
+    const resumed = await resumedIterator.next()
+    resumedAbort.abort()
+    await resumedIterator.return?.()
+    if (resumed.done === true || resumed.value.type !== 'snapshot') throw new Error('expected a snapshot')
+    expect(resumed.value).toMatchObject({ resumed: true, cursor: 2, hasMore: true })
+    expect(pageEvents(resumed.value).map(event => event.seq)).toEqual([2])
+  })
+
+  it('falls back to a marked full window when the tail cannot replay over the caller window', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    appendUserText(session, 'one')
+    appendAssistantText(session, 'two', 1)
+    // A replacement shadows earlier surface content, so replaying only the
+    // events after the cursor would lose the content it replaced.
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'replacement' }],
+      source: { kind: 'user' },
+    }), {
+      surfaceOp: { op: 'replace', startSeq: SessionSeq(1), endSeq: SessionSeq(1) },
+      sourceEventSeqs: [SessionSeq(1)],
+    })
+    const { web } = await controllers(ctx)
+
+    const openWith = async (afterSeq: number, window: { maxEvents?: number; maxMessages?: number } = {}) => {
+      const abort = new AbortController()
+      const iterator = web.follow({
+        address: { kind: 'session', sessionId: session.id },
+        afterSeq,
+        ...window,
+      }, abort.signal)[Symbol.asyncIterator]()
+      const frame = await iterator.next()
+      abort.abort()
+      await iterator.return?.()
+      if (frame.done === true || frame.value.type !== 'snapshot') throw new Error('expected a snapshot')
+      return frame.value
+    }
+
+    const replacement = await openWith(0)
+    expect(replacement).toMatchObject({ reset: true, cursor: 2 })
+    expect(pageEvents(replacement).map(event => event.seq)).toEqual([0, 1, 2])
+
+    // A delta larger than the opening ceiling is not replayable either.
+    const oversized = await openWith(0, { maxEvents: 1, maxMessages: 1 })
+    expect(oversized).toMatchObject({ reset: true })
+    expect(pageEvents(oversized).map(event => event.seq).length).toBe(1)
+
+    // A reconnect cannot move behind the last cursor the Client applied.
+    await expect(openWith(9)).rejects.toMatchObject({ code: 'gateway/bad-request' })
+    for (const afterSeq of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
+      await expect(openWith(afterSeq)).rejects.toMatchObject({ code: 'gateway/bad-request' })
+    }
+  })
+
+  it('bounds first paint to the Host opening window and lets a request override it per field', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    for (let index = 0; index < 210; index++) appendUserText(session, `prompt ${String(index)}`)
+    const history = new HistoryController(ctx)
+    const dispose = (observation: { [Symbol.dispose](): void }): void => { observation[Symbol.dispose]() }
+    const open = async (window?: SessionFollowWindow, request: { maxMessages?: number } = {}) => {
+      const web = window === undefined
+        ? new WebController(ctx, history, dispose)
+        : new WebController(ctx, history, dispose, window)
+      const abort = new AbortController()
+      const iterator = web.follow({
+        address: { kind: 'session', sessionId: session.id },
+        ...request,
+      }, abort.signal)[Symbol.asyncIterator]()
+      const frame = await iterator.next()
+      abort.abort()
+      await iterator.return?.()
+      if (frame.done !== false || frame.value.type !== 'snapshot') throw new Error('expected a snapshot')
+      return frame.value
+    }
+    const messages = (page: { readonly records: readonly { readonly event: { readonly type: string } }[] }): number =>
+      page.records.filter(record => record.event.type === 'user/message').length
+
+    // No request window: the documented Host default applies instead of the paging ceiling.
+    const defaultPage = await open()
+    expect(messages(defaultPage)).toBe(DEFAULT_FOLLOW_WINDOW.maxMessages)
+    expect(defaultPage.hasMore).toBe(true)
+
+    // Deployment policy replaces the default without a Client rebuild.
+    const configured = await open({ maxEvents: 50, maxMessages: 3, turnWindow: { minMessages: 2, minTurns: 1 } })
+    expect(messages(configured)).toBe(3)
+
+    // An explicit request field overrides only that field of the Host window.
+    const overridden = await open(undefined, { maxMessages: 4 })
+    expect(messages(overridden)).toBe(4)
   })
 })

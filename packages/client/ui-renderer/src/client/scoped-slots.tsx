@@ -1351,6 +1351,50 @@ function SlotOutlet({ slotKey, ownerProps, opts, declaredInline }: {
   )
 }
 
+
+/**
+ * Loading skeleton or failure face for a slot whose owner declared a deferred
+ * provider. The first render runs the entry's first-need trigger; once the
+ * entry registers, `deferralOf` returns undefined and the real contribution
+ * renders through the ordinary dispatch path. Nothing else about dispatch
+ * changes — this is a placeholder for an empty cell, not a second renderer.
+ */
+function DeferredSlotFace(props: {
+  slotKey: string
+  anchor: SlotAnchorTag
+  fallback: ReactNode
+}): ReactNode {
+  const host = useHost()
+  const view = host.deferralOf(props.slotKey)
+  const requested = useRef(new Set<string>())
+  useEffect(() => {
+    if (view === undefined || requested.current.has(view.entry) || view.phase === 'failed') return
+    requested.current.add(view.entry)
+    view.activate()
+  }, [view])
+  const Anchor = props.anchor
+  if (view === undefined) return <>{props.fallback}</>
+  if (view.phase === 'failed') {
+    return (
+      <Anchor
+        data-slot-error={props.slotKey}
+        data-slot-deferred-failed={view.entry}
+        title={view.message}
+      >
+        {view.message}
+      </Anchor>
+    )
+  }
+  return (
+    <Anchor
+      data-slot-deferred={props.slotKey}
+      data-slot-deferred-entry={view.entry}
+      aria-busy="true"
+      style={{ display: 'inline-block', blockSize: '1em', inlineSize: '6em', borderRadius: '4px', background: 'currentColor', opacity: 0.15, verticalAlign: 'middle' }}
+    />
+  )
+}
+
 /** Kind dispatch behind the outlet anchor (single/keyed/list/chain/hoc, fallbacks, crash faces). */
 function renderOutletContent(
   host: SlotRendererHost,
@@ -1437,14 +1481,20 @@ function renderOutletContent(
 
   if (spec.kind === 'single') {
     const entry = host.entriesOfSlot(slotKey)[0]
-    if (!entry) return entries.length > 0 ? deadCell() : <>{opts?.fallback ?? null}</>
+    if (!entry) {
+      return entries.length > 0
+        ? deadCell()
+        : <DeferredSlotFace slotKey={slotKey} anchor={Anchor} fallback={opts?.fallback ?? null} />
+    }
     return guarded(entry, entryKeyOf(entry))
   }
   if (spec.kind === 'keyed') {
     const entry = host.entriesOfSlot(slotKey).find(e => e.options.key === opts?.entryKey)
     if (!entry) {
       const occupied = entries.some(e => e.options.key === opts?.entryKey)
-      return occupied ? deadCell() : <>{opts?.fallback ?? null}</>
+      return occupied
+        ? deadCell()
+        : <DeferredSlotFace slotKey={slotKey} anchor={Anchor} fallback={opts?.fallback ?? null} />
     }
     return guarded(entry, entryKeyOf(entry))
   }
@@ -1497,7 +1547,15 @@ function renderOutletContent(
   }
   let list = [...rows].sort((a, b) => a.order - b.order)
   if (opts?.only !== undefined) list = list.filter(item => item.id === opts.only)
-  if (list.length === 0) return <>{opts?.fallback ?? null}</>
+  // A deferred provider owns one row of this list: other rows still render, so
+  // the placeholder is appended rather than replacing the list (an explicit
+  // `only` filter names one cell, so the missing row is not addressed there).
+  const deferredRow = opts?.only === undefined && host.deferralOf(slotKey) !== undefined
+    ? <DeferredSlotFace slotKey={slotKey} anchor={Anchor} fallback={null} />
+    : null
+  if (list.length === 0) {
+    return <>{deferredRow ?? opts?.fallback ?? null}</>
+  }
   // Winner rows key by entry identity (see entryKeyOf); dry-cell rows key by
   // id — the disjoint prefixes keep the two namespaces from colliding.
   return (
@@ -1505,6 +1563,7 @@ function renderOutletContent(
       {list.map((item, i) => item.entry !== undefined
         ? guarded(item.entry, `e${entryKeyOf(item.entry)}`)
         : <Anchor data-slot-error={slotKey} key={`x${item.id ?? i}`} />)}
+      {deferredRow}
     </>
   )
 }

@@ -147,6 +147,13 @@ type ConnectionRpcError = Extract<ConnectionRpcResult, { readonly ok: false }>['
 const NEVER_ABORTED_SIGNAL = new AbortController().signal
 const DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS = 2_000
 const DEFAULT_STREAM_INBOX_BYTES = 262_144
+/**
+ * Data frames at or above this UTF-16 length are deflated. The old 1,024
+ * ceiling left ordinary streaming frames (a ~250 B token frame) uncompressed;
+ * 128 still keeps handshake-sized control chatter out of the deflater while
+ * compressing every token frame.
+ */
+const DEFAULT_WEBSOCKET_COMPRESSION_THRESHOLD = 128
 const EMPTY_ASYNC_ITERABLE: AsyncIterable<never> = {
   [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({ value: undefined, done: true }) }),
 }
@@ -161,12 +168,19 @@ export interface Config {
   readonly streamInboxBytes?: number
   /** Per-message compression for the Remote stream WebSocket; `'none'` disables the extension. @default 'deflate' */
   readonly websocketCompression?: 'none' | 'deflate'
+  /**
+   * UTF-16 code-unit length at or above which a data frame is deflated; `0`
+   * deflates every data frame. Control frames (`end`, `error`) and WebSocket
+   * ping/pong frames are never compressed. @default 128
+   */
+  readonly websocketCompressionThreshold?: number
 }
 
 interface ResolvedConfig extends Config {
   readonly websocketHeartbeatIntervalMs: number
   readonly streamInboxBytes: number
   readonly websocketCompression: 'none' | 'deflate'
+  readonly websocketCompressionThreshold: number
 }
 
 /**
@@ -217,6 +231,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
       .default(DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS),
     streamInboxBytes: z.number().step(1).min(1).default(DEFAULT_STREAM_INBOX_BYTES),
     websocketCompression: z.union([z.const('none'), z.const('deflate')]).default('deflate'),
+    websocketCompressionThreshold: z.natural().default(DEFAULT_WEBSOCKET_COMPRESSION_THRESHOLD),
   })
 
   /** Carrier adapter shared by the WebSocket mux and local Host transports. */
@@ -261,6 +276,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
             heartbeatIntervalMs: resolved.websocketHeartbeatIntervalMs,
             streamInboxBytes: resolved.streamInboxBytes,
             compression: resolved.websocketCompression === 'deflate',
+            compressionThreshold: resolved.websocketCompressionThreshold,
           },
         )
         webCtx.effect(function* () {
