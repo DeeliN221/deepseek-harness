@@ -21,8 +21,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-  FishLogo, IconAppsAddOutlineRegular, IconNewChatOutlineMedium, IconNewChatOutlineRegular,
-  IconPanelLeftOutlineRegular, IconPinFillRegular, focusWithoutRing, isBehindModal, isDarwinDesktop, Menu, ShortcutKeys, Toast,
+  FishLogo, IconAppsAddOutlineRegular, IconNewChatOutlineRegular,
+  IconPanelLeftOutlineRegular, IconPinFillRegular, focusWithoutRing, isBehindModal, isDarwinDesktop, Menu, Toast,
   Tooltip, useModalLayer, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRenderFactories, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -170,6 +170,7 @@ export function SidebarRoot({
   const panels = usePanels(snapshot => snapshot)
   const unpinned = useEntryPins(ids => ids)
   const activePanelId = usePanelInfo(info => info.activePanelId)
+  const pluginsPanel = panels.find(({ id }) => id === FIXED_PANEL_ID)
   const hasEntryActions = useEntryActions(registered => registered)
   const shortcut = useShortcuts(rows => rows.find(row => row.id === 'sidebar.left.toggle'))
   const newShortcut = useShortcuts(rows => rows.find(row => row.id === 'session.new'))
@@ -324,9 +325,8 @@ export function SidebarRoot({
       }}
       onPointerLeave={() => { armLinger() }}
     >
-      {/* macOS hiddenInset titlebar: the strip shares the row with the
-          traffic lights and keeps the toggle at the sidebar's top-right. */}
-      {darwinDesktop && <div className={css.topStrip} data-window-drag>{toggle}</div>}
+      {/* macOS hiddenInset titlebar: retain traffic-light clearance and the collapsed toggle. */}
+      {darwinDesktop && <div className={css.topStrip} data-window-drag>{!wide && toggle}</div>}
       <div className={css.logoRow} data-window-drag>
         {/* Expanded, the brand doubles as a New Session shortcut while the
             access snapshot allows `session/create` — except on
@@ -375,14 +375,32 @@ export function SidebarRoot({
               </button>
             )
         })()}
-        {!darwinDesktop && toggle}
+        {wide && pluginsPanel !== undefined && (
+          <Tooltip label={pluginsPanel.label} delayMs={500} side="bottom" portal>
+            <button
+              type="button"
+              className={clsx(css.iconButton, css.pluginsButton)}
+              aria-label={pluginsPanel.label}
+              aria-current={activePanelId === pluginsPanel.id ? 'page' : undefined}
+              onClick={() => {
+                trackEntryClick({ menu_name: 'plugin', position: 'sidebar' })
+                selectPanel(pluginsPanel.id)
+              }}
+            >
+              <span className={css.panelGlyph} aria-hidden="true">
+                {renderFactorySlot('sidebar.panel.icon', { id: pluginsPanel.id, size: 16, active: activePanelId === pluginsPanel.id })}
+              </span>
+            </button>
+          </Tooltip>
+        )}
+        {(!darwinDesktop || wide) && toggle}
       </div>
 
       {/* The label fades before the hover/focus shortcut, including on translucent backgrounds. */}
       {canStartSession && (
         <div className={css.newSessionRow}>
           {renderSlot('sidebar.session.action', { wide }, {
-            children: (
+            children: !wide && (
               <Tooltip label={t('session.new.label')} shortcutKeys={newShortcut?.keys} delayMs={500} side={captionTooltipSide} disabled={wide}>
                 <button
                   type="button"
@@ -392,14 +410,8 @@ export function SidebarRoot({
                   onClick={openNewSession}
                 >
                   <span className={css.newSessionLabelMask}><span className={css.newSessionContent}>
-                    {wide
-                      ? <IconNewChatOutlineMedium size={14} />
-                      : <IconNewChatOutlineRegular size={windowsTitlebar ? 16 : 18} />}
-                    {wide && <span className={clsx(css.newSessionLabel, css.wide)}>{t('session.new')}</span>}
+                    <IconNewChatOutlineRegular size={windowsTitlebar ? 16 : 18} />
                   </span></span>
-                  {wide && newShortcut !== undefined && newShortcut.keys.length > 0 && <span className={css.newSessionShortcut} aria-hidden="true">
-                    <ShortcutKeys keys={newShortcut.keys} />
-                  </span>}
                 </button>
               </Tooltip>
             ),
@@ -415,22 +427,23 @@ export function SidebarRoot({
         >
           {panels.length > 0 && (
             <nav className={css.panelList} aria-label={t('panels.label')}>
-              {panels.filter(({ id }) => id === FIXED_PANEL_ID || !hasEntryActions || !unpinned.includes(id)).map(({ id, label }) => (
-                <PanelRow
-                  key={id}
-                  id={id}
-                  label={label}
-                  wide={wide}
-                  unpinLabel={t('panels.unpin', { name: label })}
-                  unpinTooltip={t('panels.unpinTooltip')}
-                  canUnpin={hasEntryActions && id !== FIXED_PANEL_ID}
-                  setPinned={setPinned}
-                  usePanelInfo={usePanelInfo}
-                  selectPanel={selectPanel}
-                  trackEntryClick={trackEntryClick}
-                  renderFactorySlot={renderFactorySlot}
-                />
-              ))}
+              {panels.filter(({ id }) => id === FIXED_PANEL_ID ? !wide : !hasEntryActions || !unpinned.includes(id))
+                .map(({ id, label }) => (
+                  <PanelRow
+                    key={id}
+                    id={id}
+                    label={label}
+                    wide={wide}
+                    unpinLabel={t('panels.unpin', { name: label })}
+                    unpinTooltip={t('panels.unpinTooltip')}
+                    canUnpin={hasEntryActions && id !== FIXED_PANEL_ID}
+                    setPinned={setPinned}
+                    usePanelInfo={usePanelInfo}
+                    selectPanel={selectPanel}
+                    trackEntryClick={trackEntryClick}
+                    renderFactorySlot={renderFactorySlot}
+                  />
+                ))}
               {hasEntryActions && (
                 <PanelMoreMenu
                   wide={wide}
