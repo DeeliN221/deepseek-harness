@@ -81,11 +81,10 @@
   padding-inline-start: max(0px, calc(var(--dsh-frame-leading-clearance, 0px) - 20px));
 }
 
-/* Header actions do not shrink, so on a narrow row they overflow the cluster.
-   The cluster clips them, hit testing included, so the next control keeps
-   every click. The trailing padding spans the gap before that control and
-   holds the fade: content that fits ends before it, and only overflowing
-   content reaches it. The 4px block and start padding, offset by negative
+/* Only title content belongs in this clipping cluster; header actions stay
+   outside so narrow columns cannot clip their hit targets. The trailing
+   padding spans the gap before the next control and holds the fade: content
+   that fits ends before it, and only overflowing content reaches it. The 4px block and start padding, offset by negative
    margins, keeps focus rings inside the clip. `clip` rather than `hidden`
    keeps the cluster from becoming a scroll container that focus could scroll. */
 .titleCluster {
@@ -173,6 +172,11 @@
   flex: none;
   align-items: center;
   gap: 10px;
+  margin-inline-start: 20px;
+}
+
+.headerActions:empty {
+  display: none;
 }
 
 @container (max-width: 460px) {
@@ -265,6 +269,24 @@
   .viewTabs {
     gap: 24px;
   }
+}
+
+/* Header actions (background jobs, subagent catalog) sit at the trailing end
+   of the View tab row, so the title row stays reserved for the session title
+   and the strip keeps the conversation height. They never shrink and keep the
+   right edge while the tabs scroll underneath. */
+.tabActions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  align-self: center;
+  gap: 8px;
+  margin-inline-start: auto;
+  padding-inline-start: 8px;
+}
+
+.tabActions:empty {
+  display: none;
 }
 
 /* The 16px text line retains 9px below it. The press target extends 10px

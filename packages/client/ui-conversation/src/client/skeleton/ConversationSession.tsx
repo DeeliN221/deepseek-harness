@@ -57,6 +57,20 @@ function equalBreadcrumbs(left: readonly Breadcrumb[], right: readonly Breadcrum
 }
 
 /**
+ * Views that only make sense while the Session has child (subagent) sessions:
+ * the tab stays hidden until a subagent is delegated, and reappears on demand.
+ */
+const SUBAGENT_VIEW_IDS: readonly string[] = ['fleet']
+
+/** Whether any child Session (a delegated subagent) belongs to this Session. */
+function hasChildSessions(list: SessionListState, sessionId: SessionId): boolean {
+  for (const summary of Object.values(list.byId)) {
+    if (summary.origin === 'subagent' && summary.parentId === sessionId) return true
+  }
+  return false
+}
+
+/**
  * Renders Session header chrome above the resident conversation scrollport.
  * @param props - Strict Session store, view ledger, navigation, render, and locale shares.
  * @returns Session navigation controls, with title and tabs after conversation starts.
@@ -68,11 +82,13 @@ export function ConversationSessionHeader({
   const { getTriggerProps } = useContextMenu()
   const tabs = useConversationViews(value => value)
   const selectedId = useStore(s => s.view)
-  const active = resolveActiveView(tabs, selectedId)
   const ancestry = useSessions(s => deriveAncestry(s, sessionId), equalBreadcrumbs)
+  const hasChildSessionsForTab = useSessions(s => hasChildSessions(s, sessionId))
   const order = useViewTabs(selection => selection)
-  const showTabs = !hideChrome && tabs.length > 1
   const headerTabs = orderedViewTabs(tabs, order)
+    .filter(viewTab => !SUBAGENT_VIEW_IDS.includes(viewTab.id) || hasChildSessionsForTab || viewTab.id === selectedId)
+  const active = resolveActiveView(headerTabs, selectedId)
+  const showTabs = !hideChrome && tabs.length > 1
   return (
     <>
       <div className={css.titleRow}>
@@ -133,10 +149,14 @@ export function ConversationSessionHeader({
                 })}
                 {ancestry.length === 0 && <span className={css.crumbCurrent}>{sessionId}</span>}
               </nav>
+            </div>
+            {!showTabs && (
+              // Keep single-View actions outside the title's clipping and
+              // fade, so shrinking the title cannot hide their hit targets.
               <div className={css.headerActions}>
                 {renderSlot('conversation.session.header.actions', {})}
               </div>
-            </div>
+            )}
             <div className={css.headerUtilities}>
               {renderSlot('conversation.session.header.utilities', {})}
               {renderFactorySlot('contextMenu.button', {
@@ -167,6 +187,9 @@ export function ConversationSessionHeader({
                 <ViewTabLabel label={viewTab.label} />
               </button>
             ))}
+          </div>
+          <div className={css.tabActions}>
+            {renderSlot('conversation.session.header.actions', {})}
           </div>
         </div>
       )}
