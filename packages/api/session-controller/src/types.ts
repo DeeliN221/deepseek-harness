@@ -530,7 +530,8 @@ export interface SessionFollowRequest extends Pick<SessionPageRequest, 'maxEvent
    * Highest event seq the caller already applied. A Host that can prove the log
    * tail from here is replayable answers with those events only and marks the
    * snapshot `resumed`; otherwise it answers a bounded full window marked
-   * `reset`. Omission keeps the plain full-window opening.
+   * `reset`. A cursor ahead of the log is rejected as `gateway/bad-request`.
+   * Omission keeps the plain full-window opening.
    */
   readonly afterSeq?: number
 }

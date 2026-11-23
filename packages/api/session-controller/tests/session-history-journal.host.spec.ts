@@ -1204,9 +1204,11 @@ describe('Session history raw journal', () => {
     expect(oversized).toMatchObject({ reset: true })
     expect(pageEvents(oversized).map(event => event.seq).length).toBe(1)
 
-    // A cursor ahead of the Host log means the caller was reset elsewhere.
-    const ahead = await openWith(9)
-    expect(ahead).toMatchObject({ reset: true, cursor: 2 })
+    // A reconnect cannot move behind the last cursor the Client applied.
+    await expect(openWith(9)).rejects.toMatchObject({ code: 'gateway/bad-request' })
+    for (const afterSeq of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
+      await expect(openWith(afterSeq)).rejects.toMatchObject({ code: 'gateway/bad-request' })
+    }
   })
 
   it('bounds first paint to the Host opening window and lets a request override it per field', async () => {

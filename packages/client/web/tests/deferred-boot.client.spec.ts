@@ -25,7 +25,9 @@ function graphOf(entries: WebBootEntry[]): WebBootGraph {
 }
 
 /** Module system over inline plugins; `loaded` records every transport call. */
-function modulesOf(graph: WebBootGraph, staticModules: Record<string, unknown>): { modules: ClientModuleLoader; loaded: string[] } {
+function modulesOf(
+  graph: WebBootGraph, staticModules: Record<string, Record<string, unknown>>,
+): { modules: ClientModuleLoader; loaded: string[] } {
   const loaded: string[] = []
   const pendingQueue: ClientBundleRegistration[] = []
   const target: ClientModuleLoaderTarget = {

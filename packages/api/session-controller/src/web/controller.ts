@@ -48,7 +48,9 @@ function resumableRecords(
   afterSeq: number,
   maxEvents: number,
 ): readonly SessionHistoryRecord[] | undefined {
-  if (afterSeq > observation.cursor) return undefined
+  if (afterSeq > observation.cursor) {
+    throw new RemoteError('gateway/bad-request', 'afterSeq is ahead of the Session log', {})
+  }
   if (observation.cursor - afterSeq > maxEvents) return undefined
   const events = observation.events.slice(afterSeq + 1, observation.cursor + 1)
   // A replacement shadows earlier surface content, and an event citing earlier

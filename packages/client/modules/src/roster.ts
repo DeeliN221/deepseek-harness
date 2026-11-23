@@ -53,10 +53,7 @@ export const DEFAULT_DEFERRED_ROWS: readonly DeferredRowConfig[] = [
   // Profile-installed plugins with panel or tool surfaces; an operator adds the
   // exact slot keys here when a plugin owns none of the shipped hints.
   { id: 'dsh-split-panels', slots: ['shell.overlay'], trigger: 'slot:shell.overlay' },
-  { id: 'dsh-context', trigger: 'panel:dsh-context' },
   { id: 'dsh-plantuml', slots: ['conversation.chat.node'], trigger: 'slot:conversation.chat.node' },
-  { id: 'dsh-obsidian-ignis', trigger: 'panel:dsh-obsidian-ignis' },
-  { id: 'dsh-session-fts', trigger: 'command:dsh-session-fts' },
 ]
 
 /** Environment variable carrying the operator's roster tokens. */

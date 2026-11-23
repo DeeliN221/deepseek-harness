@@ -24,7 +24,7 @@ afterEach(async () => {
   for (const ctx of contexts.splice(0)) await ctx.fiber.dispose()
   if (root !== undefined) rmSync(root, { recursive: true, force: true })
   root = undefined
-  delete process.env[DEFERRED_ENV]
+  delete process.env.DSH_CLIENT_DEFERRED
 })
 
 /** Write one resolvable package whose client bundle exists and declares the supplied `dsh.client`. */
@@ -82,6 +82,14 @@ describe('deferred rows in the composed graph', () => {
     expect(loads[0]).not.toContain('ui-schedule')
     // The deferred row keeps its own single-resource reference for first need.
     expect(deferred?.url).toContain(`${SCHEDULE_ID}/client.js`)
+  })
+
+  it('keeps panels and commands without a connected slot trigger available at boot', () => {
+    const ids = ['dsh-context', 'dsh-obsidian-ignis', 'dsh-session-fts']
+    for (const id of ids) writePackage(id)
+    const graph = construct(ids).graph()
+    expect(graph.entries.every(entry => entry.lazy === undefined)).toBe(true)
+    expect(graph.batches.flatMap(batch => batch.entries).sort()).toEqual([...ids].sort())
   })
 
   it('keeps stage-one infrastructure eager even when the roster names it', () => {

@@ -1336,7 +1336,7 @@ describe('reconnect resume', () => {
       const baseline: SessionAssistantStreamBaseline = {
         revision: 2,
         activeAttempt: {
-          attemptId, startedAfterSeq: 1, turn: 1, step: 0, nextIndex: 1,
+          attemptId, startedAfterSeq: SessionSeq(1), turn: 1, step: 0, nextIndex: 1,
           stream: [{ type: 'chunk', time: 2, chunk: { type: 'text-delta', index: 0, text: 'prefix' } }],
         },
       }
