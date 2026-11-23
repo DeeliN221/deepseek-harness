@@ -5,7 +5,7 @@
   --dsh-boot-label-secondary: #61666b;
   --dsh-boot-label-tertiary: #81858c;
   --dsh-boot-border: rgb(0 0 0 / 10%);
-  --dsh-boot-brand: #0f1115;
+  --dsh-boot-accent: #cc785c;
 
   height: 100%;
   display: grid;
@@ -18,7 +18,7 @@
   --dsh-boot-label-secondary: #cfd3d6;
   --dsh-boot-label-tertiary: #adb2b8;
   --dsh-boot-border: rgb(255 255 255 / 12%);
-  --dsh-boot-brand: #f9fafb;
+  --dsh-boot-accent: #e0906f;
 }
 
 .card {
@@ -26,6 +26,48 @@
   flex-direction: column;
   align-items: center;
   gap: 16px;
+}
+
+.whale {
+  position: relative;
+  width: 112px;
+  height: 112px;
+  transform-origin: 50% 88%;
+}
+
+.pose {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+.poseAlt {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .whale {
+    animation: float 3.6s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+  }
+
+  .poseAlt {
+    animation: pose 7.2s ease-in-out infinite;
+  }
+}
+
+@keyframes float {
+  from { transform: translateY(2px) rotate(-1.2deg); }
+  to { transform: translateY(-4px) rotate(1.2deg); }
+}
+
+@keyframes pose {
+  0%, 55% { opacity: 0; }
+  70%, 88% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 .wordmark {
@@ -42,32 +84,20 @@
   color: var(--dsw-alias-label-tertiary, var(--dsh-boot-label-tertiary));
 }
 
-.spinner {
-  position: relative;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  corner-shape: round;
-  border: 2px solid var(--dsw-alias-border-l2, var(--dsh-boot-border));
-  animation: spin 0.8s linear infinite;
+.progress {
+  width: 116px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--dsw-alias-border-l2, var(--dsh-boot-border));
+  overflow: hidden;
 }
 
-.spinner::after {
-  content: '';
-  position: absolute;
-  inset: -2px;
-  border-radius: 50%;
-  corner-shape: round;
-  background: conic-gradient(
-    var(--dsw-alias-brand-primary, var(--dsh-boot-brand)) var(--dsh-boot-arc, 72deg),
-    transparent 0
-  );
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0);
-  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0);
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
+.progressFill {
+  height: 100%;
+  width: var(--dsh-boot-progress, 0%);
+  border-radius: inherit;
+  background: var(--dsh-boot-accent);
+  transition: width 420ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .failed {

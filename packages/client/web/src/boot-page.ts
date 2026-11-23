@@ -4,6 +4,7 @@
  * @module @deepseek-ai/dsh-client-web/src/boot-page
  */
 import type { LoaderEntryState } from './loader-status.ts'
+import { WHALE_COOL, WHALE_IDLE } from './boot-whale-assets.ts'
 import css from './boot-page.module.css'
 
 /** Create a div with one module class and optional text. */
@@ -14,12 +15,24 @@ function div(className: string | undefined, text?: string): HTMLDivElement {
   return el
 }
 
+/** Create a decorative image layer of the animated mark. */
+function pose(src: string, className: string | undefined): HTMLImageElement {
+  const img = document.createElement('img')
+  img.className = className ?? ''
+  img.src = src
+  img.alt = ''
+  img.draggable = false
+  return img
+}
+
 /** Kernel-owned page mounted below the application's root element. */
 export class BootPage {
   private readonly root: HTMLDivElement
   private readonly card: HTMLDivElement
+  private readonly whale: HTMLDivElement
   private readonly wordmark: HTMLDivElement
-  private readonly spinner: HTMLDivElement
+  private readonly progress: HTMLDivElement
+  private readonly progressFill: HTMLDivElement
   private readonly hint: HTMLDivElement
   private readonly states = new Map<string, LoaderEntryState>()
   private readonly active = new Set<string>()
@@ -34,18 +47,23 @@ export class BootPage {
     this.root = div(css.boot)
     this.root.dataset.dshBoot = ''
     this.card = div(css.card)
+    this.whale = div(css.whale)
+    this.whale.dataset.dshBootWhale = ''
+    this.whale.append(pose(WHALE_IDLE, css.pose), pose(WHALE_COOL, `${css.pose} ${css.poseAlt}`))
     this.wordmark = div(css.wordmark, 'HARNESS')
-    this.spinner = div(css.spinner)
-    this.spinner.dataset.dshBootSpinner = ''
+    this.progress = div(css.progress)
+    this.progress.dataset.dshBootProgress = ''
+    this.progressFill = div(css.progressFill)
+    this.progress.append(this.progressFill)
     this.hint = div(css.hint, 'Loading plugins…')
-    this.card.append(this.wordmark, this.spinner, this.hint)
+    this.card.append(this.whale, this.wordmark, this.progress, this.hint)
     this.root.append(this.card)
     container.append(this.root)
     this.updateProgress()
   }
 
   /**
-   * Set the number of loader entries represented by the progress arc.
+   * Set the number of loader entries represented by the progress line.
    * @param total - Complete boot roster size.
    */
   setTotal(total: number): void {
@@ -83,8 +101,8 @@ export class BootPage {
   private render(): void {
     const failed = [...this.states].filter(([, state]) => state === 'failed').map(([id]) => id)
     if (this.failure === undefined && failed.length === 0) {
-      if (this.spinner.parentElement !== this.card) {
-        this.card.replaceChildren(this.wordmark, this.spinner, this.hint)
+      if (this.whale.parentElement !== this.card) {
+        this.card.replaceChildren(this.whale, this.wordmark, this.progress, this.hint)
       }
       return
     }
@@ -95,9 +113,9 @@ export class BootPage {
     this.card.replaceChildren(this.wordmark, report)
   }
 
-  /** Grow the rotating arc monotonically as loader entries activate. */
+  /** Grow the progress line monotonically as loader entries activate. */
   private updateProgress(): void {
     const ratio = this.total === 0 ? 0 : Math.min(this.active.size / this.total, 1)
-    this.spinner.style.setProperty('--dsh-boot-arc', `${String(Math.round(72 + ratio * 216))}deg`)
+    this.progressFill.style.setProperty('--dsh-boot-progress', `${String(Math.round(ratio * 100))}%`)
   }
 }
