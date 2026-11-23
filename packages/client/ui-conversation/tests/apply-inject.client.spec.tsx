@@ -110,6 +110,7 @@ async function bench(renderQuote = false) {
   runtime.ctx.provide('locale', locale)
   runtime.slots.installLocale(locale)
   runtime.ctx.provide('shortcuts', { catalog: createSnapshotStore([]) })
+  runtime.ctx.provide('remote.commands', { execute: vi.fn() } as never)
   await runtime.mount({ inject: [...injectMenus], apply: applyMenus })
   await runtime.root.declare({
     'main': { kind: 'keyed', scope: 'root' },
@@ -502,7 +503,7 @@ describe('Conversation inject API', () => {
     expect(state.getSnapshot()).toMatchObject({ phase: 'sending', draft: 'hello' })
     await vi.waitFor(() => {
       expect(b.sessionFake.prompt).toHaveBeenCalledWith(
-        [{ type: 'text', text: 'hello' }], 'queue', expect.any(AbortSignal), expect.any(String),
+        [{ type: 'text', text: 'hello' }], 'queue', expect.any(AbortSignal), expect.any(String), false,
       )
     })
     await vi.waitFor(() => { expect(state.getSnapshot().draft).toBe('') })

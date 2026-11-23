@@ -4,6 +4,7 @@ import type {} from '@deepseek-ai/dsh-settings'
 import type { Volatile, Context } from '@deepseek-ai/cordis'
 import type { BusyEnterBehavior, ViewTabSelection } from './submission-settings.ts'
 import z from '@deepseek-ai/schemastery'
+import { AsyncDispatchPolicy } from './host/async-dispatch.ts'
 import { BUSY_ENTER_FIELD, VIEW_TABS_FIELD } from './submission-settings.ts'
 
 import { ConversationSettingsFields } from './submission-settings.ts'
@@ -32,5 +33,8 @@ export const Config = z.object({
  * @param ctx Plugin context used for optional settings presentation.
  */
 export function apply(ctx: Context): void {
+  ctx.inject(['sessionProjections', 'systemPrompt', 'commands', 'agents'], (child) => {
+    child.plugin(AsyncDispatchPolicy)
+  })
   ctx.inject(['settings'], (child) => { child.effect(() => child.settings.configure({ auto: false }, ctx.fiber)) })
 }

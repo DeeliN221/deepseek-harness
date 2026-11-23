@@ -68,6 +68,8 @@ The existing semantic `DraftSnapshot` retains quote text and clipboard-coordinat
 <a id="shell-and-standard-props"></a>
 ## Shell and standard props
 
+The composer offers a session-scoped **Async dispatch** switch, off for new sessions. `/async-dispatch on|off` persists the selection through the existing command service without starting model work. Each submitted user message captures its selected value before attachment preparation; historical or non-Web inputs without the field mean off. Selection changes do not affect an active turn. At input admission the last human message in admission order selects the policy for that step and subsequent steps; queued messages retain their individual captured choices. The required model context prefers direct work when off and suitable task-board execution when on, with ordinary questions remaining direct and explicit current-user dispatch instructions overriding either preference. The switch does not change permissions or existing tasks.
+
 The root-scoped `conversation.hero.frame` hoc Slot wraps the scroll body in every phase, so its layers never remount the composer when the home ends. Its owner props carry `hero`, true only for the blank home of a standalone Conversation. Layers keep the scroll body a direct flex item of the body, for example with `display: contents`. On the home, the Conversation root, which paints the background, isolates stacking: a layer decoration at negative `z-index` paints above that background and below all Conversation content, including composer takeovers. Other phases leave the root out of the stacking order, so unportaled Conversation popovers can still rise above AppFrame chrome that floats over the column. Layers own their own input handling. With no occupant, the body is unchanged.
 
 Stop shows a disabled, busy “Stopping” action while the Session Controller holds local cancellation intent. The action remains distinct from Host idle; rejection restores the action and uses the existing stop-error notice.
@@ -202,6 +204,20 @@ Session title context gestures use the shared [context menu](../ui-context-menu/
 
 <a id="model-experience"></a>
 ## Model Experience
+
+### Async-dispatch preference
+
+#### What the model sees
+
+A required `<session-dispatch-policy>` runtime-context section carries the last admitted human input's captured preference. Off guidance overrides automatic task-board routing based on complexity; on guidance prefers suitable board execution. Explicit current-user dispatch instructions override the preference. Historical inputs without a captured value mean off; empty retry messages retain the admitted policy.
+
+#### Token effect
+
+The policy adds a small fixed text section to runtime context. Selection commands themselves make no model requests.
+
+#### KV Cache effect
+
+Changing the selection does not rewrite the system prompt or an active request. A newly admitted preference updates runtime context; provider prefix reuse follows the resulting message history.
 
 ### Manual continuation request
 

@@ -167,6 +167,7 @@ export class ConversationController extends Service implements IConversation {
     readonly run: () => Promise<void>
     readonly settle: () => void
   }> = []
+  private readonly dispatchSelections = new Map<SessionId, { enabled: boolean; saved: Promise<void>; dispose: () => void }>()
   private activeFileUploads = 0
   private readonly maxConcurrentFileUploads: number
 
@@ -197,7 +198,46 @@ export class ConversationController extends Service implements IConversation {
       }
       this.draftAttachments.clear()
       this.fileUploads.set({})
+      for (const selection of this.dispatchSelections.values()) selection.dispose()
+      this.dispatchSelections.clear()
     }, 'conversation draft attachments')
+  }
+
+  /**
+   * Serialize one confirmed selection with submissions from every composer of this Session.
+   * @param session - the addressed Session.
+   * @param enabled - choice to persist.
+   * @param write - existing Host command operation.
+   * @returns a presentable failure, or null after the Host commits the choice.
+   */
+  async selectAsyncDispatch(session: SessionFace, enabled: boolean, write: () => Promise<string | null>): Promise<string | null> {
+    const previous = this.dispatchSelections.get(session.sessionId)
+    const commit = async () => {
+      if (previous !== undefined) await previous.saved
+      const error = await write()
+      if (error !== null) throw new Error(error)
+    }
+    const entry = { enabled, saved: commit(), dispose: () => {} }
+    const projection = session.projections.faceOf('asyncDispatch')
+    const clear = () => {
+      if (this.dispatchSelections.get(session.sessionId) !== entry) return
+      entry.dispose()
+      this.dispatchSelections.delete(session.sessionId)
+    }
+    this.dispatchSelections.set(session.sessionId, entry)
+    try {
+      await entry.saved
+      // A command receipt and its projection use separate streams. Until the
+      // projection catches up, senders use this Host-confirmed value.
+      entry.dispose = projection.subscribe(() => { if (projection.getSnapshot() === enabled) clear() })
+      if (projection.getSnapshot() === enabled) clear()
+      return null
+    } catch (error) {
+      clear()
+      return String(error)
+    } finally {
+      previous?.dispose()
+    }
   }
 
   /**
@@ -208,7 +248,10 @@ export class ConversationController extends Service implements IConversation {
    */
   async send(text: string): Promise<void> {
     const session = this.scopedSession('send')
-    const result = await session.prompt([{ type: 'text', text }], 'queue')
+    const selection = this.dispatchSelections.get(session.sessionId)
+    if (selection !== undefined) await selection.saved
+    const enabled = selection?.enabled ?? (session.projections.faceOf('asyncDispatch').getSnapshot() === true)
+    const result = await session.prompt([{ type: 'text', text }], 'queue', undefined, undefined, enabled)
     if (!result.ok) throw new Error(`conversation.send failed: ${result.error.code}: ${result.error.message}`)
   }
 
@@ -239,6 +282,9 @@ export class ConversationController extends Service implements IConversation {
     signal?: AbortSignal,
     accept?: () => void,
   ): Promise<SubmitOutcome> {
+    const selection = this.dispatchSelections.get(session.sessionId)
+    if (selection !== undefined) await selection.saved
+    const asyncDispatch = selection?.enabled ?? (session.projections.faceOf('asyncDispatch').getSnapshot() === true)
     const attachments = this.resolveDraftAttachments(attachmentIds)
     if (attachments.length !== attachmentIds.length) {
       throw new Error('conversation.sendSession: one or more draft attachments are no longer available')
@@ -306,7 +352,7 @@ export class ConversationController extends Service implements IConversation {
     }
     // An Inbox row can show the acceptance before the receipt; a receipt that fails afterwards changes
     // nothing here because the Host already holds the message.
-    const result = await Promise.race([session.prompt(content, mode, signal, submission.requestId), acceptance.promise])
+    const result = await Promise.race([session.prompt(content, mode, signal, submission.requestId, asyncDispatch), acceptance.promise])
     if (result !== undefined && !result.ok) return { kind: 'error' }
     ownership.accepted = true
     // An accepted prompt whose echo already retired unobserved, as when its queue entry was removed.

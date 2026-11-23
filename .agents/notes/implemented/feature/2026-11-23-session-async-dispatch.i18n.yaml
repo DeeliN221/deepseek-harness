@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-11-23-session-async-dispatch.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-11-23-session-async-dispatch.md
+/agent-note-session-async-dispatch-preference:
+  en: 51399f251b74a3db
+  zh: 763ac26a71814579
+/agent-note-session-async-dispatch-preference/problem:
+  en: 48df5f05d4f9716c
+  zh: 77a1da69af65192d
+/agent-note-session-async-dispatch-preference/decision:
+  en: 5830616adb31fc27
+  zh: 6cd8661590010b99
+/agent-note-session-async-dispatch-preference/alternatives-considered:
+  en: 311e466761cd12ca
+  zh: eb2c15f2514b4436
+/agent-note-session-async-dispatch-preference/consequences:
+  en: 006c9b6cf4138038
+  zh: deb256496bec2bd3
