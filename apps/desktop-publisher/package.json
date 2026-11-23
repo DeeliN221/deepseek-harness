@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-desktop-publisher",
-  "version": "20261116.1.0",
+  "version": "0.2.3",
   "description": "Private Desktop release metadata, rollout and website publisher",
   "private": true,
   "type": "module",
