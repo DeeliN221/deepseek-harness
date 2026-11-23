@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-11-23-session-async-dispatch.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-11-23-session-async-dispatch.md
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-11-23-session-async-dispatch:
+  en: cf3208aa61ef50eb
+  zh: 3ccf404e8c91c5ee
+/2026-11-23-session-async-dispatch/summary:
+  en: d80ce9ac960cf5c2
+  zh: 119722e30c8e2856
+/2026-11-23-session-async-dispatch/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-11-23-session-async-dispatch/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-11-23-session-async-dispatch/compatibility:
+  en: 925f466e12cdffce
+  zh: 7d684c9739b0000c
+/2026-11-23-session-async-dispatch/verification:
+  en: f8cbfe813f78143b
+  zh: 5cc1fb64890fcaf1
+/2026-11-23-session-async-dispatch/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

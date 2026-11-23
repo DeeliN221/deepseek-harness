@@ -9,6 +9,10 @@ const PLAN_NEXT_ACTION_EN = 'describe your task to generate plan'
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
+  'dispatch.label': '异步派发',
+  'dispatch.description': '开启后优先派发适合的执行任务；关闭时在当前会话执行。对下一条消息生效',
+  'dispatch.failed': '保存失败',
+  'dispatch.unavailable': '异步派发设置暂不可用',
   'quote.remove': '移除引用',
   'shortcut.newline': '换行',
   'shortcut.complementary': '使用互补的 Queue／Steer 方式',
@@ -420,6 +424,10 @@ export type ConversationKey = keyof typeof zh
 
 /** English dictionary, checked complete against the zh key set. */
 export const en = {
+  'dispatch.label': 'Async dispatch',
+  'dispatch.description': 'Prefer dispatching suitable execution tasks when on; work in this conversation when off. Applies to the next message.',
+  'dispatch.failed': 'Save failed',
+  'dispatch.unavailable': 'Async dispatch settings are unavailable',
   'quote.remove': 'Remove quote',
   'shortcut.newline': 'New line',
   'shortcut.complementary': 'Use the complementary Queue / Steer action',
@@ -830,6 +838,10 @@ export const en = {
 
 /** Japanese copy, checked against the English keys. */
 export const ja = {
+  'dispatch.label': 'Async dispatch',
+  'dispatch.description': 'Applies to the next message; existing work continues.',
+  'dispatch.failed': 'Save failed',
+  'dispatch.unavailable': 'Async dispatch settings are unavailable',
   'quote.remove': '引用を削除',
   'shortcut.newline': '改行',
   'shortcut.complementary': '補助のキュー / 実行中の指示変更を使用',
@@ -1238,6 +1250,10 @@ export const ja = {
 
 /** Spanish dictionary, checked against the English keys. */
 export const es = {
+  'dispatch.label': 'Async dispatch',
+  'dispatch.description': 'Applies to the next message; existing work continues.',
+  'dispatch.failed': 'Save failed',
+  'dispatch.unavailable': 'Async dispatch settings are unavailable',
   'quote.remove': 'Eliminar cotización',
   'shortcut.newline': 'Nueva linea',
   'shortcut.complementary': 'Usar la acción alternativa de poner en cola o redirigir',
@@ -1648,6 +1664,10 @@ export const es = {
 
 /** French dictionary, checked against the English keys. */
 export const fr = {
+  'dispatch.label': 'Async dispatch',
+  'dispatch.description': 'Applies to the next message; existing work continues.',
+  'dispatch.failed': 'Save failed',
+  'dispatch.unavailable': 'Async dispatch settings are unavailable',
   'quote.remove': 'Supprimer le devis',
   'shortcut.newline': 'Nouvelle ligne',
   'shortcut.complementary': 'Utiliser l’action alternative de mise en attente ou de guidage',
@@ -2058,6 +2078,10 @@ export const fr = {
 
 /** German dictionary, checked against the English keys. */
 export const de = {
+  'dispatch.label': 'Async dispatch',
+  'dispatch.description': 'Applies to the next message; existing work continues.',
+  'dispatch.failed': 'Save failed',
+  'dispatch.unavailable': 'Async dispatch settings are unavailable',
   'quote.remove': 'Zitat entfernen',
   'shortcut.newline': 'Neue Zeile',
   'shortcut.complementary': 'Die alternative Aktion zum Vormerken oder Lenken verwenden',
@@ -2468,6 +2492,10 @@ export const de = {
 
 /** Russian dictionary, checked against the English keys. */
 export const ru = {
+  'dispatch.label': 'Async dispatch',
+  'dispatch.description': 'Applies to the next message; existing work continues.',
+  'dispatch.failed': 'Save failed',
+  'dispatch.unavailable': 'Async dispatch settings are unavailable',
   'quote.remove': 'Удалить цитату',
   'shortcut.newline': 'Новая линия',
   'shortcut.complementary': 'Использовать альтернативное действие: поставить в очередь или направить',
@@ -2878,6 +2906,10 @@ export const ru = {
 
 /** Portuguese dictionary, checked against the English keys. */
 export const pt = {
+  'dispatch.label': 'Async dispatch',
+  'dispatch.description': 'Applies to the next message; existing work continues.',
+  'dispatch.failed': 'Save failed',
+  'dispatch.unavailable': 'Async dispatch settings are unavailable',
   'quote.remove': 'Remover cotação',
   'shortcut.newline': 'Nova linha',
   'shortcut.complementary': 'Usar a ação alternativa de enfileirar ou orientar',

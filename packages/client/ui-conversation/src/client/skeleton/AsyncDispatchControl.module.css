@@ -1,0 +1,27 @@
+.root {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.error {
+  position: absolute;
+  bottom: 100%;
+  inset-inline-start: 0;
+  max-width: min(280px, 70vw);
+  padding: 4px 8px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-specific-input-major);
+  border-radius: var(--dsw-radius-md);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
