@@ -30,7 +30,7 @@
 
 import type {} from '@deepseek-ai/cordis'
 import type {
-  DshClientManifest, ClientModuleMetaFactory,
+  DshClientDeferredManifest, DshClientManifest, ClientModuleMetaFactory,
   DshClientModuleManifest,
 } from '@deepseek-ai/dsh-package-manifest'
 import type { ScriptRealm } from '@deepseek-ai/dsh-client-script-realm/client'
@@ -52,6 +52,11 @@ declare module '@deepseek-ai/cordis' {
  * factories must arrive before this row materializes, while Cordis separately
  * uses the same package edges to compose entries. `external` carries exact
  * non-inject module requests (see {@link WebBootGraph.entries}).
+ *
+ * `lazy` marks a deferred row: it belongs to no initial-load batch, so its
+ * bytes are absent from the first-paint graph and the shell creates no Loader
+ * entry for it until {@link ClientModuleLoader.activateDeferred} materializes
+ * it. A lazy row is never implicit — the host roster names it.
  */
 export interface WebBootEntry {
   /** Entry name == package name. */
@@ -69,6 +74,12 @@ export interface WebBootEntry {
   immediately?: boolean
   /** Non-baseline module specifiers this row requests; omitted when it requests none. */
   external?: string[]
+  /** Deferred row: no initial batch and no boot-time Loader entry (see {@link DeferredEntryInfo}). */
+  lazy?: true
+  /** Human-readable description of what materializes the row (`slot:settings.plugins`, `command:/plugins`, …). */
+  trigger?: string
+  /** Slot keys the deferred row's registration fills, when it owns slots (drives the loading skeleton). */
+  slots?: string[]
 }
 
 /** Initial scheduling phase for one revisioned combo script. */
@@ -134,6 +145,12 @@ export interface BootPluginRow {
   inject: string[]
   /** Stage-one prefetch tier (false when the wire omits it). */
   immediately: boolean
+  /** Deferred row: composed as a graph node but not created or awaited at boot. */
+  lazy: boolean
+  /** Description of the row's materialization trigger, when the Host published one. */
+  trigger?: string
+  /** Slot keys the row's registration fills ([] when it owns none). */
+  slots: string[]
 }
 
 /** The parsed boot manifest: one wire, two consumer views. */
@@ -146,6 +163,69 @@ export interface BootManifest {
   modules: BootModuleRow[]
   /** Rows as entry composition consumes them. */
   plugins: BootPluginRow[]
+}
+
+/** One deferred row after boot: identity plus the trigger and slots the Host published. */
+export interface DeferredEntryInfo {
+  /** Entry name == package name. */
+  readonly id: string
+  /** Human-readable description of what materializes the row, when the Host published one. */
+  readonly trigger?: string
+  /** Slot keys the row's registration fills; the shell renders a skeleton for them until arrival. */
+  readonly slots: readonly string[]
+}
+
+/** Materialization phase of one deferred row. */
+export type DeferredEntryPhase = 'pending' | 'loading' | 'ready' | 'failed'
+
+/** Observable state of one deferred row (`pending` before the first trigger). */
+export interface DeferredEntryStatus {
+  /** Entry name == package name. */
+  readonly id: string
+  /** Current phase; `loading` covers the retry as well. */
+  readonly phase: DeferredEntryPhase
+  /** Entry failure text (the same wording the boot audit uses) once `failed`. */
+  readonly message?: string
+}
+
+/**
+ * Ids that must be eager: every row that is not deferred, plus the transitive
+ * closure of `inject` edges leaving them. A deferred row that an eager row
+ * injects is the service provider the eager row waits for, so deferring it
+ * would leave that eager entry pending forever.
+ *
+ * The closure is a fixpoint, which is what makes it independent of declaration
+ * order: a promoted row's own `inject` edges are promoted in turn, and a row
+ * declared after the row that requires it is promoted by the same pass.
+ * @param rows - graph rows as declared (wire form or plugin form).
+ * @returns the ids composition must keep eager.
+ */
+export function eagerClosureIds(
+  rows: readonly { readonly id: string; readonly inject?: readonly string[]; readonly lazy?: boolean }[],
+): ReadonlySet<string> {
+  const byId = new Map<string, { readonly id: string; readonly inject?: readonly string[]; readonly lazy?: boolean }>()
+  for (const row of rows) byId.set(stripClientSuffix(row.id), row)
+  const eager = new Set<string>()
+  const open: string[] = []
+  for (const row of rows) {
+    if (row.lazy === true) continue
+    const id = stripClientSuffix(row.id)
+    if (eager.has(id)) continue
+    eager.add(id)
+    open.push(id)
+  }
+  // Walk service edges from every eager row; a lazy provider met on the walk
+  // becomes eager, and its own inject edges join the walk.
+  while (open.length > 0) {
+    const id = open.pop() as string
+    for (const request of byId.get(id)?.inject ?? []) {
+      const dependency = stripClientSuffix(request)
+      if (!byId.has(dependency) || eager.has(dependency)) continue
+      eager.add(dependency)
+      open.push(dependency)
+    }
+  }
+  return eager
 }
 
 /**
@@ -188,11 +268,38 @@ export function parseDshClient(pkgName: string, value: unknown): DshClientManife
   if (decl.immediately !== undefined && typeof decl.immediately !== 'boolean') {
     throw new Error(`client-modules: ${pkgName} dsh.client.immediately must be a boolean`)
   }
+  const deferred = parseDeferredManifest(pkgName, decl.deferred)
   return {
     platform: decl.platform,
     ...(inject !== undefined ? { inject } : {}),
     ...(external !== undefined ? { external } : {}),
     ...(decl.immediately !== undefined ? { immediately: decl.immediately } : {}),
+    ...(deferred !== undefined ? { deferred } : {}),
+  }
+}
+
+/**
+ * Narrow an unknown `dsh.client.deferred` value: `true`, or an object carrying
+ * the trigger description and slot keys the shell materializes the row from.
+ * @param pkgName - package name used as the diagnostic prefix.
+ * @param value - the raw declaration member.
+ * @returns the normalized metadata, or undefined when the member is absent.
+ * @throws {Error} when the member is present but malformed.
+ */
+export function parseDeferredManifest(pkgName: string, value: unknown): true | DshClientDeferredManifest | undefined {
+  if (value === undefined) return undefined
+  if (value === true) return true
+  if (typeof value !== 'object' || value === null) {
+    throw new Error(`client-modules: ${pkgName} dsh.client.deferred must be true or an object`)
+  }
+  const decl = value as Record<string, unknown>
+  if (decl.trigger !== undefined && typeof decl.trigger !== 'string') {
+    throw new Error(`client-modules: ${pkgName} dsh.client.deferred.trigger must be a string`)
+  }
+  const slots = optionalStringArray(pkgName, 'dsh.client.deferred.slots', decl.slots)
+  return {
+    ...(decl.trigger === undefined ? {} : { trigger: decl.trigger }),
+    ...(slots === undefined ? {} : { slots }),
   }
 }
 
@@ -268,6 +375,13 @@ export function parseBootManifest(wire: unknown): BootManifest {
     if (row.immediately !== undefined && typeof row.immediately !== 'boolean') {
       throw new Error(`client-modules: boot manifest entry ${where} immediately must be a boolean`)
     }
+    if (row.lazy !== undefined && row.lazy !== true) {
+      throw new Error(`client-modules: boot manifest entry ${where} lazy must be true when present`)
+    }
+    if (row.trigger !== undefined && typeof row.trigger !== 'string') {
+      throw new Error(`client-modules: boot manifest entry ${where} trigger must be a string`)
+    }
+    const slots = optionalStringArray(subject, 'slots', row.slots)
     moduleFields.push({
       id: row.id,
       url: row.url,
@@ -279,12 +393,28 @@ export function parseBootManifest(wire: unknown): BootManifest {
       id: row.id,
       inject: inject === undefined ? [] : [...inject],
       immediately: row.immediately === true,
+      lazy: row.lazy === true,
+      ...(row.trigger === undefined ? {} : { trigger: row.trigger }),
+      slots: slots === undefined ? [] : [...slots],
     })
+  }
+
+  // Dependency safety at the wire boundary as well: the Host composes the
+  // eager closure, but a hand-written or older graph must not be able to defer
+  // the provider an eager row injects. Rows the wire marked deferred keep their
+  // single-resource fallback after promotion, because a graph composed before
+  // the promotion put them in no batch.
+  const declaredLazy = new Set(plugins.filter(row => row.lazy).map(row => row.id))
+  const eager = eagerClosureIds(plugins)
+  for (const row of plugins) {
+    if (!eager.has(row.id)) continue
+    row.lazy = false
   }
 
   const entryIds = new Set(moduleFields.map(row => row.id))
   const initialUrls = new Map<string, string>()
   const batchUrls = new Set<string>()
+  const lazyIds = new Set(plugins.filter(row => row.lazy).map(row => row.id))
   for (const value of graph.batches as unknown[]) {
     if (typeof value !== 'object' || value === null) {
       throw new Error('client-modules: boot manifest batch is not an object')
@@ -309,6 +439,9 @@ export function parseBootManifest(wire: unknown): BootManifest {
       if (!entryIds.has(id)) {
         throw new Error(`client-modules: boot manifest ${phase} batch names unknown entry "${id}"`)
       }
+      if (lazyIds.has(id)) {
+        throw new Error(`client-modules: deferred entry "${id}" must not belong to the ${phase} batch — its bytes would load before first paint`)
+      }
       if (initialUrls.has(id)) {
         throw new Error(`client-modules: boot manifest entry "${id}" belongs to more than one batch`)
       }
@@ -317,10 +450,9 @@ export function parseBootManifest(wire: unknown): BootManifest {
   }
   const modules = moduleFields.map((row): BootModuleRow => {
     const initialUrl = initialUrls.get(row.id)
-    if (initialUrl === undefined) {
-      throw new Error(`client-modules: boot manifest entry "${row.id}" belongs to no initial-load batch`)
-    }
-    return { ...row, initialUrl }
+    if (initialUrl !== undefined) return { ...row, initialUrl }
+    if (lazyIds.has(row.id) || declaredLazy.has(row.id)) return { ...row, initialUrl: row.url }
+    throw new Error(`client-modules: boot manifest entry "${row.id}" belongs to no initial-load batch`)
   })
   return { rev: graph.rev, ...(release === undefined ? {} : { release }), modules, plugins }
 }
@@ -473,6 +605,39 @@ export interface ClientModuleLoader {
    * @returns the recorded failure, or `undefined` when the row never failed or succeeded since.
    */
   importError(id: string): Error | undefined
+  /**
+   * Rows composed as deferred: their bundles are in no initial batch and no
+   * Loader entry exists for them until {@link activateDeferred} runs. Pending
+   * rows only (a materialized row leaves the list); the order is composition
+   * order, so it is stable across reads.
+   * @returns the deferred rows that are still pending.
+   */
+  deferredEntries(): readonly DeferredEntryInfo[]
+  /**
+   * Materialize one deferred row on first need: fetch its bundle, create its
+   * Loader entry and await activation. Concurrent calls for the same row share
+   * one attempt; a failed attempt is retried once before it is reported.
+   * Resolves immediately for a row that is not deferred (already eager or
+   * already materialized). Rejects with the entry failure text on the second
+   * failure; callers own the presentation (the deferred slot face and the boot
+   * page both render it).
+   * @param id - graph entry name.
+   */
+  activateDeferred(id: string): Promise<void>
+  /**
+   * Current phase of one deferred row.
+   * @param id - graph entry name.
+   * @returns the phase, or `undefined` when the row is not a deferred row.
+   */
+  deferredStatus(id: string): DeferredEntryStatus | undefined
+  /**
+   * Subscribe to deferred-row phase changes (a row became loading, ready, or
+   * failed). The slot deferral face installs the skeleton and error state from
+   * this channel.
+   * @param listener - called after every change; returns unsubscribe.
+   * @returns the unsubscribe function.
+   */
+  onDeferredChange(listener: () => void): () => void
   /**
    * Full reset of one non-bootstrap package: drop its entry and chunk factories
    * and materialized records so the next prefetch/import loads its one-resource

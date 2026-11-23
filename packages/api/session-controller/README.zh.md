@@ -72,7 +72,7 @@ Fork 将 `atSeq` 选定的含边界事件前缀（包括开放轮次内的截点
 
 `loadThrough(seq)` 在共享目标被覆盖或加载结束前私下保留较早页面，随后把成功取得的页面按顺序作为一次前插发布。历史加载期间实时事件仍然可见。后续页面失败时保留已成功取得的部分；历史窗口被替换时丢弃被替换窗口的暂存页面。普通 `loadOlder()` 准备并消费 Host 选取的一页；传入 `{ deferConsumption: true }` 时保留这一页，直到 `consumeOlder()` 同步发布。暂存页阻止重复普通请求，但不阻止实时事件。`historyLoadStatus` 区分 `idle`、`loading`、`pendingConsumption` 和 `error`；`loadingOlder` 从 `loading` 派生，包含 Turn 跳转。失败和无进展页面允许明确重试，不伪装成历史耗尽。`historyWasPartial` 在客户端 Session 生命周期内记住可见窗口曾不完整，重连保留，但不持久化呈现状态。
 
-Client 的首次 `follow`、重连首屏与 `loadOlder()` 至少请求 50 条以 append 方式追加的 `user/message` 和 `assistant/message` 事件，并向前跨过至少两个 `turn/start`，其中包含已加载窗口开头尚未补齐的轮次。Host 在首次同时满足两个下限的轮次开头停止；若先达到 500 条计数消息或历史已耗尽，则立即返回。Steering 不增加轮次分界。区间内的其他事件随页返回，但不计入消息预算。分页和 follow 请求可选的 `turnWindow` 在 `maxMessages` 上限内指定这两个下限。`loadThrough()` 复用相同规则，仅将每页消息数下限设为 200；500 条上限不限制整次跳转。不带 `turnWindow` 的请求保留按消息对齐的分页方式。
+Client 的首次 `follow` 不携带窗口字段：Host 使用 `historyOpeningWindow`（默认 500 条事件、200 条消息，以及至少 20 条消息并跨 1 个轮次；请求可逐字段覆盖），因此首屏不会重读 2,000 条的分页预算。`loadOlder()` 保留较大的分页窗口：至少 50 条以 append 方式追加的 `user/message` 和 `assistant/message` 事件，并向前跨过至少两个 `turn/start`，其中包含已加载窗口开头尚未补齐的轮次。Host 在首次同时满足两个下限的轮次开头停止。若历史中没有足够轮次，Host 从达到 `minMessages` 的消息对齐尾部截点返回；仍有更早事件时 `hasMore` 保持为 true。消息预算或硬性事件上限可以更早截断页面。Steering 不增加轮次分界。区间内的其他事件随页返回，但不计入消息预算。分页请求另带有硬性 `maxEvents` 上限：`loadOlder()` 请求 2,000 条持久事件，Host 接受的显式上限最高为 5,000 条。重连首屏携带 `afterSeq`，即 Client 已应用的最后一个事件序号：Host 只返回其后的事件并把快照标记为 `resumed`；若尾部包含表层替换、引用更早来源或超出首屏上限，则返回完整窗口并标记 `reset`。超前于日志的游标会以 `gateway/bad-request` 拒绝，以保持 Gateway 重连不能倒退游标的规则。事件上限会约束轮次、消息和来源对齐的截断位置；必要时页面可能从轮次或来源组中间开始，以确保不超过上限。`turnWindow` 在 `maxMessages` 上限内指定最小值；`loadThrough()` 每页仍以 200 条消息为下限、500 条为上限，事件上限独立应用于每一页。事件上限也约束向前回溯的页面选择扫描；但它不约束完整冷 Session 的读取与解码、单条事件载荷、Chat 节点后代、投影工作量或保留的实时状态。
 
 队列编辑仅允许用非空文本替换待处理内容。
 
@@ -105,6 +105,7 @@ GUI 模型选择要求确切提供方／模型对出现在可用目录中；不�
 |---|---:|---|
 | `nativeOpen` | 平台探测 | 是否能把 Session 工作区路径交给原生桌面打开器 |
 | `listWorkSliceMs` | `16` | 列表工作时间片，单位为毫秒，取正整数；在完整条目之间检查 |
+| `historyOpeningWindow` | `{ maxEvents: 500, maxMessages: 200, turnWindow: { minMessages: 20, minTurns: 1 } }` | 请求未指定窗口字段时 `session.follow` 使用的首屏历史窗口；请求可逐字段覆盖，翻页保留自己的更大预算 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-api-session-controller)是所有受支持字段及其 JSDoc 的完整来源。
 

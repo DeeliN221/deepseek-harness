@@ -270,6 +270,44 @@ export interface RenderOpts<EntryKey extends string = string> {
   hookContext?: unknown
 }
 
+/**
+ * Phase of one deferred provider. `ready` (the entry has registered) is never
+ * surfaced through {@link DeferredSlotView}: the real contribution renders
+ * instead of a placeholder.
+ */
+export type DeferredSlotPhase = 'pending' | 'loading' | 'ready' | 'failed'
+
+/**
+ * Declarative hint installed by the shell for one slot a deferred client entry
+ * will fill. The registry keeps it until the entry registers (`ready`) or the
+ * disposer runs; outlets render a skeleton while a registered hint has no
+ * contribution yet, which is what turns "panel not loaded" into a loading
+ * state instead of a blank. This is a data hint, not a second dispatch path:
+ * the real registration renders normally once it arrives.
+ */
+export interface DeferredSlotDecl {
+  /** Slot key the deferred entry registers into. */
+  readonly key: string
+  /** Package name of the deferred client entry. */
+  readonly entry: string
+  /** Human-readable description of what materializes the entry (`slot:<key>`, `command:<id>`, …). */
+  readonly trigger?: string
+  /** First-need trigger: runs when an outlet renders this slot while it has no contribution. */
+  readonly activate: () => void
+}
+
+/** Deferral state one outlet reads for a slot key. */
+export interface DeferredSlotView {
+  /** Package name of the deferred entry. */
+  readonly entry: string
+  /** Current phase (`pending`, `loading`, or `failed`). */
+  readonly phase: DeferredSlotPhase
+  /** Entry failure text once `failed` (the boot-audit wording). */
+  readonly message?: string
+  /** Run the first-need trigger; concurrent calls are the caller's to dedupe. */
+  readonly activate: () => void
+}
+
 /** renderSlotChain dispatch options. */
 export interface ChainRenderOpts {
   /** The owner's fallback body, rendered when every entry's selector declines. */
@@ -1021,6 +1059,16 @@ export interface LiveFactoryNode {
 /** One root in the live Slot/Factory composition topology. */
 export type LiveCompositionNode = LiveSlotNode | LiveFactoryNode
 
+/** One live deferral hint with its mutation state (the declaration is read-only). */
+interface StoredDeferral {
+  readonly key: string
+  readonly entry: string
+  readonly trigger?: string
+  readonly activate: () => void
+  phase: DeferredSlotPhase
+  message?: string
+}
+
 /**
  * A hoc layer's shadowing cell: its dispatch key and id, encoded so no key/id
  * pair collides with another; a wildcard layer's absent key encodes as `null`.
@@ -1067,6 +1115,13 @@ export class SlotCore {
   private abdicated = new WeakSet<StoredEntry>()
   private entryErrorListeners
     = new Set<(key: string, registration: StoredEntry | StoredFactory, error: unknown, info: { abdicated: boolean }) => void>()
+  /**
+   * Deferred-provider hints per slot key. The shell installs them at boot from
+   * the Host roster; an outlet that renders an empty cell for a key carrying a
+   * hint renders a skeleton (and runs the first-need trigger) instead of the
+   * owner's empty fallback.
+   */
+  private readonly deferrals = new Map<string, StoredDeferral[]>()
 
   constructor() {
     // The a-priori root hole. No markDirty: nothing can observe construction.
@@ -1636,6 +1691,79 @@ export class SlotCore {
    */
   reportFactoryError(name: string, registration: StoredEntry | StoredFactory, error: unknown): void {
     for (const fn of [...this.entryErrorListeners]) fn(`factory:${name}`, registration, error, { abdicated: false })
+  }
+
+  /**
+   * Declare that a slot will be filled by a deferred client entry. Idempotent
+   * per declaration identity; the hint starts `pending`.
+   * @param decl - slot key, owning entry, trigger description, first-need trigger.
+   * @returns disposer removing the hint (used when the entry registers).
+   */
+  declareDeferredSlot(decl: DeferredSlotDecl): () => void {
+    const stored: StoredDeferral = {
+      key: decl.key,
+      entry: decl.entry,
+      ...(decl.trigger === undefined ? {} : { trigger: decl.trigger }),
+      activate: decl.activate,
+      phase: 'pending',
+    }
+    const hints = this.deferrals.get(decl.key) ?? []
+    hints.push(stored)
+    this.deferrals.set(decl.key, hints)
+    this.markDirty(decl.key, this.record(decl.key))
+    return () => {
+      const live = this.deferrals.get(decl.key)
+      if (live === undefined) return
+      const index = live.indexOf(stored)
+      if (index < 0) return
+      live.splice(index, 1)
+      if (live.length === 0) this.deferrals.delete(decl.key)
+      this.markDirty(decl.key, this.record(decl.key))
+    }
+  }
+
+  /**
+   * Publish one deferred entry's phase to every slot hint it declared. Phase
+   * updates are entry-wide because one entry may fill several slots.
+   * @param entry - deferred client entry (package name).
+   * @param phase - new phase; `ready` hides the hint.
+   * @param message - failure text for `failed`.
+   */
+  setDeferredPhase(entry: string, phase: DeferredSlotPhase, message?: string): void {
+    for (const [key, hints] of this.deferrals) {
+      let touched = false
+      for (const hint of hints) {
+        if (hint.entry !== entry) continue
+        hint.phase = phase
+        if (message === undefined) delete hint.message
+        else hint.message = message
+        touched = true
+      }
+      if (touched) this.markDirty(key, this.record(key))
+    }
+  }
+
+  /**
+   * Deferral state of one slot key, read by outlets when the key has no
+   * contribution to render.
+   * @param key - slot key.
+   * @returns the first non-ready hint, or undefined when the key is not deferred.
+   */
+  deferralOf(key: string): DeferredSlotView | undefined {
+    const hints = this.deferrals.get(key) ?? []
+    const hint = hints.find(item => item.phase === 'pending' || item.phase === 'loading')
+      ?? hints.find(item => item.phase === 'failed')
+    if (hint === undefined) return undefined
+    return {
+      entry: hint.entry,
+      phase: hint.phase,
+      ...(hint.message === undefined ? {} : { message: hint.message }),
+      activate: () => {
+        for (const item of hints) {
+          if (item.phase === 'pending') item.activate()
+        }
+      },
+    }
   }
 
   /**

@@ -416,20 +416,23 @@ describe('Typert Remote streams', () => {
     expect(() => { startup.commit() }).not.toThrow()
   })
 
-  it('validates the WebSocket heartbeat timer range, the stream inbox bound, and the compression mode', () => {
+  it('validates the WebSocket heartbeat timer range, the stream inbox bound, the compression mode, and its threshold', () => {
     expect(TypertGatewayService.Config({})).toEqual({
       websocketHeartbeatIntervalMs: 2_000,
       streamInboxBytes: 262_144,
       websocketCompression: 'deflate',
+      websocketCompressionThreshold: 128,
     })
     expect(TypertGatewayService.Config({
       websocketHeartbeatIntervalMs: MAX_TIMER_DELAY_MS,
       streamInboxBytes: 1,
       websocketCompression: 'none',
+      websocketCompressionThreshold: 0,
     })).toEqual({
       websocketHeartbeatIntervalMs: MAX_TIMER_DELAY_MS,
       streamInboxBytes: 1,
       websocketCompression: 'none',
+      websocketCompressionThreshold: 0,
     })
     for (const websocketHeartbeatIntervalMs of [0, 1.5, MAX_TIMER_DELAY_MS + 1]) {
       expect(() => TypertGatewayService.Config({ websocketHeartbeatIntervalMs })).toThrow()
@@ -439,6 +442,9 @@ describe('Typert Remote streams', () => {
     }
     for (const websocketCompression of ['gzip', 'DEFLATE', '', 1]) {
       expect(() => TypertGatewayService.Config({ websocketCompression } as never)).toThrow()
+    }
+    for (const websocketCompressionThreshold of [-1, 1.5]) {
+      expect(() => TypertGatewayService.Config({ websocketCompressionThreshold })).toThrow()
     }
   })
 

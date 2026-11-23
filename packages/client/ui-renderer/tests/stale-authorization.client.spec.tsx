@@ -56,6 +56,7 @@ function makeHost() {
     reportEntryError: () => {},
     reportFactoryError: () => {},
     specOf: () => ({ kind: 'single', scope: 'root' }),
+    deferralOf: () => undefined,
     isLive: entry => live.has(entry),
     storeOf: () => undefined,
     factoryStoreOf: () => undefined,

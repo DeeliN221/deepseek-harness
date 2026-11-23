@@ -222,7 +222,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-api-gateway`
 
 - `inject`: `typert` · `remoteAccess`
-- `source`: [`packages/api/gateway/src/index.ts:157`](../packages/api/gateway/src/index.ts)
+- `source`: [`packages/api/gateway/src/index.ts:164`](../packages/api/gateway/src/index.ts)
 
 ```ts config-catalog
 /** Gateway transport configuration. */
@@ -233,6 +233,12 @@ export interface Config {
   readonly streamInboxBytes?: number
   /** Per-message compression for the Remote stream WebSocket; `'none'` disables the extension. @default 'deflate' */
   readonly websocketCompression?: 'none' | 'deflate'
+  /**
+   * UTF-16 code-unit length at or above which a data frame is deflated; `0`
+   * deflates every data frame. Control frames (`end`, `error`) and WebSocket
+   * ping/pong frames are never compressed. @default 128
+   */
+  readonly websocketCompressionThreshold?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-api-gateway -->
@@ -262,7 +268,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-api-session-controller`
 
 - `inject`: `agentDefaultModel` · `agents` · `attachments` · `fileUploads` · `fs` · `llm` · `remoteAccess` · `sessions` · `sessionProjections` · `sessionQuery` · `typert` · `typertGateway` · `workspaceRegistry`
-- `source`: [`packages/api/session-controller/src/index.ts:111`](../packages/api/session-controller/src/index.ts)
+- `source`: [`packages/api/session-controller/src/index.ts:113`](../packages/api/session-controller/src/index.ts)
 
 ```ts config-catalog
 /** Session Controller deployment policy. */
@@ -271,6 +277,24 @@ export interface Config {
   readonly nativeOpen?: boolean
   /** Positive integral milliseconds of list work before yielding between complete rows. */
   readonly listWorkSliceMs?: number
+  /**
+   * Opening history window for `session.follow`. Request fields override it per
+   * field; omission keeps first paint on the default 500 events / 200 messages /
+   * one Turn. Paging (`loadOlder`) is unaffected and keeps its own larger budget.
+   */
+  readonly historyOpeningWindow?: {
+    /** Hard maximum durable events in one opening page. @default 500 */
+    readonly maxEvents?: number
+    /** Append-origin user and assistant message budget in one opening page. @default 200 */
+    readonly maxMessages?: number
+    /** Turn-alignment minima applied when the request supplies its own Turn window. */
+    readonly turnWindow?: {
+      /** Messages required before the page may end at a Turn start. @default 20 */
+      readonly minMessages?: number
+      /** Turn starts the opening page must cross. @default 1 */
+      readonly minTurns?: number
+    }
+  }
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-api-session-controller -->
@@ -1859,7 +1883,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-host-frontend-static`
 
 - `inject`: `webServer` · `connection`
-- `source`: [`packages/host/frontend-static/src/index.ts:34`](../packages/host/frontend-static/src/index.ts)
+- `source`: [`packages/host/frontend-static/src/index.ts:40`](../packages/host/frontend-static/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: the dist anchor. */
@@ -3975,7 +3999,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-system-prompt`
 
-- `source`: [`packages/core/system-prompt/src/index.ts:265`](../packages/core/system-prompt/src/index.ts)
+- `source`: [`packages/core/system-prompt/src/index.ts:266`](../packages/core/system-prompt/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: the deployment-authored fragment of the system prompt (see {@link Config.personaPrefix} for its contract). */

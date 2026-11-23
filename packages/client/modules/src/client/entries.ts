@@ -2,8 +2,10 @@
 import type { FiberState } from '@deepseek-ai/cordis'
 import type { Entry, Loader } from '@deepseek-ai/cordis-plugin-loader'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
-import { parseBootManifest, readRelease } from './manifest.ts'
-import type { BootManifest, ClientModuleLoader } from './manifest.ts'
+import { parseBootManifest, readRelease, stripClientSuffix } from './manifest.ts'
+import type {
+  BootManifest, ClientModuleLoader, DeferredEntryInfo, DeferredEntryPhase, DeferredEntryStatus,
+} from './manifest.ts'
 import { ReleaseChangeGate, type ClientReleaseChange } from './release-change.ts'
 import { notifySubscribers } from './notify.ts'
 import { tearDownEntryFiber } from './entry-lifecycle.ts'
@@ -35,6 +37,11 @@ function entryTargets(manifest: BootManifest): string {
   return JSON.stringify(manifest.modules.map(row => [row.id, row.rev, row.inject, row.external]))
 }
 
+/** Revisions and deferral of composed rows identify desired code; URLs only select its immutable delivery resource. */
+function pluginTargets(manifest: BootManifest): string {
+  return JSON.stringify(manifest.plugins.map(row => [row.id, row.lazy, row.trigger, row.slots]))
+}
+
 /** Manages only entries created from the Host manifest; other Loader contributors retain ownership. */
 export class ClientEntries {
   /** Stable observable consumed by page diagnostics through the renderer's injected hook. */
@@ -52,6 +59,13 @@ export class ClientEntries {
   private readonly release: ReleaseChangeGate
   private readonly managed = new Map<string, Entry>()
   private readonly revisions = new Map<string, string>()
+  /** Deferred rows composed but not materialized yet (removed once their entry exists). */
+  private readonly deferred = new Map<string, DeferredEntryInfo>()
+  /** Phase of every deferred row ever materialized in this page; `ready` rows stay addressable. */
+  private readonly deferredStatuses = new Map<string, DeferredEntryStatus>()
+  /** One in-flight materialization per row, so concurrent triggers share an attempt. */
+  private readonly activations = new Map<string, Promise<void>>()
+  private readonly deferredListeners = new Set<() => void>()
   private loader: Loader | undefined
   private queue: Promise<void> = Promise.resolve()
   private desired: BootManifest
@@ -82,6 +96,9 @@ export class ClientEntries {
    * Create the initial roster and retain its entry identities for subsequent reconciliation.
    * As the Host Loader group does, a row whose creation rejects (for example a module that exports no
    * plugin) is logged and stays an inactive entry, so one row cannot abort startup before the boot audit.
+   * Deferred rows are recorded instead of created: their bundles are in no
+   * initial batch, so creating an entry for them would fetch the bytes the
+   * deferral exists to avoid.
    * @param loader - Page Loader, already configured with the module system.
    * @param manifest - Initial roster audited by the boot caller.
    * @returns after initial entries and their activation settle; boot owns its activation audit.
@@ -96,13 +113,63 @@ export class ClientEntries {
       return this.queue
     }, 'client-modules: entry reconciliation')
     return this.enqueue(async () => {
-      await Promise.all(this.desired.plugins.map(async ({ id }) => {
-        await this.create(loader, id).catch((error: unknown) => { loader.ctx.logger.error(error) })
-      }))
+      this.trackDeferred(manifest)
+      await Promise.all(manifest.plugins
+        .filter(row => !this.isDeferred(row.id))
+        .map(async ({ id }) => {
+          await this.create(loader, id).catch((error: unknown) => { loader.ctx.logger.error(error) })
+        }))
       await loader.await()
       for (const row of this.modules.manifest.modules) this.revisions.set(row.id, row.rev)
     })
   }
+
+  /** Deferred rows that are still pending, in composition order. */
+  deferredEntries(): readonly DeferredEntryInfo[] {
+    return [...this.deferred.values()]
+  }
+
+  /**
+   * Phase of one deferred row.
+   * @param id - graph entry name.
+   * @returns the phase, or `undefined` for a row that is not deferred.
+   */
+  deferredStatus(id: string): DeferredEntryStatus | undefined {
+    return this.deferredStatuses.get(stripClientSuffix(id))
+  }
+
+  /**
+   * Subscribe to deferred phase changes.
+   * @param listener - called after every deferred change.
+   * @returns unsubscribe.
+   */
+  onDeferredChange(listener: () => void): () => void {
+    this.deferredListeners.add(listener)
+    return () => { this.deferredListeners.delete(listener) }
+  }
+
+  /**
+   * Materialize one deferred row on first need. Concurrent triggers share the
+   * single in-flight attempt; a failed attempt is discarded and retried once.
+   * @param id - graph entry name.
+   * @returns after the row is active, immediately for a non-deferred row.
+   * @throws {Error} with the entry failure text once both attempts fail.
+   */
+  activate(id: string): Promise<void> {
+    const normalized = stripClientSuffix(id)
+    if (!this.deferred.has(normalized)) return Promise.resolve()
+    const running = this.activations.get(normalized)
+    if (running !== undefined) return running
+    const run = this.enqueue(async () => { await this.materialize(normalized) }, `deferred:${normalized}`)
+      .then(() => {
+        const status = this.deferredStatuses.get(normalized)
+        if (status?.phase === 'failed') throw new Error(status.message)
+      })
+      .finally(() => { this.activations.delete(normalized) })
+    this.activations.set(normalized, run)
+    return run
+  }
+
 
   /**
    * Validate and apply the latest full Host graph. Changed targets cancel obsolete mounts; identical targets share pending loads.
@@ -114,7 +181,9 @@ export class ClientEntries {
   sync(graph: unknown): Promise<void> {
     if (!this.release.observe(readRelease(graph))) return Promise.resolve()
     const manifest = parseBootManifest(graph)
-    if (entryTargets(manifest) !== entryTargets(this.desired)) this.generation++
+    if (entryTargets(manifest) !== entryTargets(this.desired) || pluginTargets(manifest) !== pluginTargets(this.desired)) {
+      this.generation++
+    }
     this.desired = manifest
     const generation = this.generation
     return this.enqueue(() => this.reconcile(generation))
@@ -142,6 +211,12 @@ export class ClientEntries {
     this.desired = {
       ...this.desired,
       modules: this.desired.modules.map(row => row.id === id ? { ...row, rev } : row),
+    }
+    // A deferred row has no entry to replace until something triggers it; the
+    // new revision is recorded above and the next activation loads it.
+    if (this.deferred.has(stripClientSuffix(id))) {
+      this.modules.invalidate(id, rev)
+      return Promise.resolve()
     }
     return this.enqueue(async () => {
       const desired = this.desired.modules.find(row => row.id === id)
@@ -191,6 +266,106 @@ export class ClientEntries {
     }
   }
 
+  /**
+   * Refresh the deferred roster from a manifest: rows that are no longer
+   * deferred drop their hint (an activated row keeps its `ready` status).
+   * @param manifest - composition the page is converging on.
+   */
+  private trackDeferred(manifest: BootManifest): void {
+    const next = new Map<string, DeferredEntryInfo>()
+    for (const row of manifest.plugins) {
+      if (!row.lazy || this.managed.has(row.id)) continue
+      next.set(row.id, {
+        id: row.id,
+        ...(row.trigger === undefined ? {} : { trigger: row.trigger }),
+        slots: [...row.slots],
+      })
+      if (!this.deferredStatuses.has(row.id)) {
+        this.deferredStatuses.set(row.id, { id: row.id, phase: 'pending' })
+      }
+    }
+    for (const id of this.deferred.keys()) {
+      if (next.has(id)) continue
+      this.deferred.delete(id)
+    }
+    for (const [id, info] of next) this.deferred.set(id, info)
+  }
+
+  /** Whether one row is composed as deferred and has not been materialized. */
+  private isDeferred(id: string): boolean {
+    return this.deferred.has(stripClientSuffix(id))
+  }
+
+  private setDeferredPhase(id: string, phase: DeferredEntryPhase, message?: string): void {
+    this.deferredStatuses.set(id, { id, phase, ...(message === undefined ? {} : { message }) })
+    notifySubscribers(this.deferredListeners, 'deferred entry change')
+  }
+
+  /**
+   * Run one activation attempt, then a single retry, and publish the phase.
+   * Never rejects: the phase is the outcome, so one unavailable plugin cannot
+   * take down the trigger that asked for it.
+   * @param id - deferred row to materialize.
+   */
+  private async materialize(id: string): Promise<void> {
+    this.setDeferredPhase(id, 'loading')
+    let failure: unknown
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await this.materializeOnce(id)
+        this.deferred.delete(id)
+        this.setDeferredPhase(id, 'ready')
+        return
+      } catch (error) {
+        failure = error
+        await this.discardFailedEntry(id)
+      }
+    }
+    this.setDeferredPhase(id, 'failed', this.failureText(id, failure))
+  }
+
+  /** One load-and-activate attempt against the current graph. */
+  private async materializeOnce(id: string): Promise<void> {
+    const loader = this.loader
+    if (loader === undefined) throw new Error('client-modules: entries have not started')
+    await this.modules.prefetch(id)
+    if (this.stopped) return
+    await this.modules.import(id, '', {})
+    if (this.stopped) return
+    await this.create(loader, id)
+    await loader.await()
+    const entry = this.managed.get(id)
+    if (entry === undefined || entry.fiber === undefined) {
+      throw new Error(`client-modules: ${id} import failed (see console)`)
+    }
+    if (entry.fiber.state !== ACTIVE) await entry.fiber.await()
+    if (entry.fiber.state !== ACTIVE) {
+      throw new Error(`client-modules: ${id} is waiting for activation`)
+    }
+  }
+
+  /** Drop the entry of a failed attempt so the retry starts from a clean fiber. */
+  private async discardFailedEntry(id: string): Promise<void> {
+    const entry = this.managed.get(id)
+    if (entry === undefined) return
+    const fiber = entry.fiber
+    this.loader?.remove(entry.id)
+    this.managed.delete(id)
+    this.revisions.delete(id)
+    while (fiber?.inertia !== undefined) await fiber.inertia
+    this.index.prune([...this.loader?.entries() ?? []].map(row => row.options.name))
+  }
+
+  /**
+   * The boot audit's wording for one failed row, so the same failure reads the
+   * same way whether it happened before first paint or on a deferred trigger.
+   */
+  private failureText(id: string, error: unknown): string {
+    const importError = this.modules.importError(id)
+    const reason = importError?.message ?? (error instanceof Error ? error.message : String(error))
+    return `${id}: import failed: ${reason}`
+  }
+
   private async replace(entry: Entry, id: string, rev: string, generation: number): Promise<void> {
     this.index.invalidateForReplacement(id, rev)
     await this.modules.prefetch(id)
@@ -212,6 +387,7 @@ export class ClientEntries {
     if (loader === undefined) throw new Error('client-modules: entries have not started')
     const manifest = this.desired
     this.publish({ syncing: true, failures: [] })
+    this.trackDeferred(manifest)
     const failures: { id: string; message: string }[] = []
     this.index.update(manifest, this.managed.keys())
     const wanted = new Set(manifest.plugins.map(row => row.id))
@@ -221,11 +397,15 @@ export class ClientEntries {
       loader.remove(entry.id)
       this.managed.delete(id)
       this.revisions.delete(id)
+      this.deferred.delete(id)
       // Removed fibers no longer appear in Loader.getTasks().
       while (fiber?.inertia !== undefined) await fiber.inertia
     }
     for (const row of manifest.modules) {
       if (!this.current(generation)) break
+      // A deferred row materializes only through `activate`; reconciliation
+      // must not turn a graph update into a first-paint load.
+      if (this.isDeferred(row.id)) continue
       try {
         const entry = this.managed.get(row.id)
         if (entry === undefined) {

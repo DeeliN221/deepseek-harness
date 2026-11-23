@@ -8,6 +8,7 @@
 import { describe, expect, onTestFinished, vi } from 'vitest'
 import { SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { AttachmentId } from '@deepseek-ai/dsh-attachment/types'
+import type { LlmAttemptId } from '@deepseek-ai/dsh-llm/types'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import { RemoteStreamCarrierError } from '@deepseek-ai/dsh-api-gateway/client'
@@ -16,7 +17,7 @@ import { ok, type RemoteMock } from '@deepseek-ai/dsh-remote-mock'
 import { createClientTest, type TestClient, webApp } from '@deepseek-ai/dsh-client-test-runtime/src/assembly/index.ts'
 import { Session } from '../src/client/sessions/session.ts'
 import { SessionEventStream } from '../src/client/transport.ts'
-import type { SessionFollowRequest, SessionEventsPage, SessionPageRequest } from '../src/types.ts'
+import type { SessionAssistantStreamBaseline, SessionFollowRequest, SessionEventsPage, SessionPageRequest } from '../src/types.ts'
 import { entries, ev, historyValue, plainTurn } from './event-script.client.ts'
 import { sessionBench } from './remote/bench.client.ts'
 import {
@@ -192,7 +193,8 @@ describe('paging', () => {
     await session.open()
     await session.loadOlder()
     const snapshot = session.getSnapshot()
-    expect(mock.log.requests(FOLLOW)).toMatchObject([{ maxEvents: 2_000, maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } }])
+    // The opening page carries no window: the Host owns the first-paint budget.
+    expect(mock.log.requests(FOLLOW)).toMatchObject([{}])
     expect(mock.log.requests(PAGE)).toEqual([
       { address: ADDRESS, throughSeq: 11, beforeSeq: 6, maxEvents: 2_000, maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } },
     ])
@@ -762,7 +764,7 @@ describe('prompt and cancel errors', () => {
     expect(steered).toEqual({ ok: true, value: { accepted: true } })
     expect(cancelled).toEqual({ ok: true, value: { accepted: true } })
     expect(mock.log.requests(FOLLOW)).toEqual([
-      { address: { kind: 'subagent', ...CHILD }, activate: true, assistantStream: true, maxEvents: 2_000, maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } },
+      { address: { kind: 'subagent', ...CHILD }, activate: true, assistantStream: true },
     ])
     expect(mock.log.requests(PAGE)).toEqual([])
     // The prompt mode crosses the wire as the request's delivery.
@@ -870,7 +872,7 @@ describe('prompt and cancel errors', () => {
     expect(mock.log.requests('subagents/prompt')).toMatchObject([{ childSessionId: SID }])
     expect(mock.log.calls('subagents/interruptByUser').map(call => call.args)).toEqual([[SID]])
     expect(mock.log.requests(FOLLOW)).toEqual([
-      { address: { kind: 'subagent', ...CHILD, mode: 'one-shot' }, activate: true, assistantStream: true, maxEvents: 2_000, maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } },
+      { address: { kind: 'subagent', ...CHILD, mode: 'one-shot' }, activate: true, assistantStream: true },
     ])
     expect(mock.log.requests(PAGE)).toEqual([])
     expect(mock.log.requests('session/cancel')).toEqual([])
@@ -1321,6 +1323,169 @@ describe('resync', () => {
     const snapshot = session.getSnapshot()
     expect(snapshot.openState).toBe('open') // stale failure did not settle the fresh generation into error
     expect(eventSeqs(session)).toEqual(plainTurn(SessionSeq(6), 1, '新', '代').map(event => event.seq))
+  })
+})
+
+describe('reconnect resume', () => {
+  for (const staged of [false, true]) {
+    it(`rebuilds the same active attempt on resume${staged ? ' with a settlement received before end' : ''}`, async ({ mock, start }) => {
+      const session = await sessionBench(mock, start, SID)
+      const attemptId = brandString<LlmAttemptId>('resume-attempt')
+      const drop = Promise.withResolvers<undefined>()
+      const initial = [ev.turnStart(SessionSeq(0), 1), ev.stepStart(SessionSeq(1), 1)]
+      const baseline: SessionAssistantStreamBaseline = {
+        revision: 2,
+        activeAttempt: {
+          attemptId, startedAfterSeq: SessionSeq(1), turn: 1, step: 0, nextIndex: 1,
+          stream: [{ type: 'chunk', time: 2, chunk: { type: 'text-delta', index: 0, text: 'prefix' } }],
+        },
+      }
+      let generation = 0
+      mock.stream(FOLLOW, async ([request], stream) => {
+        const follow = request as SessionFollowRequest
+        generation += 1
+        if (generation === 1) {
+          stream.push(followSnapshot(historyValue(initial), follow, 1, baseline))
+          await drop.promise
+          stream.fail(new RemoteStreamCarrierError('carrier dropped during attempt'))
+          return
+        }
+        stream.push({
+          ...followSnapshot(historyValue([]), follow, staged ? 2 : 1, baseline),
+          resumed: true,
+        })
+      })
+      await session.open()
+      if (staged) {
+        await pushEvent(mock, ev.assistant(SessionSeq(2), 1, 'complete'))
+        expect(windowEntries(session).filter(entry => entry.type === 'event')).toHaveLength(2)
+      }
+      drop.resolve(undefined)
+      await vi.waitFor(() => { expect(mock.log.requests(FOLLOW)).toHaveLength(2) })
+      await mock.streams.drained(FOLLOW)
+      expect(windowEntries(session).filter(entry => entry.type === 'transient')).toHaveLength(1)
+      expect(windowEntries(session).filter(entry => entry.type === 'event')).toHaveLength(2)
+      expect(mock.log.requests(FOLLOW)[1]).toMatchObject({ afterSeq: staged ? 2 : 1 })
+
+      mock.streams.push(FOLLOW, {
+        type: 'assistant-stream', frame: {
+          type: 'chunk', attemptId, revision: 3, index: 1, time: 3,
+          chunk: { type: 'text-delta', index: 0, text: 'suffix' },
+        },
+      })
+      await mock.streams.drained(FOLLOW)
+      expect(windowEntries(session).filter(entry => entry.type === 'transient')).toHaveLength(2)
+      if (!staged) await pushEvent(mock, ev.assistant(SessionSeq(2), 1, 'complete'))
+      mock.streams.push(FOLLOW, {
+        type: 'assistant-stream', frame: {
+          type: 'end', attemptId, revision: 4, index: 2,
+          outcome: { kind: 'committed', eventType: 'assistant/message', seq: 2 },
+        },
+      })
+      await mock.streams.drained(FOLLOW)
+      expect(windowEntries(session).filter(entry => entry.event.type === 'assistant/message')).toHaveLength(1)
+      expect(windowEntries(session).filter(entry => entry.type === 'transient')).toHaveLength(2)
+      await pushEvent(mock, ev.stepEnd(SessionSeq(3), 1))
+      expect(eventSeqs(session)).toEqual([0, 1, 2, 3])
+      expect(mock.log.requests(FOLLOW)).toHaveLength(2)
+    })
+  }
+
+  it('refreshes projection values from a resumed opening without a durable delta', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    const drop = Promise.withResolvers<undefined>()
+    let generation = 0
+    mock.stream(FOLLOW, async ([request], stream) => {
+      const follow = request as SessionFollowRequest
+      generation += 1
+      if (generation === 1) {
+        stream.push(followSnapshot({
+          ...historyValue([ev.turnStart(SessionSeq(0), 1)]),
+          projections: { asOfSeq: 0, values: { title: 'before' } },
+        }, follow))
+        await drop.promise
+        stream.fail(new RemoteStreamCarrierError('projection notification lost'))
+        return
+      }
+      stream.push({
+        ...followSnapshot({
+          ...historyValue([]), projections: { asOfSeq: 1, values: { title: 'after' } },
+        }, follow, 1),
+        resumed: true,
+      })
+    })
+    await session.open()
+    await pushEvent(mock, ev.user(SessionSeq(1), 'advance'))
+    drop.resolve(undefined)
+    await vi.waitFor(() => { expect(session.projections.get('title')).toBe('after') })
+    expect(session.projections.seqOf('title')).toBe(1)
+    expect(eventSeqs(session)).toEqual([0, 1])
+    expect(mock.log.requests(FOLLOW)).toHaveLength(2)
+  })
+
+  it('asks for only the events after the last applied seq when the carrier drops mid-turn', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    const first = plainTurn(SessionSeq(0), 1, 'q', 'a')
+    const drop = Promise.withResolvers<undefined>()
+    const delta = [ev.user(SessionSeq(7), 'during drop'), ev.user(SessionSeq(8), 'after drop')]
+    let generation = 0
+    mock.stream(FOLLOW, async ([request], stream) => {
+      generation += 1
+      const follow = request as SessionFollowRequest
+      if (generation === 1) {
+        stream.push(followSnapshot(historyValue(first, true), follow))
+        await drop.promise
+        stream.fail(new RemoteStreamCarrierError('stalled heartbeat'))
+        return
+      }
+      // The Host honours the resume cursor with only the events the Client lacks.
+      stream.push({ ...followSnapshot(historyValue(delta), follow, 8), resumed: true })
+    })
+    await session.open()
+    const live = ev.user(SessionSeq(6), 'mid-turn')
+    await pushEvent(mock, live)
+
+    drop.resolve(undefined)
+    await vi.waitFor(() => { expect(mock.log.requests(FOLLOW)).toHaveLength(2) })
+    await vi.waitFor(() => { expect(eventSeqs(session)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]) })
+
+    const followRequests = mock.log.requests(FOLLOW)
+    expect(followRequests[0]).toMatchObject({ activate: true, assistantStream: true })
+    expect(followRequests[0]).not.toHaveProperty('afterSeq')
+    expect(followRequests[1]).toMatchObject({ activate: true, assistantStream: true, afterSeq: 6 })
+    const snapshot = session.getSnapshot()
+    expect(snapshot.openState).toBe('open')
+    // The retained window was not re-downloaded: the delta was appended over
+    // it, keeping hasMore and every sequence exactly once.
+    expect(snapshot.hasMore).toBe(true)
+    expect(new Set(eventSeqs(session)).size).toBe(eventSeqs(session).length)
+  })
+
+  it('replaces the retained window when the Host refuses to resume', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    const first = plainTurn(SessionSeq(0), 1, 'q', 'a')
+    const drop = Promise.withResolvers<undefined>()
+    const replacement = plainTurn(SessionSeq(10), 2, 'fresh', 'window')
+    let generation = 0
+    mock.stream(FOLLOW, async ([request], stream) => {
+      generation += 1
+      const follow = request as SessionFollowRequest
+      if (generation === 1) {
+        stream.push(followSnapshot(historyValue(first, true), follow))
+        await drop.promise
+        stream.fail(new RemoteStreamCarrierError('stalled heartbeat'))
+        return
+      }
+      stream.push({ ...followSnapshot(historyValue(replacement), follow), reset: true })
+    })
+    await session.open()
+    await pushEvent(mock, ev.user(SessionSeq(6), 'mid-turn'))
+
+    drop.resolve(undefined)
+    await vi.waitFor(() => { expect(mock.log.requests(FOLLOW)).toHaveLength(2) })
+    await vi.waitFor(() => { expect(eventSeqs(session)).toEqual(replacement.map(event => event.seq)) })
+    expect(mock.log.requests(FOLLOW)[1]).toMatchObject({ afterSeq: 6 })
+    expect(session.eventSource.getSnapshot().change).toMatchObject({ kind: 'replace' })
   })
 })
 

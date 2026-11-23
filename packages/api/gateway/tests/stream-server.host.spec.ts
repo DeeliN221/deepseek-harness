@@ -410,7 +410,7 @@ describe('Remote stream mux server compression', () => {
     await roundTrip(client, 'uncompressed', 'x'.repeat(2_048))
   })
 
-  it('compresses frames of 1,024 characters and leaves shorter frames uncompressed', async () => {
+  it('compresses data frames above the 128-character default threshold and leaves shorter ones uncompressed', async () => {
     const entry = await startMux(async (_endpoint, _payload, uplink) => echoUplink(uplink))
     const client = await connect(entry.url)
     const writer = acceptedSocket(entry.mux) as {
@@ -419,18 +419,52 @@ describe('Remote stream mux server compression', () => {
     const sending = vi.spyOn(writer, 'send')
     const frames = collectFrames(client)
     const long = 'x'.repeat(2_048)
+    // The threshold measures the encoded frame, so a 100-character value
+    // (~145 encoded characters) compresses and a 50-character value (~95) does not.
+    const aboveThreshold = 'y'.repeat(100)
+    const belowThreshold = 'z'.repeat(50)
     client.send(openFrame('threshold'))
     client.send(itemFrame('threshold', long))
     await vi.waitFor(() => {
       expect(frames).toContainEqual({ type: 'item', streamId: 'threshold', value: long })
     })
-    client.send(itemFrame('threshold', 'short'))
+    client.send(itemFrame('threshold', aboveThreshold))
     await vi.waitFor(() => {
-      expect(frames).toContainEqual({ type: 'item', streamId: 'threshold', value: 'short' })
+      expect(frames).toContainEqual({ type: 'item', streamId: 'threshold', value: aboveThreshold })
+    })
+    client.send(itemFrame('threshold', belowThreshold))
+    await vi.waitFor(() => {
+      expect(frames).toContainEqual({ type: 'item', streamId: 'threshold', value: belowThreshold })
     })
 
     expect(sending.mock.calls.find(([data]) => data.includes(long))?.[1]).toEqual({ compress: true })
-    expect(sending.mock.calls.find(([data]) => data.includes('"short"'))?.[1]).toEqual({ compress: false })
+    expect(sending.mock.calls.find(([data]) => data.includes(aboveThreshold))?.[1]).toEqual({ compress: true })
+    expect(sending.mock.calls.find(([data]) => data.includes(belowThreshold))?.[1]).toEqual({ compress: false })
+    sending.mockRestore()
+    client.close()
+    await once(client, 'close')
+  })
+
+  it('deflates every data frame at threshold 0 but never a control frame', async () => {
+    const entry = await startMux(async (_endpoint, _payload, uplink) => echoUplink(uplink), 2_000, 262_144, true, undefined, 0)
+    const client = await connect(entry.url)
+    const writer = acceptedSocket(entry.mux) as {
+      send(data: string, options: { compress?: boolean }, callback: (error?: Error) => void): void
+    }
+    const sending = vi.spyOn(writer, 'send')
+    const frames = collectFrames(client)
+    client.send(openFrame('control'))
+    client.send(itemFrame('control', 'hi'))
+    await vi.waitFor(() => {
+      expect(frames).toContainEqual({ type: 'item', streamId: 'control', value: 'hi' })
+    })
+    client.send(endFrame('control'))
+    await vi.waitFor(() => {
+      expect(frames).toContainEqual({ type: 'end', streamId: 'control' })
+    })
+
+    expect(sending.mock.calls.find(([data]) => data.includes('"item"'))?.[1]).toEqual({ compress: true })
+    expect(sending.mock.calls.find(([data]) => data.includes('"end"'))?.[1]).toEqual({ compress: false })
     sending.mockRestore()
     client.close()
     await once(client, 'close')
@@ -667,12 +701,14 @@ async function startMux(
   streamInboxBytes = 262_144,
   compression = true,
   peer?: PeerScope,
+  compressionThreshold = 128,
 ): Promise<RunningMux> {
   const admitted = peer ?? await fixturePeer()
   const mux = new RemoteStreamMuxServer(open, mapFailure, {
     heartbeatIntervalMs,
     streamInboxBytes,
     compression,
+    compressionThreshold,
   })
   const http = createServer()
   http.on('upgrade', (request, socket, head) => { mux.handleUpgrade(request, socket, head, admitted) })

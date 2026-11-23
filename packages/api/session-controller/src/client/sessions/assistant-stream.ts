@@ -73,13 +73,20 @@ export class ClientAssistantStream {
         nextIndex: opening.nextIndex,
       }
     }
-    const visible: SessionEventLikeEntry[] = [...entries]
+    const visible: SessionEventLikeEntry[] = []
+    for (const entry of entries) {
+      const settlement = entry.type === 'event' ? assistantSettlementEntry(entry) : undefined
+      if (settlement !== undefined && this.attemptForSettlement(settlement.event) !== undefined) {
+        this.pending.set(entry.event.seq, settlement)
+      } else visible.push(entry)
+    }
     this.publishedSeqs = new Set(visible.map(entry => entry.event.seq))
-    this.durableCursor = visible.reduce((cursor, entry) => Math.max(cursor, entry.event.seq), -1)
+    this.durableCursor = entries.reduce((cursor, entry) => Math.max(cursor, entry.event.seq), -1)
     if (opening !== undefined) {
       for (const [index, member] of expandAssistantStream(
         opening.stream as unknown as readonly AssistantStreamRecord[],
       ).entries()) {
+        if (index >= opening.nextIndex) break
         this.transientInGap += 1
         visible.push({
           type: 'transient',

@@ -45,7 +45,7 @@ kind: "package-reference"
 
 回退的同步 `auth` 选择器对根路径与配置 index 请求要求 `required`，其余文件声明 `anonymous`。WebServer 在文件服务前通过 Connection 集中准入；匿名资源免凭据验证，但仍执行 Connection 来源策略。resource 直接接收准入 Peer 并供 index 渲染闭包使用，不重复认证。Token 中间件在路由前处理根路径 Cookie 交换。读取 index 内容后，渲染检查请求与 Peer 均仍存活。
 
-除 index 外，所有提供的文件都由浏览器重新验证。这类响应携带 `cache-control: no-cache` 和由文件内容 SHA-1 生成的弱 ETag，因此文件内容变化后即使名字不变也会得到新的 ETag；`If-None-Match` 等于当前 ETag 的请求得到空的 304。渲染出的 index 不带缓存头。
+浏览器可以缓存携带内容哈希的文件一年。内容哈希指 Vite 的 `[name]-[hash][extname]` 命名，其中 hash 至少 8 个 base64url 字符且含字母——数字版本号或日期尾巴（如 `app-20240101`）不算——这类响应携带 `cache-control: public, max-age=31536000, immutable`、`Vary: Accept-Encoding`，且不带验证器。当构建在文件旁生成了 brotli sidecar（`<file>.br`）且请求的 `Accept-Encoding` 接受 brotli 时，这些字节作为 `br` 变体提供；其他客户端与所有可变文件得到身份字节，webserver 配置压缩时由它压缩。不带内容哈希的文件需重新验证：携带 `cache-control: no-cache` 与由文件内容 SHA-1 生成的弱 ETag，因此文件内容变化后即使名字不变也会得到新的 ETag；`If-None-Match` 等于当前 ETag 的请求得到空的 304。渲染出的 index 从不存储——携带 `cache-control: no-store` 且没有验证器，因为回放过期的启动图会让页面指向运行中的 Host 已不再服务的插件资源。
 
 ### 可观察的失败
 
@@ -71,7 +71,7 @@ kind: "package-reference"
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | `serveStatic` 与 `apply`：回退 resource、遍历拒绝、index 鉴权与渲染、重新验证、MIME 表 |
+| [`src/index.ts`](src/index.ts) | `serveStatic` 与 `apply`：回退 resource、遍历拒绝、index 鉴权与渲染、immutable 与重新验证两类缓存契约、brotli sidecar 协商、MIME 表 |
 
 </details>
 
@@ -105,7 +105,7 @@ kind: "package-reference"
 
 这些限制说明某个资产类别何时尚未被覆盖。它们是当前包约束，不是任务积压。
 
-- **初始 MIME 表很精简**：它覆盖 Vite 输出的资产集合及实际交付的 PWA manifest；其他扩展名在相应资产类别发布前都会回退到 `application/octet-stream`。
+- **初始 MIME 表很精简**：它覆盖 Vite 输出的资产集合（含 woff2、woff、ttf 字体面）及实际交付的 PWA manifest；其他扩展名在相应资产类别发布前都会回退到 `application/octet-stream`。
 - **Pathname 路由是显式声明**——当前客户端从根目录或配置的 index 路径进入，没有 History API pathname 路由。新增一条需要显式服务器规则与真实组合覆盖，而不是对每次未命中做宽泛回退。
 
 <a id="dev-note"></a>

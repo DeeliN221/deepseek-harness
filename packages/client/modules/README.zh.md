@@ -42,6 +42,8 @@ kind: "package-reference"
 
 application combo 脚本只携带每个插件的 `client.js` 入口，并在启动时仅注册一次这些 factory；模块主体仍保持惰性，只在首次 import 或物化时运行。经 tsdown 拆分的源码 `import()` 会编译为 `require.async("./client.<name>.js")`；只有执行该表达式时，对应的带版本同级脚本才会到达。共享 combo URL 的 row 共用一个进行中的脚本任务。`<script>` 加载失败的 combo 会再请求一次；加载成功但没有注册某条 row 的 combo 绝不会重新执行，因为批量脚本按顺序注册各个包，重放会在第一个重复注册处停止。两种情况下，每条仍缺失的 row 随后加载自己的单资源 combo URL，因此一个失败的 batch 对每条缺失 row 最多花费三次请求，且不影响它已经注册的 row。模块系统按 row 记录最后一次 import 失败（传输、注册、依赖级联或 factory 执行）；Web 启动审计按条目报告该文本。HMR（热模块替换）会让一条发生变化的 row 改用带 revision 的单资源 combo URL。`<id>/client` 与裸 id 解析到同一组导出，因为插件 bundle 就是其包的客户端半侧。
 
+内置延迟清单中的行不会进入初始批次，也不参与 Loader 启动。插槽出口首次需要对应插槽键时才激活该行；真实贡献就绪前显示加载骨架，激活失败时显示记录的错误。第一阶段行和被 eager 行注入的服务提供者仍立即启动。`DSH_CLIENT_DEFERRED` 用 `+name`（或 `name`）添加包名，用 `-name` 强制立即启动；令牌以逗号或空白分隔，Host 重启后生效。只有接通激活触发器的行才应延迟：触发器标签本身不会注册面板或命令。Context、Ignis 与会话搜索的面板或命令触发器尚未在这里接通，因此仍立即启动。Workflow-run 也保持立即启动：模块自身注册 workflow 节点定义，若延迟到该节点出现才启动，现有 unknown-kind renderer 会阻止触发激活。包作者可在 `dsh.client.deferred` 中声明插槽键；`activateDeferred(id)` 也支持显式激活。
+
 ### 插件动态组合
 
 已打开的 Web 页面通过 HMR 传输跟随 Host 的完整模块图。启用普通插件会添加其 Loader 条目；停用会移除条目，并在其异步 effect 完成清理后回收未使用的模块与样式。再次启用会加载一个带样式的实例。其他 Loader 贡献方的条目及活动条目仍需使用的共享模块会保留。「设置 → 插件 → 插件列表」显示当前页面的同步失败，并提供不改变 Host 启用状态的重试。

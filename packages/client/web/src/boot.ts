@@ -10,6 +10,7 @@ import type {
   BootManifest, ClientModuleCreateOptions, ClientModuleSystem, DshWindow,
 } from '@deepseek-ai/dsh-client-modules/client'
 import { bootClient } from './boot-client.ts'
+import { installDeferredSlots } from './deferred-slots.ts'
 import { BootPage } from './boot-page.ts'
 import { mountClient } from './mount.ts'
 import { getStaticModules } from './seed.ts'
@@ -83,7 +84,9 @@ export class AppWebEntry {
       const prefetching = this.prefetchImmediateTier(modules)
       const ctx = new Context()
       this.ctx = ctx
-      this.page.setTotal(this.manifest.plugins.length)
+      // Deferred rows never appear on the boot page: they are not part of
+      // the first paint it reports progress for.
+      this.page.setTotal(this.manifest.plugins.filter(row => !row.lazy).length)
       await prefetching
       await bootClient({
         ctx,
@@ -94,6 +97,10 @@ export class AppWebEntry {
           if (state !== 'failed') this.page.setState(name, state)
         },
       })
+      // Deferred-row slot hints install before the first mount, so an empty cell
+      // that a deferred plugin will fill renders a skeleton (and triggers that
+      // plugin) instead of a blank on the very first frame.
+      await installDeferredSlots(ctx, this.modules)
       // The shell owns the one watcher that keeps Electron's window drag rects in
       // step with the rows that own them (electron#32341), so no chrome row has to
       // know that trap. It installs before the first mount, so the surface the
@@ -127,7 +134,7 @@ export class AppWebEntry {
   /** Prefetch stage-one bundles and their dynamic requests before concurrent plugin imports. */
   private async prefetchImmediateTier(modules: ClientModuleSystem): Promise<void> {
     await Promise.all(this.manifest.plugins
-      .filter(row => row.immediately)
+      .filter(row => row.immediately && !row.lazy)
       .map(row => modules.prefetch(row.id).catch((_prefetchError: unknown) => {
         // Prefetch only starts transport early; the Loader import retries and reports this bundle failure.
       })))

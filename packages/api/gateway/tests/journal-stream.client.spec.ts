@@ -24,6 +24,8 @@ interface Page {
 interface PageRequest {
   readonly before?: number
   readonly limit?: number
+  /** Resume cursor: the domain asks for entries strictly after this seq. */
+  readonly after?: number
 }
 
 type JournalFrame = RemoteJournalFrame<Entry, number, Page, string>
@@ -136,6 +138,11 @@ class FixtureJournal extends RemoteJournalStream<Page, Entry, number, PageReques
   protected override repairRequest(request: PageRequest): PageRequest {
     return request.limit === undefined ? {} : { limit: request.limit }
   }
+
+  /** @inheritdoc */
+  protected override resumeRequest(request: PageRequest, cursor: number): PageRequest {
+    return { ...this.repairRequest(request), after: cursor }
+  }
 }
 
 function journalFixture(
@@ -171,8 +178,10 @@ function journalFixture(
   return { journal, changes, failed, calls, pageRequests, pageCursors, followRequests }
 }
 
-function opened(cursor: number, value: Page): JournalFrame {
-  return { type: 'opened', cursor, page: value }
+function opened(cursor: number, value: Page, resumed = false): JournalFrame {
+  return resumed
+    ? { type: 'opened', cursor, page: value, resumed: true }
+    : { type: 'opened', cursor, page: value }
 }
 
 function remoteItem(
@@ -467,7 +476,9 @@ describe('RemoteJournalStream', () => {
     expect(fixture.changes[2]).toMatchObject({
       type: 'replace', page: { marker: 'replacement' }, entries: entries(0, 1, 2, 3, 4),
     })
-    expect(fixture.followRequests).toEqual([{ limit: 5 }, { limit: 5 }])
+    // Reconnect continues from the last applied cursor; the replacement
+    // generation answered with a full window, so it stays a replace.
+    expect(fixture.followRequests).toEqual([{ limit: 5 }, { limit: 5, after: 2 }])
     expect(fixture.pageCursors).toEqual([])
     expect(fixture.failed).not.toHaveBeenCalled()
     await fixture.journal.dispose()
@@ -515,7 +526,8 @@ describe('RemoteJournalStream', () => {
       },
     ])
     expect(fixture.pageCursors).toEqual([3])
-    expect(fixture.followRequests).toEqual([{ limit: 3 }, { limit: 3 }])
+    // The unapplied seq 3 was never published, so the retry resumes after seq 1.
+    expect(fixture.followRequests).toEqual([{ limit: 3 }, { limit: 3, after: 1 }])
     expect(fixture.failed).not.toHaveBeenCalled()
     await fixture.journal.dispose()
   })
@@ -1099,6 +1111,58 @@ describe('RemoteJournalStream', () => {
     expect(fixture.changes.at(-1)).toEqual({
       type: 'prepend', page: page('older', [0, 1], true), entries: [], hasMore: false,
     })
+    await fixture.journal.dispose()
+  })
+
+  it('resumes the next generation after the last applied cursor instead of the whole window', async () => {
+    const fixture = journalFixture([
+      { frames: [opened(4, page('initial', [3, 4]))], hold: true },
+      { frames: [opened(6, page('delta', [5, 6]), true)], hold: true },
+    ], [])
+
+    await fixture.journal.open({})
+    expect(fixture.changes.map(change => change.type)).toEqual(['replace'])
+    fixture.journal.restart()
+    await vi.waitFor(() => { expect(fixture.changes).toHaveLength(2) })
+
+    expect(fixture.followRequests).toEqual([{}, { after: 4 }])
+    expect(fixture.changes[1]).toEqual({
+      type: 'resume', page: page('delta', [5, 6]), entries: entries(5, 6), hasMore: false,
+    })
+    await fixture.journal.dispose()
+  })
+
+  it('skips entries an overlapping resume repeats and publishes only the new tail', async () => {
+    const fixture = journalFixture([
+      { frames: [opened(4, page('initial', [3, 4]))], hold: true },
+      { frames: [opened(6, page('overlap', [4, 5, 6]), true)], hold: true },
+    ], [])
+
+    await fixture.journal.open({})
+    fixture.journal.restart()
+    await vi.waitFor(() => { expect(fixture.changes).toHaveLength(2) })
+
+    expect(fixture.followRequests[1]).toEqual({ after: 4 })
+    expect(fixture.changes[1]).toMatchObject({ type: 'resume', entries: entries(5, 6) })
+    await fixture.journal.dispose()
+  })
+
+  it('drops a resumed delta with a hole and retries from a full window', async () => {
+    const fixture = journalFixture([
+      { frames: [opened(4, page('initial', [3, 4]))], hold: true },
+      { frames: [opened(7, page('hole', [7]), true)], hold: true },
+      { frames: [opened(8, page('full', [5, 6, 7, 8]))], hold: true },
+    ], [])
+
+    await fixture.journal.open({})
+    fixture.journal.restart()
+    await vi.waitFor(() => { expect(fixture.followRequests).toHaveLength(3) })
+    await vi.waitFor(() => { expect(fixture.changes.map(change => change.type)).toEqual(['replace', 'replace']) })
+
+    // The contradictory delta was never published, and the retry asked for a
+    // full window instead of resuming again from a cursor it cannot trust.
+    expect(fixture.followRequests[2]).toEqual({})
+    expect(fixture.changes[1]).toMatchObject({ type: 'replace', page: page('full', [5, 6, 7, 8]) })
     await fixture.journal.dispose()
   })
 

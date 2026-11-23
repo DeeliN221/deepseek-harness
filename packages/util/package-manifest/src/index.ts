@@ -15,6 +15,7 @@ export type {
 
 export type {
   DshBundleManifest,
+  DshClientDeferredManifest,
   DshClientManifest,
   DshEnginesManifest,
   DshManifest,
