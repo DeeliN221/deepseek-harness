@@ -267,6 +267,24 @@
   }
 }
 
+/* Header actions (background jobs, subagent catalog) sit at the trailing end
+   of the View tab row, so the title row stays reserved for the session title
+   and the strip keeps the conversation height. They never shrink and keep the
+   right edge while the tabs scroll underneath. */
+.tabActions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  align-self: center;
+  gap: 8px;
+  margin-inline-start: auto;
+  padding-inline-start: 8px;
+}
+
+.tabActions:empty {
+  display: none;
+}
+
 /* The 16px text line retains 9px below it. The press target extends 10px
    above the text into the strip's top margin and 10px to each side, matching
    the inline padding of the Sidebar tab chips (ui-dockkit `.tab`); negative

@@ -147,6 +147,10 @@ function mount(
     viewOrder?: readonly string[] | null
     /** Isolate header capability checks from the composer's required layout observers. */
     headerOnly?: boolean
+    /** List a child subagent Session below the selected Session (a live fleet). */
+    childSubagent?: boolean
+    /** List an ordinary fork below the selected Session, without a subagent origin. */
+    childFork?: boolean
   } = {},
 ) {
   const sessionId = 'sessionId' in options ? options.sessionId : SID
@@ -162,15 +166,26 @@ function mount(
     cwd: '/projects/one', running: false, retainedBy: { mainView: 1 }, blank: options.summaryBlank ?? false, updatedAt: 3,
     ...(options.summaryOrigin === undefined ? {} : { origin: options.summaryOrigin }),
   }
+  const grandchildRow = {
+    id: sid('grandchild'), displayTitle: 'Grandchild', parentId: SID,
+    ...(options.childFork === true ? {} : { origin: 'subagent' as const }),
+    cwd: '/projects/one', running: false, retainedBy: {}, blank: false, updatedAt: 4,
+  }
   const listed = options.omitSummaryRow !== true
   const sessions = createSnapshotStore<SessionListState>({
     ids: listed
-      ? [root, ...options.nestedSubagent === true ? [parent] : [], SID]
+      ? [
+        root,
+        ...options.nestedSubagent === true ? [parent] : [],
+        SID,
+        ...(options.childSubagent === true || options.childFork === true) ? [grandchildRow.id] : [],
+      ]
       : [root],
     byId: {
       [root]: rootRow,
       ...listed && options.nestedSubagent === true && { [parent]: parentRow },
       ...listed && { [SID]: childRow },
+      ...listed && (options.childSubagent === true || options.childFork === true) && { [grandchildRow.id]: grandchildRow },
     },
     phase: 'ready', projectionsBySession: {},
   })
@@ -216,6 +231,9 @@ function mount(
     if (key === 'conversation.session.header.lineage') {
       lineageOwners.push(owner as ConversationHeaderLineageOwnerProps)
       return opts?.fallback ?? null
+    }
+    if (key === 'conversation.session.header.actions') {
+      return <div data-testid="session-header-actions" />
     }
     if (key === 'conversation.header') {
       return <ConversationHeader {...runtimeProps} renderSlot={renderSlot as never} />
@@ -713,10 +731,10 @@ describe('ConversationRoot resident composer', () => {
   })
 
   it('places the configured order first and appends every unlisted registered View', () => {
-    const viewTabs = ['chat', 'trajectory', 'context', 'fleet'].map(id => ({ id, label: id }))
-    const b = mount(sessionSnapshotOf(), undefined, undefined, { viewTabs, viewOrder: ['fleet', 'trajectory'] })
+    const viewTabs = ['chat', 'trajectory', 'context', 'timeline'].map(id => ({ id, label: id }))
+    const b = mount(sessionSnapshotOf(), undefined, undefined, { viewTabs, viewOrder: ['timeline', 'trajectory'] })
     expect(within(b.view.getByRole('tablist')).getAllByRole('tab').map(tab => tab.textContent))
-      .toEqual(['chat', 'fleet', 'trajectory', 'context'])
+      .toEqual(['chat', 'timeline', 'trajectory', 'context'])
   })
 
   it('appends a newly registered View to the strip without a width recalculation', () => {
@@ -727,19 +745,57 @@ describe('ConversationRoot resident composer', () => {
     const b = mount(sessionSnapshotOf(), undefined, undefined, { viewTabs, viewOrder: ['trajectory'] })
     expect(within(b.view.getByRole('tablist')).getAllByRole('tab').map(tab => tab.textContent))
       .toEqual(['Chat', 'Trajectory'])
-    viewTabs.push({ id: 'fleet', label: 'Fleet' })
+    viewTabs.push({ id: 'timeline', label: 'Timeline' })
     b.rerender()
     expect(within(b.view.getByRole('tablist')).getAllByRole('tab').map(tab => tab.textContent))
-      .toEqual(['Chat', 'Trajectory', 'Fleet'])
+      .toEqual(['Chat', 'Trajectory', 'Timeline'])
+  })
+
+  it('hides the subagent-only View tab while the Session has no child Sessions', () => {
+    const viewTabs = ['chat', 'fleet', 'context'].map(id => ({ id, label: id }))
+    const b = mount(sessionSnapshotOf(), undefined, undefined, { viewTabs })
+    expect(within(b.view.getByRole('tablist')).getAllByRole('tab').map(tab => tab.textContent))
+      .toEqual(['chat', 'context'])
+    expect(b.view.queryByRole('tab', { name: 'fleet' })).toBeNull()
+  })
+
+  it('keeps the subagent-only View hidden for an ordinary fork', () => {
+    const viewTabs = ['chat', 'fleet', 'context'].map(id => ({ id, label: id }))
+    const b = mount(sessionSnapshotOf(), undefined, undefined, { viewTabs, childFork: true })
+    expect(b.view.queryByRole('tab', { name: 'fleet' })).toBeNull()
+  })
+
+  it('places the Session header actions at the trailing end of the View tab row', () => {
+    const viewTabs = ['chat', 'context'].map(id => ({ id, label: id }))
+    const b = mount(sessionSnapshotOf(), undefined, undefined, { viewTabs })
+    const actions = b.view.getByTestId('session-header-actions')
+    const tablist = b.view.getByRole('tablist')
+    expect(tablist.parentElement?.contains(actions)).toBe(true)
+    expect(actions.closest('[class*="tabActions"]')).not.toBeNull()
+    expect(b.view.container.querySelector('[class*="titleRow"]')?.contains(actions)).toBe(false)
+  })
+
+  it('shows the subagent-only View tab once a child Session is listed', () => {
+    const viewTabs = ['chat', 'fleet', 'context'].map(id => ({ id, label: id }))
+    const b = mount(sessionSnapshotOf(), undefined, undefined, { viewTabs, childSubagent: true })
+    expect(within(b.view.getByRole('tablist')).getAllByRole('tab').map(tab => tab.textContent))
+      .toEqual(['chat', 'fleet', 'context'])
   })
 
   it('selects a View from its tab and keeps the selection across rerenders', () => {
-    const viewTabs = ['chat', 'trajectory', 'fleet'].map(id => ({ id, label: id }))
+    const viewTabs = ['chat', 'trajectory', 'timeline'].map(id => ({ id, label: id }))
     const b = mount(sessionSnapshotOf(), undefined, undefined, { viewTabs })
-    fireEvent.click(b.view.getByRole('tab', { name: 'fleet' }))
-    expect(b.store.store.getSnapshot().view).toBe('fleet')
-    expect(b.view.getByRole('tab', { name: 'fleet' }).getAttribute('aria-selected')).toBe('true')
+    fireEvent.click(b.view.getByRole('tab', { name: 'timeline' }))
+    expect(b.store.store.getSnapshot().view).toBe('timeline')
+    expect(b.view.getByRole('tab', { name: 'timeline' }).getAttribute('aria-selected')).toBe('true')
     expect(b.view.getByRole('tab', { name: 'chat' }).getAttribute('aria-selected')).toBe('false')
+  })
+
+  it('keeps header actions in the title row when Chat is the only registered View', () => {
+    const b = mount(sessionSnapshotOf(), undefined, undefined, { viewTabs: [{ id: 'chat', label: 'Chat' }] })
+    const actions = b.view.getByTestId('session-header-actions')
+    expect(b.view.queryByRole('tablist')).toBeNull()
+    expect(b.view.container.querySelector('[class*="titleRow"]')?.contains(actions)).toBe(true)
   })
 
   it('omits the tab strip while Chat is the only registered View', () => {
