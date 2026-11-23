@@ -149,15 +149,14 @@ export function ConversationSessionHeader({
                 })}
                 {ancestry.length === 0 && <span className={css.crumbCurrent}>{sessionId}</span>}
               </nav>
-              {!showTabs && (
-                // A single registered View leaves no tab strip to host the
-                // header actions, so they keep the title row instead of
-                // becoming unreachable.
-                <div className={css.headerActions}>
-                  {renderSlot('conversation.session.header.actions', {})}
-                </div>
-              )}
             </div>
+            {!showTabs && (
+              // Keep single-View actions outside the title's clipping and
+              // fade, so shrinking the title cannot hide their hit targets.
+              <div className={css.headerActions}>
+                {renderSlot('conversation.session.header.actions', {})}
+              </div>
+            )}
             <div className={css.headerUtilities}>
               {renderSlot('conversation.session.header.utilities', {})}
               {renderFactorySlot('contextMenu.button', {

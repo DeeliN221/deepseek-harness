@@ -796,6 +796,7 @@ describe('ConversationRoot resident composer', () => {
     const actions = b.view.getByTestId('session-header-actions')
     expect(b.view.queryByRole('tablist')).toBeNull()
     expect(b.view.container.querySelector('[class*="titleRow"]')?.contains(actions)).toBe(true)
+    expect(actions.closest('[class*="titleCluster"]')).toBeNull()
   })
 
   it('omits the tab strip while Chat is the only registered View', () => {
