@@ -39,7 +39,6 @@ export const DEFAULT_DEFERRED_ROWS: readonly DeferredRowConfig[] = [
   // Right-sidebar tabs and tool views.
   { id: '@deepseek-ai/dsh-client-ui-sidebar-documentpreview', slots: ['sidebar.right.pane.tab'], trigger: 'slot:sidebar.right.pane.tab' },
   { id: '@deepseek-ai/dsh-client-ui-deliverables', slots: ['sidebar.right.pane.tab', 'tool.call.toolview'], trigger: 'slot:sidebar.right.pane.tab' },
-  { id: '@deepseek-ai/dsh-client-ui-workflow-run', slots: ['conversation.chat.node'], trigger: 'slot:conversation.chat.node' },
   // Settings sections, reached by opening Settings.
   { id: '@deepseek-ai/dsh-client-ui-settings-account', slots: ['settings.section'], trigger: 'slot:settings.section' },
   { id: '@deepseek-ai/dsh-client-ui-settings-agent-loop', slots: ['settings.section'], trigger: 'slot:settings.section' },

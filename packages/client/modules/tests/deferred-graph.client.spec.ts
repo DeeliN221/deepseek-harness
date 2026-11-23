@@ -92,6 +92,18 @@ describe('deferred rows in the composed graph', () => {
     expect(graph.batches.flatMap(batch => batch.entries).sort()).toEqual([...ids].sort())
   })
 
+  it('keeps workflow node definitions eager before conversation kind dispatch', () => {
+    const workflow = '@deepseek-ai/dsh-client-ui-workflow-run'
+    writePackage(RENDERER_ID, { immediately: true })
+    writePackage(workflow, { inject: [RENDERER_ID] })
+    const graph = construct([RENDERER_ID, workflow]).graph()
+
+    // The module registers the workflow node kind itself. Until it boots, the
+    // existing unknown-kind renderer prevents a missing-slot activation.
+    expect(graph.entries.find(entry => entry.id === workflow)?.lazy).toBeUndefined()
+    expect(graph.batches.flatMap(batch => batch.entries)).toEqual([RENDERER_ID, workflow])
+  })
+
   it('keeps stage-one infrastructure eager even when the roster names it', () => {
     writePackage(RENDERER_ID, { immediately: true })
     process.env[DEFERRED_ENV] = `+${RENDERER_ID}`
