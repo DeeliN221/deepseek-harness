@@ -16,7 +16,10 @@
   "include": [
     "src",
     "scripts",
-    "tests"
+    "tests",
+    // Build-config modules imported by the specs in `tests`; the other root
+    // helpers are reached only from vite.config.ts, which no program includes.
+    "precompressed-assets.ts"
   ],
   // The web e2e lane (scaffold + replay specs) boots the host spine and reads
   // its Context merges — host-plane programs, checked in tsconfig.host.json;

@@ -7,6 +7,7 @@ import react from '@vitejs/plugin-react'
 import { clientBuildEnvironmentDefines } from '../../scripts/client-build-environment.ts'
 import { productWebBundleIsolation } from './product-isolation.ts'
 import { katexWoff2Fonts } from './katex-fonts.ts'
+import { precompressedAssets } from './precompressed-assets.ts'
 
 const src = (rel: string): string => fileURLToPath(new URL(rel, import.meta.url))
 const STANDALONE_ERROR = 'apps/web is not a standalone application: bare Vite cannot inject window.__DSH_BOOT__. '
@@ -173,12 +174,20 @@ export default defineConfig({
   plugins: [
     rejectStandaloneServe(), clientDocumentTitle(), brandFontLicense(), katexWoff2Fonts(), react(), emitPreviewPage(),
     productWebBundleIsolation(src('../..'), src('.')),
+    // Publish builds ship `<asset>.br` beside each hashed chunk; the dist server
+    // negotiates it, and a watch rebuild keeps the webserver's gzip path.
+    precompressedAssets(),
   ],
   build: {
     // The worker bootstrap holds its page at top-level await; Vite's default
     // `modules` target (es2020-era) rejects that syntax.
     target: 'es2022',
-    sourcemap: true,
+    // Published dist ships no .map: this package's `files` field excludes them
+    // and the preview workflow deletes them, so a `//# sourceMappingURL=`
+    // comment would point DevTools at a 404 on every load. `'hidden'` keeps the
+    // maps beside a local build (manual inspection, error reporting) while the
+    // bytes shipped to a browser reference nothing publishing drops.
+    sourcemap: 'hidden',
     rollupOptions: {
       input: {
         index: src('./index.html'),
