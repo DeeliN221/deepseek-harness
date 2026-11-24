@@ -217,7 +217,9 @@ export class ChatNavigation {
     if (this.historyIntent !== 'manual' && (this.reading.followingTail
       || !this.viewport.confirmHistoryStart())) return
     // Loaded rows remain revealable after remote history is exhausted.
-    if (input.revealEarlier?.() === true || !input.hasMore) {
+    // Local reveals consume a page immediately; the remote prefetch distance is too broad.
+    const revealLocal = this.historyIntent === 'manual' || this.viewport.confirmHistoryStart(0)
+    if ((revealLocal && input.revealEarlier?.() === true) || !input.hasMore) {
       this.setHistoryIntent('none')
       return
     }

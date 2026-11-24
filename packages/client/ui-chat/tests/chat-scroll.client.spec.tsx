@@ -29,6 +29,7 @@ function ScrollHarness({ input, onMotion }: {
   useLayoutEffect(() => { onMotion(state.motion) }, [onMotion, state.motion])
   return <>
     <div ref={state.listRef} data-testid="scrollport" data-initialized={state.initialized}>
+      <div ref={state.historyEdgeRef} data-testid="history-edge" />
       <div ref={state.columnRef} data-testid="column" data-chat-flow="" />
       <div data-chat-turn-spacer="" />
     </div>
@@ -37,7 +38,9 @@ function ScrollHarness({ input, onMotion }: {
   </>
 }
 
-function mountScroll(deferCompletedTurns = true, initial: Partial<ChatScrollInput> = {}) {
+function mountScroll(deferCompletedTurns = true, initial: Partial<ChatScrollInput> = {},
+  geometry?: { height: number; top: number; edgeBottom: number },
+) {
   let input: ChatScrollInput = {
     isOpen: true,
     sessionId: 'session-1',
@@ -64,9 +67,15 @@ function mountScroll(deferCompletedTurns = true, initial: Partial<ChatScrollInpu
   }
   const callbacks: { motion?: FlowMotionRows; resize?: () => void } = {}
   class Observer implements ResizeObserver {
-    constructor(callback: ResizeObserverCallback) { callbacks.resize = () => { callback([], this) } }
-    observe(): void {}
-    unobserve(): void {}
+    private readonly targets = new Set<Element>()
+    constructor(callback: ResizeObserverCallback) {
+      callbacks.resize = () => {
+        const entries = geometry === undefined ? [] : [...this.targets].map(target => ({ target }) as ResizeObserverEntry)
+        callback(entries, this)
+      }
+    }
+    observe(target: Element): void { this.targets.add(target) }
+    unobserve(target: Element): void { this.targets.delete(target) }
     disconnect(): void { delete callbacks.resize }
   }
   vi.stubGlobal('ResizeObserver', Observer)
@@ -80,10 +89,15 @@ function mountScroll(deferCompletedTurns = true, initial: Partial<ChatScrollInpu
     if (options.behavior === 'instant') scroller.scrollTop = options.top ?? scroller.scrollTop
   })
   Object.defineProperties(scroller, {
-    clientHeight: { value: 400 },
+    clientHeight: { value: geometry?.height ?? 400 },
     scrollHeight: { get: () => height + (Number.parseFloat(spacer.style.height) || 0) },
     scrollTo: { value: scrollTo },
   })
+  if (geometry !== undefined) {
+    const edge = within(view.container).getByTestId('history-edge')
+    vi.spyOn(scroller, 'getBoundingClientRect').mockImplementation(() => new DOMRect(0, geometry.top, 100, geometry.height))
+    vi.spyOn(edge, 'getBoundingClientRect').mockImplementation(() => new DOMRect(0, geometry.edgeBottom - 40, 100, 40))
+  }
   const row = document.createElement('div')
   Object.defineProperty(row, 'offsetHeight', { value: 80 })
   within(view.container).getByTestId('column').append(row)
@@ -933,4 +947,81 @@ it.each([
     expect(bounds).toEqual(expected)
   }
   expect(loadOlder).not.toHaveBeenCalled()
+})
+
+
+it.each([928, 1074])('does not consume local history %ipx above a 924px viewport after forward paging', (distance) => {
+  const order = Array.from({ length: 526 }, (_, index) => `node-${index}`)
+  let bounds = { start: 0, end: 240 }
+  const geometry = { height: 924, top: 76, edgeBottom: 76 - distance }
+  const revealEarlier = vi.fn(() => {
+    const next = earlierRenderWindow(order.length, bounds)
+    if (next === null) return false
+    bounds = next
+    return true
+  })
+  const h = mountScroll(false, {
+    order, renderOrder: order.slice(bounds.start, bounds.end), renderedGlobalTail: false,
+    hasMore: false, revealEarlier,
+    advanceRenderWindow: () => {
+      const next = laterRenderWindow(order.length, bounds)
+      if (next === null) return false
+      bounds = next
+      return true
+    },
+  }, geometry)
+  h.grow(2040)
+  h.resize()
+  for (let page = 1; page <= 3; page++) {
+    h.scroller.scrollTop = 1116
+    fireEvent.wheel(h.scroller, { deltaY: 15_000 })
+    const expected = { start: page * 60, end: 240 + page * 60 }
+    expect(bounds).toEqual(expected)
+    h.update({ renderOrder: order.slice(bounds.start, bounds.end) })
+    act(() => { vi.advanceTimersByTime(32) })
+    expect(bounds).toEqual(expected)
+    expect(revealEarlier).not.toHaveBeenCalled()
+  }
+  geometry.edgeBottom = geometry.top
+  h.scroller.scrollTop = 0
+  fireEvent.scroll(h.scroller)
+  fireEvent(h.scroller, new Event('scrollend'))
+  act(() => { vi.advanceTimersByTime(32) })
+  expect(revealEarlier).toHaveBeenCalledOnce()
+  expect(bounds).toEqual({ start: 0, end: 240 })
+})
+
+it('keeps two-viewport remote prefetch and explicit local history clicks at the measured floor', () => {
+  let bounds = { start: 0, end: 240 }
+  const order = Array.from({ length: 526 }, (_, index) => `node-${index}`)
+  const loadOlder = vi.fn()
+  const revealEarlier = vi.fn(() => {
+    const next = earlierRenderWindow(order.length, bounds)
+    if (next === null) return false
+    bounds = next
+    return true
+  })
+  const h = mountScroll(false, {
+    order, renderOrder: order.slice(bounds.start, bounds.end), renderedGlobalTail: false,
+    hasMore: true, loadOlder, revealEarlier,
+    advanceRenderWindow: () => {
+      const next = laterRenderWindow(order.length, bounds)
+      if (next === null) return false
+      bounds = next
+      return true
+    },
+  }, { height: 924, top: 76, edgeBottom: -852 })
+  h.grow(2040)
+  h.resize()
+  h.scroller.scrollTop = 1116
+  fireEvent.wheel(h.scroller, { deltaY: 15_000 })
+  expect(bounds).toEqual({ start: 60, end: 300 })
+  h.update({ renderOrder: order.slice(bounds.start, bounds.end) })
+  act(() => { vi.advanceTimersByTime(32) })
+  expect(revealEarlier).not.toHaveBeenCalled()
+  expect(loadOlder).toHaveBeenCalledOnce()
+  fireEvent.click(within(h.view.container).getByRole('button', { name: 'Load earlier' }))
+  expect(revealEarlier).toHaveBeenCalledOnce()
+  expect(bounds).toEqual({ start: 0, end: 240 })
+  expect(loadOlder).toHaveBeenCalledOnce()
 })
