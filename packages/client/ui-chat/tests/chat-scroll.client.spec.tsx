@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import { useLayoutEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FlowMotionRows } from '../src/client/chat/flow-motion.ts'
+import { earlierRenderWindow, laterRenderWindow } from '../src/client/chat/render-window.ts'
 import { ChatViewport } from '../src/client/chat/use-chat-viewport.ts'
 import { useChatScroll, type ChatScrollInput } from '../src/client/chat/use-chat-scroll.ts'
 
@@ -848,4 +849,43 @@ describe('forward reading at a bounded local floor', () => {
     h.update({ renderOrder: appended.slice(-240), renderedGlobalTail: true })
     expect(h.scroller.scrollTop).toBe(1_200)
   })
+})
+
+
+it.each([true, false])('does not pull a committed forward page back toward older rows (remote hasMore=%s)', (hasMore) => {
+  const order = Array.from({ length: 1_000 }, (_, index) => `node-${index}`)
+  let bounds = { start: 400, end: 640 }
+  const revealEarlier = vi.fn(() => {
+    const next = earlierRenderWindow(order.length, bounds)
+    if (next === null) return false
+    bounds = next
+    return true
+  })
+  const h = mountScroll(false, {
+    order, renderOrder: order.slice(bounds.start, bounds.end), renderedGlobalTail: false,
+    hasMore, revealEarlier,
+    advanceRenderWindow: () => {
+      const next = laterRenderWindow(order.length, bounds)
+      if (next === null) return false
+      bounds = next
+      return true
+    },
+  })
+  // jsdom has no layout or ResizeObserver entries; derive the edge from this real scrollport.
+  vi.spyOn(ChatViewport.prototype, 'confirmHistoryStart').mockImplementation(() => h.scroller.scrollTop === 0)
+  for (let page = 0; page < 3; page++) {
+    h.scroller.scrollTop = 600
+    fireEvent.wheel(h.scroller, { deltaY: 15_000 })
+    expect(bounds).toEqual({ start: 460 + page * 60, end: 700 + page * 60 })
+    h.update({ renderOrder: order.slice(bounds.start, bounds.end) })
+    act(() => { vi.advanceTimersByTime(32) })
+    expect(revealEarlier).not.toHaveBeenCalled()
+    expect(bounds).toEqual({ start: 460 + page * 60, end: 700 + page * 60 })
+  }
+  h.scroller.scrollTop = 0
+  fireEvent.scroll(h.scroller)
+  fireEvent(h.scroller, new Event('scrollend'))
+  act(() => { vi.advanceTimersByTime(32) })
+  expect(revealEarlier).toHaveBeenCalledOnce()
+  expect(bounds).toEqual({ start: 400, end: 640 })
 })
