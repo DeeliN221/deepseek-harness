@@ -1,0 +1,36 @@
+{
+  "formatVersion": 1,
+  "applicableTo": "Existing NAS compact sidebar overlay only; not the default sidebar or work deployment",
+  "upstreamCheckedCommit": "202740aea419e626d4f1eb91ed0fefa864cbe5e1",
+  "historicalOverlayReceipt": {
+    "sourceCommit": "80684d747a9595c2fcf65800ddb023d1ab336411",
+    "sourceBranch": "fix/unified-search-20261122",
+    "recordedAt": "2026-11-21T20:35:20.707568+00:00",
+    "scope": "CSS-only compact-sidebar overlay preserving pre-existing minimal-nav JS",
+    "doesNotEstablishOriginalWhitelistAuthor": true
+  },
+  "sourceSnapshot": {
+    "originalSha256": "6856369c8298a79d989403082ceb6b69c012d7b0151b6d8773f71cdeb0b82ae1",
+    "correctedSha256": "7b96440ba451a7f7ba7ba332729b301b5448a4cdaa30429869d5924806afcc15",
+    "originalDeclaration": "const NAV_PANEL_IDS = ['dsh-task-center', 'task-board'];",
+    "correctedDeclaration": "const NAV_PANEL_IDS = ['dsh-task-center', 'task-board', 'bot-team'];"
+  },
+  "existingClientBundle": {
+    "originalSha256": "f1d32813352cdc44eba7426e63dfd7e4137c2b73909a90a636f251022eeb27e0",
+    "correctedSha256": "bc62c799e39124e87c4bf1b84ca22a86c9e79e65c308054a334685abad278ec1",
+    "originalDeclaration": "const NAV_PANEL_IDS=[`dsh-task-center`,`task-board`]",
+    "correctedDeclaration": "const NAV_PANEL_IDS=[`dsh-task-center`,`task-board`,`bot-team`]"
+  },
+  "validation": {
+    "productionModified": false,
+    "isolatedBrowserResponseOverride": true,
+    "viewport": [
+      390,
+      844
+    ],
+    "motion": "default",
+    "botTeamEntryVisible": true,
+    "botTeamWelcomeAndCreateControlsVisible": true,
+    "pageErrors": 0
+  }
+}
