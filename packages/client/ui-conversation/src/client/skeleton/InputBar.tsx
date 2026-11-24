@@ -42,6 +42,10 @@ import { AsyncDispatchControl } from './AsyncDispatchControl.tsx'
 import type {} from '../../dispatch-types.ts'
 import { observeControlRow } from './control-row-layout.ts'
 import css from './InputBar.module.css'
+import stopCss from './StopConfirmation.module.css'
+
+/** Original two-click stop window, restored from 67d22a105f. */
+const STOP_ARM_WINDOW_MS = 4000
 
 export type InputBarProps = ComposerBarProps
 
@@ -82,7 +86,39 @@ export const InputBar = memo(function InputBar({
   const submissionPending = useSession(s => s.pendingSubmissions.length > 0) ?? false
   const stopping = useSession(s => s.stopping !== undefined) ?? false
   const stopAction = cancelDenied || stopping ? undefined : stop
-  const stopLabel = t(stopping ? 'input.stopping' : 'input.stop')
+  // Two-step stop: the first click arms the control for a few seconds and the
+  // second one cancels, so a misplaced click on a running turn cannot kill its
+  // work. The pending arm clears itself and never survives a remount.
+  const [stopArmed, setStopArmed] = useState(false)
+  const stopArmTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const disarmStop = useCallback(() => {
+    setStopArmed(false)
+    if (stopArmTimer.current !== undefined) {
+      clearTimeout(stopArmTimer.current)
+      stopArmTimer.current = undefined
+    }
+  }, [])
+  useEffect(() => () => {
+    if (stopArmTimer.current !== undefined) {
+      clearTimeout(stopArmTimer.current)
+      stopArmTimer.current = undefined
+    }
+  }, [])
+  const requestStop = useCallback(() => {
+    if (stopAction === undefined) return
+    if (stopArmed) {
+      disarmStop()
+      stopAction()
+      return
+    }
+    setStopArmed(true)
+    stopArmTimer.current = setTimeout(() => {
+      setStopArmed(false)
+      stopArmTimer.current = undefined
+    }, STOP_ARM_WINDOW_MS)
+  }, [disarmStop, stopAction, stopArmed])
+  useEffect(disarmStop, [disarmStop, sessionId, running, stopping, cancelDenied])
+  const stopLabel = t(stopping ? 'input.stopping' : stopArmed ? 'input.stopConfirm' : 'input.stop')
   const subagent = useSession(s => s.subagent) ?? null
   const removed = useSession(s => s.removed) ?? false
   // Plan mode swaps the composer placeholder (the projection is the folded
@@ -399,7 +435,7 @@ export const InputBar = memo(function InputBar({
           : t('input.send')
   const onPrimary = (): void => {
     if (primaryStops) {
-      stopAction?.()
+      requestStop()
       return
     }
     if (primaryRetries) {
@@ -557,12 +593,13 @@ export const InputBar = memo(function InputBar({
               <Tooltip label={stopLabel} shortcutKeys={stopKeys} side="top" delayMs={500} disabled={stopAction === undefined} portal>
                 <button
                   type="button"
-                  className={css.primary}
+                  className={clsx(css.primary, stopArmed && stopCss.armed)}
+                  data-stop-armed={stopArmed ? '' : undefined}
                   aria-label={stopLabel}
                   aria-busy={stopping}
                   disabled={stopAction === undefined}
                   onMouseDown={keepFocus}
-                  onClick={stopAction}
+                  onClick={requestStop}
                 >
                   <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
                     <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
@@ -574,7 +611,8 @@ export const InputBar = memo(function InputBar({
               <Tooltip label={primaryStops ? stopLabel : primaryLabel} shortcutKeys={primaryStops ? stopKeys : undefined} side="top" delayMs={500} disabled={primaryDisabled} portal>
                 <button
                   type="button"
-                  className={css.primary}
+                  className={clsx(css.primary, primaryStops && stopArmed && stopCss.armed)}
+                  data-stop-armed={primaryStops && stopArmed ? '' : undefined}
                   aria-label={primaryLabel}
                   aria-busy={sending || (primaryStops && stopping)}
                   data-sending={sending ? '' : undefined}

@@ -416,7 +416,7 @@ export class Session implements SessionFace {
         if (this.stopRequest !== request) return { ok: true, value: { accepted: true } } as const
         return address !== undefined
           ? this.remote.subagents.interruptByUser(address.childSessionId)
-          : this.remote.session.cancel({ sessionId: this.sessionId })
+          : this.remote.session.cancel({ sessionId: this.sessionId, cascade: true })
       }).then((result) => {
         if (this.stopRequest !== request) return result
         if (!result.ok) {
