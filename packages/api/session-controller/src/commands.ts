@@ -600,8 +600,7 @@ export class SessionCommandController {
   /**
    * Stop the work a cancelled turn owns beyond its agent: background jobs
    * (killed synchronously, so a running shell reports 'requested') and every
-   * subagent descendant, each interrupted under its own direct parent's
-   * authority. A job that settles between listing and killing, or a child that
+   * subagent descendant under the admitted trusted user operation. A job that settles between listing and killing, or a child that
    * already finished, is a warning rather than a failed cancellation.
    * @param sessionId - Session whose jobs and subagents are stopped.
    */
@@ -619,7 +618,7 @@ export class SessionCommandController {
     void subagents.listDescendants(sessionId).then((entries) => {
       for (const entry of entries) {
         try {
-          subagents.interrupt(entry.id, { kind: 'user', parentSessionId: entry.parentId })
+          subagents.interrupt(entry.id, { kind: 'user' })
         } catch (error) {
           this.ctx.logger.warn('cascade cancel: subagent %s did not interrupt', entry.id, error)
         }

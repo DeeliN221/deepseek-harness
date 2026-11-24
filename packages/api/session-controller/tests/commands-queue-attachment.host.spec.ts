@@ -253,7 +253,7 @@ describe('Session queue commands', () => {
   it('cascade cancellation kills the turn jobs and interrupts every subagent descendant', async () => {
     const { ctx, controller, agent, cancel } = await commandHarness()
     const killed: string[] = []
-    const interrupted: Array<[string, string]> = []
+    const interrupted: Array<[string, import('@deepseek-ai/dsh-subagent').SubagentInterruptAuthority]> = []
     ctx.provide('jobs', {
       list: (caller?: string) => caller === agent.id ? [{ id: 'bash-1' }, { id: 'terminal-1' }] : [],
       kill: (id: string) => { killed.push(id); return 'requested' as const },
@@ -262,8 +262,8 @@ describe('Session queue commands', () => {
       listDescendants: async (root: string) => root === agent.id
         ? [{ id: 'child-a', parentId: agent.id }, { id: 'child-b', parentId: 'child-a' }]
         : [],
-      interrupt: (target: string, authority: { parentSessionId: string }) => {
-        interrupted.push([target, authority.parentSessionId])
+      interrupt: (target: string, authority: import('@deepseek-ai/dsh-subagent').SubagentInterruptAuthority) => {
+        interrupted.push([target, authority])
       },
     } as never)
 
@@ -271,8 +271,8 @@ describe('Session queue commands', () => {
 
     expect(cancel).toHaveBeenCalledWith({ kind: 'user' }, { keepInbox: true })
     expect(killed).toEqual(['bash-1', 'terminal-1'])
-    // Each descendant is interrupted under its own direct parent's authority.
-    await vi.waitFor(() => expect(interrupted).toEqual([['child-a', agent.id], ['child-b', 'child-a']]))
+    // Host cascade uses the current trusted-user authority after cancel admission.
+    await vi.waitFor(() => expect(interrupted).toEqual([['child-a', { kind: 'user' }], ['child-b', { kind: 'user' }]]))
     await ctx.fiber.dispose()
   })
 
