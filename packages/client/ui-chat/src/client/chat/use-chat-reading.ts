@@ -168,17 +168,7 @@ export class ChatReading {
     // Native follow animation progress is not reader movement; scrollend settles it.
     if (this.follow.animating) return
     const atFloor = Math.abs(scroll.metrics.top - scroll.metrics.floor) < 1
-    if (scroll.movedByReader && atFloor && !this.renderedGlobalTail) {
-      const position = this.viewport.capturePosition()
-      if (position !== null) {
-        this.viewport.beginPreserving(position)
-        if (this.advanceRenderWindow()) {
-          this.pauseFollowing()
-          return
-        }
-        this.viewport.stopPreserving()
-      }
-    }
+    if (scroll.movedByReader && atFloor && this.advanceAtFloor()) return
     if ((!scroll.movedByReader && this.state.followingTail)
       || (scroll.movedByReader && atFloor && this.renderedGlobalTail)) {
       this.followTail()
@@ -186,6 +176,24 @@ export class ChatReading {
       return
     }
     this.sampleTimer ??= window.setTimeout(this.flushSample, SCROLL_SAMPLE_INTERVAL_MS)
+  }
+
+  /** Advance a local floor even when a forward gesture cannot move the physical scrollport. */
+  readonly onForwardIntent = (): void => {
+    const scroll = this.viewport.readScroll()
+    if (scroll !== null && Math.abs(scroll.metrics.top - scroll.metrics.floor) < 1) this.advanceAtFloor()
+  }
+
+  private advanceAtFloor(): boolean {
+    if (this.renderedGlobalTail) return false
+    // Empty or fully folded slices may have no semantic row; they must still reveal newer rows.
+    this.viewport.beginPreserving(this.viewport.capturePosition())
+    if (this.advanceRenderWindow()) {
+      this.pauseFollowing()
+      return true
+    }
+    this.viewport.stopPreserving()
+    return false
   }
 
   /**

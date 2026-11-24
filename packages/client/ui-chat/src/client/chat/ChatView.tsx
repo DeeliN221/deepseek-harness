@@ -341,8 +341,9 @@ export function ChatView({
     transcriptView,
   })
   const returnToBottom = useCallback(() => {
-    scroll.returnToBottom()
     if (savedAnchor.current?.sessionId === sessionId) savedAnchor.current = { sessionId, key: null }
+    setRenderWindow(null)
+    scroll.returnToBottom()
   }, [scroll.returnToBottom, sessionId])
   const previousHistory = useRef({ sessionId, firstSeq, loadingOlder })
   useLayoutEffect(() => {
