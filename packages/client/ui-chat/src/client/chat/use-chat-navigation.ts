@@ -154,7 +154,7 @@ export class ChatNavigation {
   requestHistoryCheck(): void {
     if (!this.input.isOpen || this.input.historyLoadStatus === 'error') return
     if (this.historyIntent === 'none' && (this.input.historyLoadStatus !== 'idle'
-      || !this.input.hasMore || this.reading.followingTail)) return
+      || this.reading.followingTail)) return
     if (this.historyFrame !== null || typeof requestAnimationFrame !== 'function') return
     this.historyFrame = requestAnimationFrame(() => {
       this.historyFrame = null
@@ -210,11 +210,12 @@ export class ChatNavigation {
       this.consumeHistory(mode)
       return
     }
-    // A bounded render window may hide rows the Session already loaded: reveal
-    // those before asking the Host for another page.
-    if (input.revealEarlier?.() === true) return
-    if (!input.hasMore || this.historyIntent !== 'manual' && (this.reading.followingTail
+    // Automatic local reveals obey the same reading edge as remote paging.
+    if (this.historyIntent !== 'manual' && (this.reading.followingTail
       || !this.viewport.confirmHistoryStart())) return
+    // Loaded rows remain revealable after remote history is exhausted.
+    if (input.revealEarlier?.() === true) return
+    if (!input.hasMore) return
     if (this.historyIntent === 'none') this.setHistoryIntent('auto')
     input.beforeLoadOlder?.()
     this.historyRequested = true
