@@ -44,6 +44,8 @@ export interface ClientBootOptions {
   readonly manifest: BootManifest
   /** Per-entry state reporting (the boot page); omitted when no one renders progress. */
   readonly onEntryState?: (name: string, state: EntryStateLabel) => void
+  /** Optional-entry diagnostics, delivered only after the audit accepts startup. */
+  readonly onOptionalFailures?: (failures: readonly { name: string; reason: string }[]) => void
 }
 
 /**
@@ -82,7 +84,7 @@ export async function bootClient(options: ClientBootOptions): Promise<void> {
   }
 
   await loader.await()
-  await assertEntriesActive(ctx, options.modules)
+  await assertEntriesActive(ctx, options.modules, undefined, options.onOptionalFailures)
 }
 
 /**
@@ -97,6 +99,7 @@ export async function bootClient(options: ClientBootOptions): Promise<void> {
  *   failed to import or was rejected at creation (its module exports no plugin); like the
  *   Host audit's `failed to import`, both are reported as an import failure.
  * @param warn - sink for the optional-entry warning.
+ * @param onOptionalFailures - optional presentation sink for the accepted audit diagnostics.
  * @returns resolves after any optional-entry warning.
  * @throws {Error} rejects when a required entry is inactive, listing every non-active entry with its
  *   reason and marking the required ones; no warning is written in that case.
@@ -105,6 +108,7 @@ export async function assertEntriesActive(
   ctx: Context,
   modules: Pick<ClientModuleLoader, 'importError'>,
   warn: (message: string) => void = (message) => { console.warn(message) },
+  onOptionalFailures?: ClientBootOptions['onOptionalFailures'],
 ): Promise<void> {
   const failures: { name: string; reason: string }[] = []
   for (const entry of ctx.loader.entries()) {
@@ -139,6 +143,7 @@ export async function assertEntriesActive(
   }
   const lines = failures.map(({ name, reason }) => `${name}: ${reason}`)
   warn(`web boot: warning: ${String(failures.length)} ${entryNoun(failures.length)} did not activate\n${lines.join('\n')}`)
+  onOptionalFailures?.(failures)
 }
 
 /** Singular or plural noun for an entry count in audit reports. */

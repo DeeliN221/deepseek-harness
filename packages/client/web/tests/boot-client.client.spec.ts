@@ -60,8 +60,10 @@ describe('bootClient', () => {
     })
     const ctx = new Context()
     const sink = stateSink()
+    const onOptionalFailures = vi.fn()
 
-    await bootClient({ ctx, modules, manifest: modules.manifest, onEntryState: sink.onEntryState })
+    await bootClient({ ctx, modules, manifest: modules.manifest, onEntryState: sink.onEntryState, onOptionalFailures })
+    expect(onOptionalFailures).not.toHaveBeenCalled()
 
     expect(loaded).toEqual([])
     const consumer = sink.states.get('consumer') ?? []
@@ -77,9 +79,11 @@ describe('bootClient', () => {
     const ctx = new Context()
     onTestFinished(() => ctx.fiber.dispose())
 
-    await expect(bootClient({ ctx, modules, manifest: modules.manifest })).rejects.toThrow(
+    const onOptionalFailures = vi.fn()
+    await expect(bootClient({ ctx, modules, manifest: modules.manifest, onOptionalFailures })).rejects.toThrow(
       `${REQUIRED_ID} (required): pending (waiting for service: nothing)`,
     )
+    expect(onOptionalFailures).not.toHaveBeenCalled()
   })
 
   it('reports and logs an import failure for a required row that is neither seeded nor a graph row', async () => {
@@ -108,7 +112,11 @@ describe('bootClient', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     onTestFinished(() => { error.mockRestore(); warn.mockRestore() })
 
-    await bootClient({ ctx, modules, manifest })
+    const onOptionalFailures = vi.fn()
+    await bootClient({ ctx, modules, manifest, onOptionalFailures })
+    expect(onOptionalFailures).toHaveBeenCalledExactlyOnceWith([
+      { name: 'ghost', reason: 'import failed (see console for the import error)' },
+    ])
 
     expect(warn).toHaveBeenCalledExactlyOnceWith(
       'web boot: warning: 1 entry did not activate\nghost: import failed (see console for the import error)',

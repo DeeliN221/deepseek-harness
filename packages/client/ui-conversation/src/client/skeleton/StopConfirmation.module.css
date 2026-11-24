@@ -1,0 +1,4 @@
+/* Restored stop warning without changing the reviewed mobile layout stylesheet. */
+.armed[data-stop-armed] {
+  background: var(--dsw-alias-state-warn-primary);
+}

@@ -250,6 +250,47 @@ describe('Session queue commands', () => {
     await ctx.fiber.dispose()
   })
 
+  it('cascade cancellation kills the turn jobs and interrupts every subagent descendant', async () => {
+    const { ctx, controller, agent, cancel } = await commandHarness()
+    const killed: string[] = []
+    const interrupted: Array<[string, string]> = []
+    ctx.provide('jobs', {
+      list: (caller?: string) => caller === agent.id ? [{ id: 'bash-1' }, { id: 'terminal-1' }] : [],
+      kill: (id: string) => { killed.push(id); return 'requested' as const },
+    } as never)
+    ctx.provide('subagents', {
+      listDescendants: async (root: string) => root === agent.id
+        ? [{ id: 'child-a', parentId: agent.id }, { id: 'child-b', parentId: 'child-a' }]
+        : [],
+      interrupt: (target: string, authority: { parentSessionId: string }) => {
+        interrupted.push([target, authority.parentSessionId])
+      },
+    } as never)
+
+    expect(controller.cancel({ sessionId: agent.id, cascade: true })).toEqual({ accepted: true })
+
+    expect(cancel).toHaveBeenCalledWith({ kind: 'user' }, { keepInbox: true })
+    expect(killed).toEqual(['bash-1', 'terminal-1'])
+    // Each descendant is interrupted under its own direct parent's authority.
+    await vi.waitFor(() => expect(interrupted).toEqual([['child-a', agent.id], ['child-b', 'child-a']]))
+    await ctx.fiber.dispose()
+  })
+
+  it('bare cancellation leaves the turn jobs and subagents alone', async () => {
+    const { ctx, controller, agent } = await commandHarness()
+    const jobs = { list: vi.fn(() => [{ id: 'bash-1' }]), kill: vi.fn() }
+    const subagents = { listDescendants: vi.fn(async () => []), interrupt: vi.fn() }
+    ctx.provide('jobs', jobs as never)
+    ctx.provide('subagents', subagents as never)
+
+    expect(controller.cancel({ sessionId: agent.id })).toEqual({ accepted: true })
+
+    expect(jobs.list).not.toHaveBeenCalled()
+    expect(subagents.listDescendants).not.toHaveBeenCalled()
+    await ctx.fiber.dispose()
+  })
+
+
   it.each(['continuable', 'seeded-continuable'] as const)(
     'mutates both inbox destinations of a live %s child while its parent is offline',
     async (childMode) => {

@@ -136,7 +136,10 @@ export class ChatNavigation {
     this.reading.pauseFollowing()
     // A bounded render window may hide rows the Session already loaded: revealing
     // them is synchronous so the click never waits for a frame or the Host.
-    if (this.input.revealEarlier?.() === true) return
+    if (this.input.revealEarlier?.() === true) {
+      this.setHistoryIntent('none')
+      return
+    }
     if (this.input.historyLoadStatus === 'error') {
       this.historyRequested = true
       this.input.beforeLoadOlder?.()
@@ -214,8 +217,12 @@ export class ChatNavigation {
     if (this.historyIntent !== 'manual' && (this.reading.followingTail
       || !this.viewport.confirmHistoryStart())) return
     // Loaded rows remain revealable after remote history is exhausted.
-    if (input.revealEarlier?.() === true) return
-    if (!input.hasMore) return
+    // Local reveals consume a page immediately; the remote prefetch distance is too broad.
+    const revealLocal = this.historyIntent === 'manual' || this.viewport.confirmHistoryStart(0)
+    if ((revealLocal && input.revealEarlier?.() === true) || !input.hasMore) {
+      this.setHistoryIntent('none')
+      return
+    }
     if (this.historyIntent === 'none') this.setHistoryIntent('auto')
     input.beforeLoadOlder?.()
     this.historyRequested = true

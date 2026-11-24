@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-11-23-acp-execution-events.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-11-23-acp-execution-events.md
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-11-23-acp-execution-events:
+  en: 40b7ab6a56647eb6
+  zh: 7c9b00e4283adfd3
+/2026-11-23-acp-execution-events/summary:
+  en: 07c98865104f963f
+  zh: 2af975d3af7433f9
+/2026-11-23-acp-execution-events/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-11-23-acp-execution-events/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-11-23-acp-execution-events/compatibility:
+  en: 55b34aaa8969a4ff
+  zh: 8d110913ad456e74
+/2026-11-23-acp-execution-events/verification:
+  en: 0863526ef77a5eba
+  zh: baa90ce1adef9cf3
+/2026-11-23-acp-execution-events/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

@@ -3,6 +3,7 @@
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-settings'
+import type {} from './external-agents.ts'
 import type { LlmModelInfo } from '@deepseek-ai/dsh-llm'
 import type { Context } from '@deepseek-ai/cordis'
 import type {
@@ -62,13 +63,14 @@ export async function buildModelCatalog(
       }
     }
   }))
-  const groups = catalog.flatMap(item => item.kind === 'group' ? [item.group] : [])
+  const external = await ctx.get('externalAgents')?.catalog()
+  const groups = [...catalog.flatMap(item => item.kind === 'group' ? [item.group] : []), ...(external?.groups ?? [])]
     .filter(group => group.models.length > 0)
   return {
     default: { ...defaultSelection },
     routableProviders: groups.map(group => group.id),
     groups,
-    failures: catalog.flatMap(item => item.kind === 'failure' ? [item.failure] : []),
+    failures: [...catalog.flatMap(item => item.kind === 'failure' ? [item.failure] : []), ...(external?.failures ?? [])],
   }
 }
 

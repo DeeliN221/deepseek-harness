@@ -37,6 +37,8 @@ export const KNOWN_SESSION_EVENT_TYPES: ReadonlySet<string> = new Set([
   'conversation/async-dispatch-selected',
   'deliverables/presented',
   'developer/message',
+  'execution/bound',
+  'execution/model-confirmed',
   'feedback/message-delete',
   'feedback/message-put',
   'feedback/record',

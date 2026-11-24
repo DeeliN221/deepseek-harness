@@ -27,6 +27,10 @@ kind: "package-reference"
 
 在任何应运行 agent 的组合中挂载 `dsh-agent-loop`。它提供 `ctx.agents` 背后的驱动器，并启动你在配置中声明的 agent；[`dsh-base`](../../bundle/base/README.zh.md) 与 [`dsh-sdk-minimal`](../../bundle/sdk-minimal/README.zh.md) 都将它作为显式配置行挂载。
 
+### 选择完整 Agent 驱动器
+
+编程入口的 `AgentOptions.execution: 'acp'` 选择已注册的完整 Agent 驱动器，替代 `ReactLoopAgent`，同时保留 Session 写入者所有权、setup、发布、回滚与释放。驱动构造器接收已准备的投影读取函数，不执行 I/O 或消费排队输入。恢复依据持久化绑定；缺少绑定仍为原生，显式冲突或缺少 ACP 提供方会拒绝，不启动原生模型循环。外部驱动器拥有协议恢复能力，也可暴露只读归档。
+
 ### 配置声明式 agent
 
 配置中声明的 agent 会在插件加载时自动启动。每个条目需要一个 `id` 标签；模型步骤还要求 Session 选择或初始选项在提示词组装前同时提供 `provider` 与 `model`。

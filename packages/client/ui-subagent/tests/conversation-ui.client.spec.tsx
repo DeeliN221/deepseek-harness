@@ -30,7 +30,7 @@ const GRANDCHILD = 'grandchild' as SessionId
 const t: SubagentHeaderLineageProps['t'] = makeTranslate(zh)
 
 type HeaderCatalogProps = SubagentHeaderLineageProps
-  & Pick<SubagentCatalogActionProps, 'useFooterAvailable' | 'renderSlot'>
+  & Pick<SubagentCatalogActionProps, 'useFooterAvailable' | 'renderSlot' | 'hasVisibleSubagentView'>
 
 type CatalogFixtureEntry<Entry = SubagentCatalogEntry> = Entry extends SubagentCatalogEntry
   ? Omit<Entry, 'createdAt'> & { activity: 'running' | 'inactive' }
@@ -217,6 +217,18 @@ function HeaderCatalog(props: HeaderCatalogProps) {
 }
 
 describe('SubagentHeaderLineage', () => {
+  it('removes only the duplicate catalog while a fleet entry is visible and restores the fallback', () => {
+    const input = props(catalog())
+    const view = render(<HeaderCatalog {...input} hasVisibleSubagentView />)
+    expect(screen.queryByRole('button', { name: '2 个子智能体' })).toBeNull()
+    view.rerender(<HeaderCatalog {...input} hasVisibleSubagentView={false} />)
+    expect(screen.getByRole('button', { name: '2 个子智能体' })).toBeTruthy()
+    view.rerender(<HeaderCatalog {...input} />)
+    expect(screen.getByRole('button', { name: '2 个子智能体' })).toBeTruthy()
+    view.rerender(<HeaderCatalog {...input} hasVisibleSubagentView />)
+    expect(screen.queryByRole('button', { name: '2 个子智能体' })).toBeNull()
+  })
+
   it.each([
     { dictionary: zh, total: '2 个子智能体', running: '1 个子智能体，正在运行' },
     { dictionary: en, total: '2 subagents', running: '1 subagent running' },

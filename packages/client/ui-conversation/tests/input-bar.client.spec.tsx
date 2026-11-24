@@ -308,6 +308,8 @@ describe('stop feedback', () => {
   it.each([undefined, CONTINUABLE_CHILD])('disables duplicate stop and restores it after failure for %j', (subagent) => {
     const h = bench({ running: true, ...(subagent === undefined ? {} : { subagent }) })
     fireEvent.click(h.view.getByRole('button', { name: '停止生成' }))
+    expect(h.stop).not.toHaveBeenCalled()
+    fireEvent.click(h.view.getByRole('button', { name: zh['input.stopConfirm'] }))
     expect(h.stop).toHaveBeenCalledTimes(1)
     act(() => { h.session.set({ ...h.session.getSnapshot(), stopping: { requestedAt: 5_000 } }) })
     const stopping = h.view.getByRole('button', { name: '正在停止' }) as HTMLButtonElement
@@ -1207,6 +1209,8 @@ describe('running and lock semantics', () => {
     expect(textarea.getAttribute('aria-disabled')).not.toBe('true')
     expect(button.getAttribute('aria-label')).toBe('停止生成')
     fireEvent.click(button)
+    expect(stop).not.toHaveBeenCalled()
+    fireEvent.click(button)
     expect(stop).toHaveBeenCalledTimes(1)
 
     writeDraft(shell, '排队消息')
@@ -1229,6 +1233,8 @@ describe('running and lock semantics', () => {
     const sending = view.getByRole('button', { name: '正在发送消息' }) as HTMLButtonElement
     expect(sending.disabled).toBe(true)
     fireEvent.click(view.getByRole('button', { name: '停止生成' }))
+    expect(stop).not.toHaveBeenCalled()
+    fireEvent.click(view.getByRole('button', { name: zh['input.stopConfirm'] }))
     expect(stop).toHaveBeenCalledTimes(1)
 
     await act(async () => { settle({ kind: 'success' }) })
@@ -1384,6 +1390,8 @@ describe('running and lock semantics', () => {
     expect(button.getAttribute('aria-label')).toBe('停止生成')
     expect(button.disabled).toBe(false)
     fireEvent.click(button)
+    expect(stop).not.toHaveBeenCalled()
+    fireEvent.click(button)
     expect(stop).toHaveBeenCalledTimes(1)
     expect(sink).not.toHaveBeenCalled()
   })
@@ -1465,6 +1473,8 @@ describe('running and lock semantics', () => {
     fireEvent.click(button)
     expect(sink).toHaveBeenCalledWith('后续消息', [], 'queue', expect.any(AbortSignal), expect.any(Function))
     fireEvent.click(interruptButton!)
+    expect(stop).not.toHaveBeenCalled()
+    fireEvent.click(interruptButton!)
     expect(stop).toHaveBeenCalledTimes(1)
   })
 
@@ -1539,6 +1549,8 @@ describe('running and lock semantics', () => {
     expect(textarea.getAttribute('aria-disabled')).not.toBe('true')
     expect(button.disabled).toBe(false)
     expect(interruptButton?.disabled).toBe(false)
+    fireEvent.click(interruptButton!)
+    expect(stop).not.toHaveBeenCalled()
     fireEvent.click(interruptButton!)
     expect(stop).toHaveBeenCalledTimes(1)
   })
@@ -2289,4 +2301,36 @@ it('places context usage below the composer and hides it until the activity clos
   fireEvent.click(view.getByRole('button', { name: '上下文已用 25%' }))
   expect(view.getByRole('dialog', { name: '上下文已用' })).toBeTruthy()
   expect(view.getByRole('button', { name: '发送消息' })).toBeTruthy()
+})
+
+
+describe('restored two-step stop', () => {
+  it('expires the first click after the original four-second window', () => {
+    vi.useFakeTimers()
+    try {
+      const { button, stop } = bench({ running: true })
+      fireEvent.click(button)
+      expect(stop).not.toHaveBeenCalled()
+      expect(button.getAttribute('aria-label')).toBe(zh['input.stopConfirm'])
+      act(() => { vi.advanceTimersByTime(4001) })
+      expect(button.getAttribute('aria-label')).toBe(zh['input.stop'])
+      fireEvent.click(button)
+      expect(stop).not.toHaveBeenCalled()
+      fireEvent.click(button)
+      expect(stop).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not carry an armed click into another running turn', () => {
+    const { button, stop, session } = bench({ running: true })
+    fireEvent.click(button)
+    act(() => { session.set(snapshotOf({ running: false })) })
+    act(() => { session.set(snapshotOf({ running: true })) })
+    fireEvent.click(button)
+    expect(stop).not.toHaveBeenCalled()
+    fireEvent.click(button)
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
 })

@@ -999,13 +999,14 @@ export class ChatViewport {
 
   /**
    * Confirm the actual history distance immediately before an automatic request.
-   * @returns whether the control is within two viewport heights.
+   * @param viewportHeights - allowed distance above the viewport; zero requires the actual edge.
+   * @returns whether the history control is within the allowed distance.
    */
-  confirmHistoryStart(): boolean {
+  confirmHistoryStart(viewportHeights = 2): boolean {
     const scroller = this.elements?.scroller
     if (scroller === undefined || this.historyEdge === null || this.historyHeight <= 0) return false
     const distance = scroller.getBoundingClientRect().top - this.historyEdge.getBoundingClientRect().bottom
-    return distance <= this.historyHeight * 2
+    return distance <= this.historyHeight * viewportHeights
   }
 
   /**

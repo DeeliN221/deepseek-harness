@@ -5,7 +5,7 @@
  */
 
 import type {
-  Agent,
+  AgentDriver,
   AgentCancelCause,
   AgentEventDispatch,
   AgentOptions,
@@ -109,7 +109,7 @@ function abortedCancelCause(signal: AbortSignal): AgentCancelCause | undefined {
 }
 
 /** Drives one session through turn and step boundaries. */
-export class ReactLoopAgent implements Agent {
+export class ReactLoopAgent implements AgentDriver {
   readonly model: AgentModel
   readonly inbox: ReactLoopInbox
   private phase: Phase

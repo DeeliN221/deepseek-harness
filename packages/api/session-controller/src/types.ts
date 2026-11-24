@@ -91,6 +91,10 @@ export type PromptContentPart =
 
 /** Complete model selection for one Session. */
 export interface ModelSelection {
+  /** Full-Agent execution, omitted for historical native LLM selections. */
+  readonly execution?: 'llm' | 'acp'
+  /** Confirmed external model caption, separate from its route id. */
+  readonly displayName?: string
   readonly provider: string
   readonly model: string
   readonly reasoningEffort?: string
@@ -293,6 +297,8 @@ export interface SessionSelectModelRequest extends ModelSelection {
 
 /** Accepted model selection after Host resolution. */
 export interface SessionSelectModelValue {
+  /** New fixed-engine Session created for a cross-engine selection. */
+  readonly sessionId?: SessionId
   readonly selected: ModelSelection
 }
 
@@ -392,6 +398,8 @@ export interface SessionUpdateQueueValue {
 /** Active-turn cancellation request. */
 export interface SessionCancelRequest {
   readonly sessionId: SessionId
+  /** Also cancel this Session's jobs and interrupt every subagent descendant. */
+  readonly cascade?: boolean
 }
 
 /** Receipt after cancellation is admitted to the live Agent. */

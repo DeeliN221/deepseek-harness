@@ -9,7 +9,8 @@ import { Context } from '@deepseek-ai/cordis'
 import type {
   BootManifest, ClientModuleCreateOptions, ClientModuleSystem, DshWindow,
 } from '@deepseek-ai/dsh-client-modules/client'
-import { bootClient } from './boot-client.ts'
+import { bootClient, type ClientBootOptions } from './boot-client.ts'
+import { renderBootNotice } from './boot-notice.ts'
 import { installDeferredSlots } from './deferred-slots.ts'
 import { BootPage } from './boot-page.ts'
 import { mountClient } from './mount.ts'
@@ -26,6 +27,7 @@ export class AppWebEntry {
   private readonly seams: BootSeams | undefined
   private readonly page: BootPage
   private ctx: Context | undefined
+  private stopBootNotice: (() => void) | undefined
   private stopDragRecall: (() => void) | undefined
   private modules: ClientModuleSystem | undefined
   private manifest!: BootManifest
@@ -45,7 +47,7 @@ export class AppWebEntry {
    * Load and activate every client entry, audit activation, then hand the
    * mount point to the UI renderer. A required-entry failure remains visible
    * on the boot page; optional-entry failures are reported to the console and
-   * the application mounts without them.
+   * a dismissible localized notice after the application mounts without them.
    * @param onFailure - Optional carrier-owned fatal presentation; keeps the boot page visible.
    * @returns Resolves after application mount or failure reporting.
    */
@@ -88,10 +90,12 @@ export class AppWebEntry {
       // the first paint it reports progress for.
       this.page.setTotal(this.manifest.plugins.filter(row => !row.lazy).length)
       await prefetching
+      let optionalFailures: Parameters<NonNullable<ClientBootOptions['onOptionalFailures']>>[0] = []
       await bootClient({
         ctx,
         modules,
         manifest: this.manifest,
+        onOptionalFailures: (failures) => { optionalFailures = failures },
         // A failed entry may be optional; only the audit decides whether the boot page reports a failure.
         onEntryState: (name, state) => {
           if (state !== 'failed') this.page.setState(name, state)
@@ -107,6 +111,9 @@ export class AppWebEntry {
       // renderer draws is the one the first frame measures.
       this.stopDragRecall = installWindowDragRecall({ document: this.container.ownerDocument })
       await mountClient(ctx, this.container)
+      if (optionalFailures.length > 0) {
+        this.stopBootNotice = renderBootNotice(optionalFailures, this.container.ownerDocument)
+      }
     } catch (reason) {
       console.error(reason)
       if (onFailure !== undefined) onFailure(reason)
@@ -116,6 +123,8 @@ export class AppWebEntry {
 
   /** Dispose the client plugin tree and whichever page owns the mount point. */
   async dispose(): Promise<void> {
+    this.stopBootNotice?.()
+    this.stopBootNotice = undefined
     this.stopDragRecall?.()
     this.stopDragRecall = undefined
     const ctx = this.ctx

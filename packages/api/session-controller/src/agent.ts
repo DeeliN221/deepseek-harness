@@ -261,12 +261,13 @@ export class ApiSessionAgentController {
   async composeAgent(presetId: string | undefined): Promise<ApiSessionComposition> {
     const presets = this.ctx.get('agentPresets')
     if (presets === undefined) {
-      return { setup: (agentCtx) => { installModelSelection(agentCtx) } }
+      return { setup: (agentCtx, agent) => { if (agent.options.execution !== 'acp') installModelSelection(agentCtx) } }
     }
     const resolvedId = (await presets.resolve(presetId)).id
     return {
       agentPreset: resolvedId,
-      setup: async (agentCtx) => {
+      setup: async (agentCtx, agent) => {
+        if (agent.options.execution === 'acp') return
         installModelSelection(agentCtx)
         await presets.mount(agentCtx, resolvedId)
       },

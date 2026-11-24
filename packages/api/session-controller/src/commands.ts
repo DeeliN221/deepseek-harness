@@ -7,6 +7,7 @@ import { recoveryProjectionDefinition } from './recovery.ts'
 import type { RecoveryState } from './types.ts'
 
 import { modelAvailable } from './catalog.ts'
+import type {} from './external-agents.ts'
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
@@ -24,10 +25,11 @@ import type { MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
 import { buildForkSeed } from '@deepseek-ai/dsh-session/fork'
 import { SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-jobs'
 import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
 import { SessionTitleInvalidError } from '@deepseek-ai/dsh-session-title'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
-import { RemoteError, remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
+import { RemoteError, remoteErrorOf, type Principal } from '@deepseek-ai/dsh-typert-protocol'
 import type { Workspace } from '@deepseek-ai/dsh-workspace'
 import {
   ApiSessionAgentController,
@@ -116,6 +118,13 @@ export class SessionCommandController {
     private readonly defaultCwd: string,
   ) {}
 
+  /** Reject non-owner callers from every mutating External Agent entry point. */
+  private assertExternalOwner(agent: Agent, principal: Principal | undefined): void {
+    if (principal !== undefined && this.ctx.agents.executionOf(agent.session) === 'acp') {
+      throw new RemoteError('session/agent-busy', 'External Agents require the owner browser identity.', { reason: 'OWNER_REQUIRED' })
+    }
+  }
+
   /**
    * Create one ordinary Session for a new conversation, reusing the named
    * blank Session while it is an unarchived member of the requested Workspace.
@@ -172,6 +181,11 @@ export class SessionCommandController {
     const agent = await this.resolveAgent(request.sessionId)
     return this.agents.serializeImageAdmission(agent, async () => {
       try {
+        const external = this.ctx.get('externalAgents')
+        if (external?.handlesSelection(agent, request)) return await external.selectModel(agent, request)
+        if (request.execution === 'acp' || request.provider.startsWith('acp:')) {
+          throw new RemoteError('session/model-unavailable', 'External Agent runtime is not installed.', { provider: request.provider, model: request.model })
+        }
         await this.requireModel(request)
         const selected: AgentModelSelection = {
           provider: request.provider,
@@ -323,15 +337,21 @@ export class SessionCommandController {
    * @param source - caller metadata recorded on the accepted ordinary or retry user message.
    * @returns acknowledgement that the Agent accepted the prompt.
    */
-  async prompt(request: SessionPromptRequest, source: MessageSource): Promise<SessionPromptValue> {
+  async prompt(
+    request: SessionPromptRequest,
+    source: MessageSource,
+    principal?: Principal,
+  ): Promise<SessionPromptValue> {
     if (request.recovery !== undefined && (request.content.length !== 0 || request.mode !== 'queue')) {
       throw new RemoteError('gateway/bad-request', 'automatic recovery requires an empty queued retry', {})
     }
     const agent = await this.resolveAgent(request.sessionId)
+    this.assertExternalOwner(agent, principal)
     const previouslyAccepted = this.hasPromptRequest(agent.session, request.requestId)
     if (previouslyAccepted && (request.recovery === undefined || agent.status !== 'idle' || agent.inbox.nextTurn.length === 0 && agent.inbox.nextStep.length === 0)) {
       return { accepted: true }
     }
+    this.ctx.get('externalAgents')?.validatePrompt(agent, request)
     if (request.content.length === 0) {
       try {
         return await agent.runMaintenance(() => {
@@ -478,7 +498,7 @@ export class SessionCommandController {
    * @param request - Session, queue item, and requested mutation.
    * @returns acknowledgement that the queue mutation was applied.
    */
-  async updateQueue(request: SessionUpdateQueueRequest): Promise<SessionUpdateQueueValue> {
+  async updateQueue(request: SessionUpdateQueueRequest, principal?: Principal): Promise<SessionUpdateQueueValue> {
     if (request.action.kind === 'edit') {
       // oxlint-disable-next-line typescript/no-unnecessary-condition -- Remote callers can submit untyped JSON.
       if (request.action.content.some(block => block.type !== 'text')) {
@@ -505,6 +525,7 @@ export class SessionCommandController {
       }
       agent = found.agent
     }
+    this.assertExternalOwner(agent, principal)
     if (hasApiSessionSubagentOwner(agent.session)) {
       const identity = this.ctx.sessionProjections
         .snapshot(agent.session, ['subagent'])
@@ -557,7 +578,7 @@ export class SessionCommandController {
    * @param request - Session whose active Agent turn is cancelled.
    * @returns acknowledgement that cancellation was requested.
    */
-  cancel(request: SessionCancelRequest): SessionCancelValue {
+  cancel(request: SessionCancelRequest, principal?: Principal): SessionCancelValue {
     const agent = this.ctx.agents.get(request.sessionId)
     if (agent === undefined) {
       throw new RemoteError(
@@ -566,12 +587,46 @@ export class SessionCommandController {
         { sessionId: request.sessionId },
       )
     }
+    this.assertExternalOwner(agent, principal)
     if (hasApiSessionSubagentOwner(agent.session)) {
       throw apiSessionSubagentOwnershipError(request.sessionId)
     }
     agent.session.append('recovery/revoked', { reason: 'user' })
     agent.cancel({ kind: 'user' }, { keepInbox: true })
+    if (request.cascade === true) this.cascadeCancel(request.sessionId)
     return { accepted: true }
+  }
+
+  /**
+   * Stop the work a cancelled turn owns beyond its agent: background jobs
+   * (killed synchronously, so a running shell reports 'requested') and every
+   * subagent descendant, each interrupted under its own direct parent's
+   * authority. A job that settles between listing and killing, or a child that
+   * already finished, is a warning rather than a failed cancellation.
+   * @param sessionId - Session whose jobs and subagents are stopped.
+   */
+  private cascadeCancel(sessionId: SessionId): void {
+    const jobs = this.ctx.get('jobs')
+    for (const job of jobs?.list(sessionId) ?? []) {
+      try {
+        jobs?.kill(job.id, sessionId, 'turn cancelled')
+      } catch (error) {
+        this.ctx.logger.warn('cascade cancel: job %s did not stop', job.id, error)
+      }
+    }
+    const subagents = this.ctx.get('subagents')
+    if (subagents === undefined) return
+    void subagents.listDescendants(sessionId).then((entries) => {
+      for (const entry of entries) {
+        try {
+          subagents.interrupt(entry.id, { kind: 'user', parentSessionId: entry.parentId })
+        } catch (error) {
+          this.ctx.logger.warn('cascade cancel: subagent %s did not interrupt', entry.id, error)
+        }
+      }
+    }).catch((error: unknown) => {
+      this.ctx.logger.warn('cascade cancel: subagent discovery failed', error)
+    })
   }
 
   private async resolveAgent(sessionId: SessionId): Promise<Agent> {

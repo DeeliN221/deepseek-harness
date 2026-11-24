@@ -75,8 +75,15 @@ export interface TurnBoundaryProjection {
   readonly lastTurn: number
 }
 
+/** Execution engine durably owning a Session. */
+export type AgentExecution = 'llm' | 'acp'
+
 /** Complete provider, model, and optional reasoning effort chosen for one Session's model steps. */
 export interface ModelSelection {
+  /** Execution engine; omission denotes the native LLM driver. */
+  execution?: AgentExecution
+  /** Provider-confirmed user-facing model name; not part of route identity. */
+  displayName?: string
   /** Registered provider route. */
   provider: string
   /** Provider-owned model id. */
@@ -87,7 +94,7 @@ export interface ModelSelection {
 
 /** Client view of the durable model-selection fold. */
 export interface ModelSelectionProjection {
-  /** Selection used by the latest recorded model request. */
+  /** Selection used by the latest native request or confirmed by the external driver. */
   readonly lastUsed: ModelSelection | null
   /** Selection the next model step uses; null while the Agent's initial options supply the route. */
   readonly next: ModelSelection | null
@@ -102,6 +109,16 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
 
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
+    /** Durable execution ownership, recorded before Agent publication. */
+    'execution/bound': { execution: AgentExecution }
+    /** External engine's confirmed model; never implies a native model request. */
+    'execution/model-confirmed': {
+      execution: 'acp'
+      provider: string
+      model: string
+      displayName: string
+      reasoningEffort?: ReasoningEffortId
+    }
     /**
      * One normalized mutation of an agent's durable pending-message lists.
      * The session-projection registry applies the committed event before
