@@ -42,7 +42,7 @@ kind: "package-reference"
 
 `ownerList` 返回 `OwnerDirectoryListing { absolutePath, parentPath, entries, truncated }`，文件系统根的父路径等于自身。它跟随目录符号链接，保留后端名称顺序并应用 `maxEntries`。`ownerChanges` 通过既有变更流监听选定的绝对文件或目录。`ownerStat` 返回 `WorkspaceFileStat`。`ownerRead` 在元数据之外返回完整 `text`，保留 BOM、CRLF 与末尾换行，并在读取之后复核版本。编辑读取及保存均应用 `maxFileBytes`，拒绝 NUL、无效 UTF-8 与末端文件符号链接。替换文本还拒绝未配对代理码元。
 
-`saveText` 必须携带编辑器加载的版本，仅替换已有普通文本文件；不创建缺失文件，不覆盖二进制内容。它通过组合文件系统的 `replaceIfVersion` 写入，传递仅对本次人工保存有效的 owner 策略，返回已提交版本与字节数。文件已变化、被删除或在 `ownerRead` 期间发生变化时，返回 `workspace-file/conflict` 与 `{ path }`；编辑器必须重新加载后再决定是否保存，不提供强制覆盖选项。该写入不修改沙箱默认值、Session 权限、工具注册或 agent 观察记录。版本检查与原子发布沿用文件系统提供方既有保证；外部进程仍可能在提供方最后一次版本检查之后修改路径。
+`saveText` 必须携带编辑器加载的版本，仅替换已有普通文本文件；不创建缺失文件，不覆盖二进制内容。它通过组合文件系统的 `replaceIfVersion` 写入，传递仅对本次人工保存有效的 owner 策略，返回已提交版本与字节数。文件已变化、被删除或在 `ownerRead` 期间发生变化时，返回 `workspace-file/conflict` 与 `{ path }`；编辑器必须重新加载后再决定是否保存，不提供强制覆盖选项。该写入不修改沙箱默认值、Session 权限、工具注册或 agent 观察记录。本地提供方在暂存完成、发布替换之前再次核对预期版本，拒绝暂存期间的外部变化并清理本次临时文件。这缩小了外部写入竞态窗口，但不构成跨进程原子比较并交换；最后一次版本检查到 rename 之间仍有微小窗口。
 
 ### 寻址与路径
 

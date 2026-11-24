@@ -600,7 +600,9 @@ function writeIoError(path: string, error: unknown): unknown {
  * `createIfAbsent` publishes with a hard-link no-replace primitive, so a concurrent creator's
  * file is preserved and this write is rejected with `FS_NOT_OBSERVED`; `existingDestination`
  * states whether Windows must preserve destination security and defaults to mode presence,
- * while moves pass destination presence separately from the source mode.
+ * while moves pass destination presence separately from the source mode. `expectedVersion`
+ * rechecks a regular destination without following a final symlink after staging and before
+ * publication; it narrows the external-write race but does not make stat+rename a CAS.
  */
 export async function writeFileAtomic(
   absolutePath: string,
@@ -608,7 +610,7 @@ export async function writeFileAtomic(
   mode: number | undefined,
   signal: AbortSignal | undefined,
   internals: FsIoInternals = {},
-  options: { displayPath?: string; createIfAbsent?: boolean; existingDestination?: boolean } = {},
+  options: { displayPath?: string; createIfAbsent?: boolean; existingDestination?: boolean; expectedVersion?: FsVersion } = {},
 ): Promise<void> {
   const displayPath = options.displayPath ?? absolutePath
   const existingDestination = options.existingDestination ?? mode !== undefined
@@ -649,6 +651,15 @@ export async function writeFileAtomic(
     handle = undefined
 
     throwIfAborted(signal, 'write')
+    if (options.expectedVersion !== undefined) {
+      // The canonical target entry itself must still be the observed regular file.
+      // This catches external changes during staging, not the remaining stat→publish race.
+      const current = await probeNoFollow(absolutePath)
+      if (current?.type !== 'file' || current.version !== options.expectedVersion) {
+        throw new FsError(`cannot write "${displayPath}": file changed since it was read`, 'FS_STALE_VERSION')
+      }
+    }
+    throwIfAborted(signal, 'write')
     if (options.createIfAbsent) {
       try {
         await linkFile(tempPath, absolutePath)
@@ -659,9 +670,12 @@ export async function writeFileAtomic(
       try {
         await replaceFile(absolutePath, tempPath)
       } catch (error: unknown) {
-        // If the observed target disappears during staging, the protected DACL
-        // already copied to the temp remains authoritative for recreation.
+        // Only an unconditional write may recreate a vanished destination with
+        // the already-protected temp; a versioned replacement must remain stale.
         if (!isENOENT(error)) throw error
+        if (options.expectedVersion !== undefined) {
+          throw new FsError(`cannot write "${displayPath}": file changed since it was read`, 'FS_STALE_VERSION', { cause: error })
+        }
         await rename(tempPath, absolutePath)
       }
     } else {

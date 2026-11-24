@@ -129,6 +129,24 @@ describe('moveFile', () => {
     if (process.platform !== 'win32') expect((await stat(join(root, 'nested/b'))).mode & 0o777).toBe(0o640)
   })
 
+  it('preserves both files when a versioned destination changes during staging', async () => {
+    const { fs, file, bytes, root, version } = await setup()
+    const source = await file('a', 'source')
+    const destination = await file('b', 'old destination')
+    const expectedDestination = { kind: 'replaceIfVersion' as const, version: await version(destination) }
+    let staging: string | undefined
+    fs.internals.inspectTemp = async ({ stagingDir }) => {
+      staging = stagingDir
+      await writeFile(join(root, 'b'), 'external destination change')
+    }
+    await expect(fs.moveFile(source, destination, { expectedDestination }))
+      .rejects.toMatchObject({ code: 'FS_STALE_VERSION' })
+    expect(await bytes('a')).toBe('source')
+    expect(await bytes('b')).toBe('external destination change')
+    expect(staging).toBeDefined()
+    await expect(stat(staging!)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('bounds the source basis by diffBasisMaxBytes while still publishing the whole text', async () => {
     const { fs, file, bytes } = await setup(16)
     const text = `${'x'.repeat(32)}\n`

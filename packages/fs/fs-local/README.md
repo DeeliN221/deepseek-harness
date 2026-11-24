@@ -86,7 +86,7 @@ The backend builds on three ideas:
 
 ### Write path
 
-Each write probes the target, enforces the optional guard (`createIfAbsent` or `replaceIfVersion`), captures a bounded `before` diff basis when both sides are small enough, stages the new content next to the target, fsyncs, and publishes atomically. Guarded creation uses a hard-link publication that never replaces a concurrent creator, rejecting it with `FS_NOT_OBSERVED` instead.
+Each write probes the target, enforces the optional guard (`createIfAbsent` or `replaceIfVersion`), captures a bounded `before` diff basis when both sides are small enough, stages the new content next to the target, fsyncs, and publishes atomically. For `writeText` and move destinations using `replaceIfVersion`, after closing the staged file and before publication, the backend checks the destination entry again without following its final symlink. A missing, non-regular, or changed destination rejects with `FS_STALE_VERSION` and cleans up this write's private staging directory without publishing. A versioned Windows replacement also rejects a missing destination reported by native replacement instead of recreating it. Guarded creation uses a hard-link publication that never replaces a concurrent creator, rejecting it with `FS_NOT_OBSERVED` instead.
 
 ### Edit path
 
@@ -136,7 +136,7 @@ These limits define when the local backend is a poor fit or needs special operat
 - **`editText` holds the whole file (plus the edited copy) in memory** — streaming exists only on the read path.
 - **A sub-limit overwrite still buffers a contextual basis** — `writeText` may retain up to just below `config.diffBasisMaxBytes` of prior text in addition to the caller-owned replacement; the bound does not cap the returned `after` value or the whole-file presentation fallback.
 - **Binary detection is asymmetric** — reads NUL-sample only the first 8192 bytes while edits scan the whole buffer, so a file with a late NUL reads fine but rejects edits.
-- **The per-target mutation lock is in-process only** — guarded creation still uses an atomic no-replace publication across processes, but replacement writers in another process are caught only when the optional version guard observes their metadata change; they are never serialized.
+- **The per-target mutation lock is in-process only** — guarded creation still uses an atomic no-replace publication across processes. `replaceIfVersion` checks again after staging, catching metadata changes during content writing and fsync, but the final metadata check and rename/native replacement are separate operations. An external write in that remaining interval can still be overwritten; this is not cross-process locking or compare-and-swap (CAS). Other mutation guards retain their existing check points.
 - **Guarded creation requires hard-link support** — filesystems or mounts that reject hard-link publication cannot serve `createIfAbsent`; the backend preserves the missing target and reports `FS_IO_ERROR`.
 - **Post-commit cleanup is best effort** — a successful publication remains successful if removal of its owner-only staging directory fails, leaving private residue for later operator cleanup.
 
