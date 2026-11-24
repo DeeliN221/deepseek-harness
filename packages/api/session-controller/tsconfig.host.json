@@ -27,7 +27,8 @@
     "src/archived-session-gate.ts",
     "src/skill-catalog.ts",
     "src/continuation.ts",
-    "src/recovery.ts"
+    "src/recovery.ts",
+    "src/external-agents.ts"
   ],
   "references": [
     {

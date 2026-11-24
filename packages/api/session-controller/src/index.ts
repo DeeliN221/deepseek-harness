@@ -352,6 +352,11 @@ export class SessionController extends TypertRemoteService {
    */
   @Remote('selectModel')
   selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue> {
+    const live = this.ctx.agents.get(request.sessionId)
+    if ((request.provider.startsWith('acp:') || (live !== undefined && this.ctx.agents.executionOf(live.session) === 'acp'))
+      && principalOf(this.ctx.invocation) !== undefined) {
+      throw new RemoteError('session/model-unavailable', 'External Agents require the owner browser identity.', { provider: request.provider, model: request.model })
+    }
     return this.commands.selectModel(request)
   }
 
@@ -527,7 +532,7 @@ export class SessionController extends TypertRemoteService {
       ...(request.content.length === 0 || request.asyncDispatch === undefined ? {} : { asyncDispatch: request.asyncDispatch }),
       ...(principal === undefined ? {} : { principal }),
     }
-    return this.commands.prompt(request, source)
+    return this.commands.prompt(request, source, principal)
   }
 
   /**
@@ -547,7 +552,7 @@ export class SessionController extends TypertRemoteService {
    */
   @Remote('updateQueue')
   updateQueue(request: SessionUpdateQueueRequest): Promise<SessionUpdateQueueValue> {
-    return this.commands.updateQueue(request)
+    return this.commands.updateQueue(request, principalOf(this.ctx.invocation))
   }
 
   /**
@@ -557,7 +562,7 @@ export class SessionController extends TypertRemoteService {
    */
   @Remote('cancel')
   cancel(request: SessionCancelRequest): SessionCancelValue {
-    return this.commands.cancel(request)
+    return this.commands.cancel(request, principalOf(this.ctx.invocation))
   }
 
   /**

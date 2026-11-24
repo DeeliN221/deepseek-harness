@@ -27,6 +27,10 @@ kind: "package-reference"
 
 将 `dsh-agent` 与 `dsh-session-projection` 一起挂载：它提供 `ctx.agents`、`Agent` 句柄，以及读取已记录轮次和步骤位置的 `turnBoundaryOf(session)`。创建或恢复 Agent 还需要驱动器注册工厂；随附驱动器是 `dsh-agent-loop`。 [Session 模型选择](#model-selection) 通过每个句柄的 `agent.model` 提供。
 
+### 完整 Agent 驱动器
+
+`registerDriver('acp', provider)` 注册同步的完整 `AgentDriver` 构造器，`acquireDriver()` 保持其提供方生命周期；提供方卸载会等待现有 Agent 生命周期完成拆除。ACP 会话记录 `execution/bound`；缺少绑定代表原生或旧会话，ACP 提供方缺失或绑定冲突会明确拒绝。外部引擎确认真实模型 ID 和显示名后，才通过 `execution/model-confirmed` 更新共享选择投影；此注册不会创建 LLM 适配器。
+
 ### 创建或恢复 agent
 
 `ctx.agents.create()` 在一个身份下构建全新 agent 与会话；`ctx.agents.resume()` 加载持久化会话并在此基础上重建 agent。两者都委托给已注册工厂，并返回 `AgentHandle`——唯一能拆除该 agent 的对象。发布和失败清理的时序见 [`AgentFactory`](src/index.ts)。`get(id)` 与 `list()` 用于查找实时 agent。[subagent 服务](../../subagent/subagent/README.zh.md) 拥有委派执行和运行时树成员关系。

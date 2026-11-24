@@ -65,6 +65,7 @@ export class ModelDirectory {
     private readonly projected: ObservableSnapshot<unknown>,
     private readonly isBlank: () => boolean,
     private readonly track?: TrackProductEvent,
+    private readonly openSession?: (id: SessionId) => void,
   ) {
     this.unsubscribeCatalog = catalog.store.subscribe(() => { this.syncInputs() })
     this.unsubscribeSelection = projected.subscribe(() => { this.syncInputs() })
@@ -114,6 +115,11 @@ export class ModelDirectory {
         s.error = `${result.error.code}: ${result.error.message}`
       })
       return result
+    }
+    if (result.value.sessionId !== undefined && result.value.sessionId !== this.sessionId) {
+      this.store.update((state) => { state.pending = null; state.status = 'ready' })
+      this.openSession?.(result.value.sessionId)
+      return { ok: true, value: undefined }
     }
     if (previous !== null) {
       const from = `${previous.provider}/${previous.model}`

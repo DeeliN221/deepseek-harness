@@ -6,13 +6,14 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { Scoped } from '@deepseek-ai/dsh-scope'
+import type { Scope, Scoped } from '@deepseek-ai/dsh-scope'
+import type { ModelSelectionProjectionState } from './model-selection.ts'
 import type {
   LlmAttemptId, LlmCallConfig, LlmFailure, MessageId, ReasoningEffortId, ResolvedRetryPolicy, StreamChunk,
 } from '@deepseek-ai/dsh-llm'
-import type { AgentCancelCause, Session, SessionSeq, UserMessage } from '@deepseek-ai/dsh-session'
+import type { AgentCancelCause, Session, SessionId, SessionSeq, UserMessage } from '@deepseek-ai/dsh-session'
 export type { AgentCancelCause } from '@deepseek-ai/dsh-session'
-import type { Agent, InboxTarget, ModelSelection } from './types.ts'
+import type { Agent, AgentExecution, InboxState, InboxTarget, ModelSelection } from './types.ts'
 export type { Agent } from './types.ts'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 declare module '@deepseek-ai/dsh-system-prompt' {
@@ -30,6 +31,11 @@ declare module '@deepseek-ai/dsh-system-prompt' {
  * Persona belongs to system-prompt sections.
  */
 export interface AgentOptions {
+  /**
+   * Execution engine for creation; resume must agree with durable ownership.
+   * Omission uses the recorded engine, or LLM for legacy sessions.
+   */
+  execution?: AgentExecution
   /** Provider route (must have a registered adapter at call time). */
   provider?: string
   /** Model id interpreted by the selected provider adapter. */
@@ -38,6 +44,44 @@ export interface AgentOptions {
   reasoningEffort?: ReasoningEffortId | undefined
   /** Maximum output tokens for each conversation-model request. */
   maxTokens?: number
+}
+
+/** Agent driver whose scope is owned and unwound by the factory. */
+export interface AgentDriver extends Agent {
+  readonly scope: Scope
+}
+
+/** Prepared inputs for synchronous driver construction; readers perform no I/O. */
+export interface AgentDriverInput {
+  readonly ctx: Context
+  readonly id: SessionId
+  readonly options: AgentOptions
+  readonly session: Session
+  readonly projections: {
+    readonly modelSelection: () => ModelSelectionProjectionState
+    readonly inbox: () => InboxState
+  }
+  readonly lastTurn: number
+}
+
+/** Provider of unpublished drivers. Construction must not perform external I/O or start queued work. */
+export interface AgentDriverProvider {
+  /**
+   * Construct an idle driver; factory maintenance holds work until publication.
+   * @param input - prepared Session and runtime readers.
+   * @returns the unpublished driver with its owned scope.
+   */
+  create(input: AgentDriverInput): AgentDriver
+}
+
+/** Captured provider lifetime; a closing provider rejects construction and new listeners. */
+export interface AgentDriverLease extends AgentDriverProvider {
+  /**
+   * Attach the factory's complete teardown to provider unloading.
+   * @param listener - asynchronous teardown awaited before provider removal.
+   * @returns a release function, called when the lifecycle ends.
+   */
+  onDispose(listener: () => Promise<void>): () => void
 }
 
 /** Options for {@link Agent.cancel}. */

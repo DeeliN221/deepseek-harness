@@ -13,6 +13,8 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import type {
   Agent,
   AgentFactory,
+  AgentDriver,
+  AgentExecution,
   AgentHandle,
   AgentOptions,
   AgentSetup,
@@ -296,6 +298,7 @@ export class AgentLoop extends Service implements AgentFactory {
     agents: z.array(z.object({
       id: z.string().required(),
       sessionId: z.string().min(1),
+      execution: z.union(['llm', 'acp']),
       provider: z.string(),
       model: z.string(),
       reasoningEffort: z.string().min(1) as z<ReasoningEffortId>,
@@ -481,7 +484,9 @@ export class AgentLoop extends Service implements AgentFactory {
     callerSignal?.addEventListener('abort', onCallerAbort, { once: true })
     this.ownership.signal.addEventListener('abort', onFactoryTeardown, { once: true })
 
-    let machine: ReactLoopAgent | undefined
+    let machine: AgentDriver | undefined
+    let releaseDriverListener: (() => void) | undefined
+    let bindExecution: AgentExecution | undefined
     let detachSession: (() => void) | undefined
     let detachAgent: (() => void) | undefined
     let disposing: Promise<void> | undefined
@@ -540,6 +545,7 @@ export class AgentLoop extends Service implements AgentFactory {
         detachAgent?.()
         detachSession?.()
       } finally {
+        releaseDriverListener?.()
         untrack()
       }
       throwCollectedFailures(failures, `agent "${id}" disposal failed`)
@@ -565,17 +571,23 @@ export class AgentLoop extends Service implements AgentFactory {
           ? callerSignal.reason
           : new Error(`agent "${id}" creation aborted`, { cause: callerSignal.reason })
       }
+      const binding = loopCtx.agents.executionOf(session)
+      const execution = binding ?? (source === 'resume' ? 'llm' : agentOptions.execution ?? 'llm')
+      if (agentOptions.execution !== undefined && agentOptions.execution !== execution) {
+        throw new Error(`agent "${id}" execution conflicts with durable binding "${execution}"`)
+      }
+      const lease = execution === 'acp' ? loopCtx.agents.acquireDriver('acp') : undefined
+      releaseDriverListener = lease?.onDispose(dispose)
+      if (binding === undefined && execution === 'acp') bindExecution = execution
       const lastTurn = loopCtx.agents.turnBoundaryOf(session).lastTurn
       const projections = {
         modelSelection: this.modelProjectionHandle.readerFor(session),
         inbox: this.inboxProjectionHandle.readerFor(session),
       }
       unfollowOwner = ownerCtx.effect(function* () {
-        const created = machine = new ReactLoopAgent(
-          loopCtx, id, agentOptions, session,
-          projections,
-          lastTurn, abort.signal,
-        )
+        const created = machine = lease === undefined
+          ? new ReactLoopAgent(loopCtx, id, agentOptions, session, projections, lastTurn, abort.signal)
+          : lease.create({ ctx: loopCtx, id, options: agentOptions, session, projections, lastTurn })
         machineReady.resolve()
         // Adopt the scope on its original fiber so it cannot unload before teardown.
         // A loop already unloading during minting owns the provisional scope itself.
@@ -596,6 +608,7 @@ export class AgentLoop extends Service implements AgentFactory {
       }, `agentLoop.lifecycle(${id})`)
     } catch (error: unknown) {
       machineReady.resolve()
+      releaseDriverListener?.()
       untrack()
       callerSignal?.removeEventListener('abort', onCallerAbort)
       this.ownership.signal.removeEventListener('abort', onFactoryTeardown)
@@ -627,6 +640,8 @@ export class AgentLoop extends Service implements AgentFactory {
           assertLive()
           detachSession = agent.ctx.sessions.enter(session)
           agent.ctx.sessions.announce(session)
+          assertLive()
+          if (bindExecution !== undefined) session.append('execution/bound', { execution: bindExecution })
           assertLive()
           const setupCommit = await raceAbort(setup?.(agent.ctx, agent), abort.signal, id)
           assertLive()

@@ -9,6 +9,7 @@
 
 import { Context } from '@deepseek-ai/cordis'
 import type { AttachmentId } from '@deepseek-ai/dsh-attachment/types'
+import type { MessageId } from '@deepseek-ai/dsh-llm'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -20,6 +21,7 @@ import { remoteMethods, type PeerId, type PeerScope, type Principal, type Remote
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type SessionController from '../src/index.ts'
+import type { ApiSessionAgentController } from '../src/agent.ts'
 import { ApiSessionList } from '../src/list.ts'
 import type { SessionControlFrame, SessionRequestId, SessionSearchValue } from '../src/types.ts'
 import { createSessionTestController } from './test-remote.ts'
@@ -248,6 +250,80 @@ describe('Session Controller access', () => {
     expect(await projected(guest)).toBe(SHARED)
     abort.abort()
     await Promise.all([guest.return?.(), owner.return?.()])
+  })
+
+  it('rejects non-owner prompt, queue edits, and cancellation for a live External Agent', async () => {
+    const { shared, as, ctx } = await harness()
+    shared.session.append('execution/bound', { execution: 'acp' })
+    const queued = message('owner queued input')
+    shared.inbox.append('next-turn', queued)
+    expect(ctx.agents.executionOf(shared.session)).toBe('acp')
+
+    await expect(as(GUEST, 'prompt').sessionController.prompt({
+      sessionId: SHARED,
+      requestId: 'guest-acp-live' as SessionRequestId,
+      mode: 'queue',
+      content: [{ type: 'text', text: 'run as owner' }],
+    }, new AbortController().signal)).rejects.toMatchObject({
+      code: 'session/agent-busy', details: { reason: 'OWNER_REQUIRED' },
+    })
+    await expect(as(GUEST, 'updateQueue').sessionController.updateQueue({
+      sessionId: SHARED, itemId: queued.id, action: { kind: 'remove' },
+    })).rejects.toMatchObject({
+      code: 'session/agent-busy', details: { reason: 'OWNER_REQUIRED' },
+    })
+    expect(() => as(GUEST, 'cancel').sessionController.cancel({ sessionId: SHARED })).toThrowError(
+      expect.objectContaining({ code: 'session/agent-busy', details: { reason: 'OWNER_REQUIRED' } }),
+    )
+    expect(shared.inbox.nextTurn).toEqual([queued])
+    expect(shared.session.snapshotEvents().some(event => event.type === 'user/message'
+      && event.data.content.some(block => block.type === 'text' && block.text === 'run as owner'))).toBe(false)
+    await expect(as(OWNER, 'updateQueue').sessionController.updateQueue({
+      sessionId: SHARED, itemId: queued.id, action: { kind: 'remove' },
+    })).resolves.toEqual({ accepted: true })
+    expect(as(OWNER, 'cancel').sessionController.cancel({ sessionId: SHARED })).toEqual({ accepted: true })
+  })
+
+  it('checks owner identity on Agents returned by the cold resolver', async () => {
+    const { ctx, controller, as } = await harness()
+    const coldId = brandString<SessionId>('cold-external-session')
+    const session = ctx.sessions.create(coldId, { meta: { cwd: '/workspace' } })
+    session.append('execution/bound', { execution: 'acp' })
+    const coldAgent = { id: coldId, session, status: 'idle', ctx } as Agent
+    const apiAgents = (controller as unknown as { agents: ApiSessionAgentController }).agents
+    // Model the exact Agent returned after the API cold-resume resolver finishes.
+    const resolve = vi.spyOn(apiAgents, 'resolveAgent').mockResolvedValue({ agent: coldAgent })
+    expect(ctx.agents.get(coldId)).toBeUndefined()
+    expect(ctx.agents.executionOf(session)).toBe('acp')
+
+    await expect(as(GUEST, 'prompt').sessionController.prompt({
+      sessionId: coldId,
+      requestId: 'guest-acp-cold' as SessionRequestId,
+      mode: 'queue',
+      content: [{ type: 'text', text: 'run as owner' }],
+    }, new AbortController().signal)).rejects.toMatchObject({
+      code: 'session/agent-busy', details: { reason: 'OWNER_REQUIRED' },
+    })
+    await expect(as(GUEST, 'updateQueue').sessionController.updateQueue({
+      sessionId: coldId,
+      itemId: brandString<MessageId>('cold-queued-item'),
+      action: { kind: 'remove' },
+    })).rejects.toMatchObject({
+      code: 'session/agent-busy', details: { reason: 'OWNER_REQUIRED' },
+    })
+    expect(resolve).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps non-owner queue and cancellation access for native sessions', async () => {
+    const { shared, as } = await harness()
+    const queued = message('native queued input')
+    shared.inbox.append('next-turn', queued)
+
+    await expect(as(GUEST, 'updateQueue').sessionController.updateQueue({
+      sessionId: SHARED, itemId: queued.id, action: { kind: 'remove' },
+    })).resolves.toEqual({ accepted: true })
+    expect(as(GUEST, 'cancel').sessionController.cancel({ sessionId: SHARED })).toEqual({ accepted: true })
+    expect(shared.inbox.nextTurn).toEqual([])
   })
 
   it('records a non-owner caller on the prompt source and leaves owner sources unchanged', async () => {

@@ -14,9 +14,10 @@ import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { Session, SessionEvent, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import { installTurnArchiveAdmission } from './archive-admission.ts'
-import type { Agent, TurnBoundaryProjection } from './types.ts'
-import type { AgentOptions, SessionStartSource } from './runtime-types.ts'
+import type { Agent, AgentExecution, TurnBoundaryProjection } from './types.ts'
+import type { AgentDriverLease, AgentDriverProvider, AgentOptions, SessionStartSource } from './runtime-types.ts'
 import { turnBoundaryProjectionDefinition } from './projection.ts'
+import { executionProjectionDefinition } from './execution.ts'
 
 export * from './runtime-types.ts'
 export * from './types.ts'
@@ -247,6 +248,12 @@ export class AgentRegistry extends Service {
   static inject = ['sessionProjections']
 
   private turnBoundaryProjectionHandle!: ProjectionHandle<TurnBoundaryProjection>
+  private executionProjectionHandle!: ProjectionHandle<AgentExecution | null>
+  private readonly drivers = new Map<'acp', {
+    provider: AgentDriverProvider
+    closing: boolean
+    listeners: Set<() => Promise<void>>
+  }>()
   private store = new Map<SessionId, AgentEntry>()
   private factory: FactorySlot | undefined
   private readonly initiators = new AsyncLocalStorage<Agent | undefined>()
@@ -290,6 +297,7 @@ export class AgentRegistry extends Service {
 
   protected async [Service.init](): Promise<void> {
     this.turnBoundaryProjectionHandle = await this.ctx.sessionProjections.register(turnBoundaryProjectionDefinition)
+    this.executionProjectionHandle = await this.ctx.sessionProjections.register(executionProjectionDefinition)
   }
 
   /**
@@ -299,6 +307,63 @@ export class AgentRegistry extends Service {
    */
   turnBoundaryOf(session: Session): TurnBoundaryProjection {
     return this.turnBoundaryProjectionHandle.stateOf(session)
+  }
+
+  /**
+   * Read durable execution ownership without loading history or choosing a default.
+   * @param session - prepared Session to inspect.
+   * @returns the bound engine, or undefined for unbound native and legacy Sessions.
+   */
+  executionOf(session: Session): AgentExecution | undefined {
+    return this.executionProjectionHandle.stateOf(session) ?? undefined
+  }
+
+  /**
+   * Register an external driver for the calling fiber's lifetime.
+   * @param execution - external execution engine.
+   * @param provider - synchronous idle-driver constructor.
+   * @returns the Cordis effect disposer; fiber disposal awaits all leased lifecycles.
+   */
+  registerDriver(execution: 'acp', provider: AgentDriverProvider): () => void {
+    const dispose = this.ctx.effect(() => {
+      if (this.drivers.has(execution)) throw new Error(`agent driver "${execution}" is already registered`)
+      const slot = { provider, closing: false, listeners: new Set<() => Promise<void>>() }
+      this.drivers.set(execution, slot)
+      return async () => {
+        slot.closing = true
+        try {
+          const results = await Promise.allSettled([...slot.listeners].map(async listener => listener()))
+          const failures = results.filter(result => result.status === 'rejected').map(result => result.reason)
+          if (failures.length > 0) throw new AggregateError(failures, `agent driver "${execution}" disposal failed`)
+        } finally {
+          slot.listeners.clear()
+          this.drivers.delete(execution)
+        }
+      }
+    }, `agents.registerDriver(${execution})`)
+    // oxlint-disable-next-line typescript/no-misused-promises -- Preserve the exact effect disposer for ordered Cordis teardown.
+    return dispose
+  }
+
+  /**
+   * Capture one active provider without exposing its registry slot.
+   * @param execution - external execution engine to acquire.
+   * @returns a lease whose listeners are drained on provider unload.
+   */
+  acquireDriver(execution: 'acp'): AgentDriverLease {
+    const slot = this.drivers.get(execution)
+    if (slot === undefined || slot.closing) throw new Error(`agent driver "${execution}" is not active`)
+    const assertActive = (): void => {
+      if (slot.closing) throw new Error(`agent driver "${execution}" is not active`)
+    }
+    return {
+      create: (input) => { assertActive(); return slot.provider.create(input) },
+      onDispose: (listener) => {
+        assertActive()
+        slot.listeners.add(listener)
+        return () => { slot.listeners.delete(listener) }
+      },
+    }
   }
 
   /**
