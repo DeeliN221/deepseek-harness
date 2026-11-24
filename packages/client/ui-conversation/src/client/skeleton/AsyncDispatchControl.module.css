@@ -25,3 +25,11 @@
   font-size: 12px;
   overflow-wrap: anywhere;
 }
+
+
+/* The switch retains its full accessible label when the visible copy yields. */
+@container (max-width: 460px) {
+  .control > span {
+    display: none;
+  }
+}

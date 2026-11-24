@@ -52,6 +52,7 @@
 }
 
 .card {
+  container: composer-card / inline-size;
   box-sizing: border-box;
   position: relative; /* overlay anchor positioning context */
   display: flex;
@@ -470,3 +471,26 @@
 .activity { display: flex; align-items: center; flex: none; }
 .activity:empty { display: none; }
 .activityExpanded { flex: 1; min-width: 0; }
+
+
+/* A phone keeps the primary action beside its settings, never on a second row. */
+@container composer-card (max-width: 460px) {
+  .row {
+    flex-wrap: nowrap;
+    gap: 4px;
+    --dsh-composer-model-text-display: none;
+    --dsh-composer-model-icon-display: block;
+  }
+
+  .tools,
+  .modes,
+  .trailing,
+  .standardControls {
+    gap: 4px;
+  }
+
+  .primary {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
