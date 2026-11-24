@@ -33,6 +33,7 @@ function ScrollHarness({ input, onMotion }: {
       <div data-chat-turn-spacer="" />
     </div>
     <button type="button" onClick={state.returnToBottom}>Return to bottom</button>
+    <button type="button" onClick={state.loadEarlier}>Load earlier</button>
   </>
 }
 
@@ -888,4 +889,48 @@ it.each([true, false])('does not pull a committed forward page back toward older
   act(() => { vi.advanceTimersByTime(32) })
   expect(revealEarlier).toHaveBeenCalledOnce()
   expect(bounds).toEqual({ start: 400, end: 640 })
+})
+
+
+it.each([
+  { name: 'a successful local page', hasMore: true, start: 400, expectedStart: 220 },
+  { name: 'exhausted local and remote history', hasMore: false, start: 0, expectedStart: 0 },
+])('consumes a manual history click after $name before forward reading', ({ hasMore, start, expectedStart }) => {
+  const order = Array.from({ length: 1_000 }, (_, index) => `node-${index}`)
+  let bounds = { start, end: start + 240 }
+  const loadOlder = vi.fn()
+  const h = mountScroll(false, {
+    order, renderOrder: order.slice(bounds.start, bounds.end), renderedGlobalTail: false,
+    hasMore, loadOlder,
+    revealEarlier: () => {
+      const next = earlierRenderWindow(order.length, bounds)
+      if (next === null) return false
+      bounds = next
+      return true
+    },
+    advanceRenderWindow: () => {
+      const next = laterRenderWindow(order.length, bounds)
+      if (next === null) return false
+      bounds = next
+      return true
+    },
+  })
+  vi.spyOn(ChatViewport.prototype, 'confirmHistoryStart').mockImplementation(() => h.scroller.scrollTop === 0)
+  h.scroller.scrollTop = 600
+  fireEvent.click(within(h.view.container).getByRole('button', { name: 'Load earlier' }))
+  h.update({ renderOrder: order.slice(bounds.start, bounds.end) })
+  if (!hasMore) act(() => { vi.advanceTimersByTime(32) })
+  expect(bounds).toEqual({ start: expectedStart, end: expectedStart + 240 })
+  expect(loadOlder).not.toHaveBeenCalled()
+
+  for (let page = 1; page <= 3; page++) {
+    h.scroller.scrollTop = 600
+    fireEvent.wheel(h.scroller, { deltaY: 15_000 })
+    const expected = { start: expectedStart + page * 60, end: expectedStart + page * 60 + 240 }
+    expect(bounds).toEqual(expected)
+    h.update({ renderOrder: order.slice(bounds.start, bounds.end) })
+    act(() => { vi.advanceTimersByTime(32) })
+    expect(bounds).toEqual(expected)
+  }
+  expect(loadOlder).not.toHaveBeenCalled()
 })

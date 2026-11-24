@@ -4,9 +4,10 @@ import { SessionSeq } from '@deepseek-ai/dsh-session/types'
 import { ChatNavigation, type ChatNavigationInput } from '../src/client/chat/use-chat-navigation.ts'
 import { ChatReading } from '../src/client/chat/use-chat-reading.ts'
 import { ChatViewport } from '../src/client/chat/use-chat-viewport.ts'
+import { earlierRenderWindow, laterRenderWindow } from '../src/client/chat/render-window.ts'
 import { ScrollFollow } from '../src/client/chat/use-scroll-follow.ts'
 
-function fixture() {
+function fixture(overrides: Partial<ChatNavigationInput> = {}) {
   const viewport = new ChatViewport()
   vi.spyOn(viewport, 'confirmHistoryStart').mockReturnValue(true)
   const mode = vi.spyOn(viewport, 'historyConsumption').mockReturnValue('native')
@@ -18,7 +19,7 @@ function fixture() {
   const onIntent = vi.fn()
   let input: ChatNavigationInput = {
     isOpen: true, firstSeq: SessionSeq(20), hasMore: true, loadingOlder: false,
-    historyLoadStatus: 'idle', loadOlder, consumeOlder, loadThrough: async () => {},
+    historyLoadStatus: 'idle', loadOlder, consumeOlder, loadThrough: async () => {}, ...overrides,
   }
   const navigation = new ChatNavigation(viewport, reading, input, () => {}, onIntent)
   const check = () => {
@@ -127,4 +128,30 @@ describe('history consumption intent', () => {
     expect(h.consumeOlder).toHaveBeenCalledOnce()
     h.navigation.dispose()
   })
+})
+
+
+it('consumes a manual click when local rows become revealable in its history frame', () => {
+  let available = false
+  let bounds = { start: 180, end: 420 }
+  const h = fixture({ revealEarlier: () => {
+    if (!available) return false
+    const next = earlierRenderWindow(1_000, bounds)
+    if (next === null) return false
+    bounds = next
+    return true
+  } })
+  h.navigation.loadEarlier()
+  available = true
+  h.check()
+  expect(bounds).toEqual({ start: 0, end: 240 })
+  expect(h.onIntent).toHaveBeenLastCalledWith('none')
+  expect(h.loadOlder).not.toHaveBeenCalled()
+  vi.mocked(h.viewport.confirmHistoryStart).mockReturnValue(false)
+  const next = laterRenderWindow(1_000, bounds)
+  if (next === null) throw new Error('Expected a later local window')
+  bounds = next
+  h.check()
+  expect(bounds).toEqual({ start: 60, end: 300 })
+  h.navigation.dispose()
 })
