@@ -43,6 +43,11 @@ it('persists the session menu preference across reload, defaults a new session o
   if (await collapseSidebar.isVisible()) await collapseSidebar.click()
   await page.locator('[data-sidebar-drawer][data-sidebar-collapsed]').waitFor()
   await page.keyboard.press('Escape')
+  await page.evaluate(async () => {
+    await Promise.all(document.getAnimations()
+      .filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity)
+      .map(animation => animation.finished.catch(error => void error)))
+  })
   await page.screenshot({ path: join(evidence, 'mobile-closed.png'), fullPage: true })
   await openMenu()
   await expect.poll(() => control.evaluate((element) => {
