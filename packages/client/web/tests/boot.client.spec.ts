@@ -94,6 +94,7 @@ describe('bootstrap failure rendering', () => {
     const report = vi.fn<(reason: unknown) => void>()
     try {
       await entry.run(carrier ? report : undefined)
+      expect(document.querySelector('[data-dsh-boot-notice]')).toBeNull()
       if (carrier) {
         expect(report).toHaveBeenCalledOnce()
         expect(String(report.mock.calls[0]![0])).toContain(`${REQUIRED_ID} (required): failed: Error: plugin activation failed`)
@@ -124,7 +125,11 @@ describe('bootstrap failure rendering', () => {
       entries,
       batches: [{ phase: 'application', url: '/application.js', rev: '1', entries: entries.map(row => row.id) }],
     }
-    const mounted = vi.fn<(element: HTMLElement) => () => void>(() => () => {})
+    const mounted = vi.fn<(element: HTMLElement) => () => void>((element) => {
+      expect(document.querySelector('[data-dsh-boot-notice]')).toBeNull()
+      element.textContent = 'mounted'
+      return () => {}
+    })
     const entry = new AppWebEntry(container, {
       loadBundle: async () => {
         target.load({ id: 'broken', factory: () => ({ apply() { throw new Error('plugin activation failed') } }) })
@@ -138,12 +143,18 @@ describe('bootstrap failure rendering', () => {
     try {
       await entry.run(carrier ? report : undefined)
       expect(mounted).toHaveBeenCalledExactlyOnceWith(container)
+      const notice = document.querySelector('[data-dsh-boot-notice]')
+      expect(notice?.textContent).toContain('1 plugin did not start')
+      expect(notice?.textContent).toContain('broken')
+      expect(notice?.textContent).toContain('failed: Error: plugin activation failed')
+      expect(container.contains(notice)).toBe(false)
       expect(report).not.toHaveBeenCalled()
       expect(warn).toHaveBeenCalledExactlyOnceWith('web boot: warning: 1 entry did not activate\nbroken: failed: Error: plugin activation failed')
       expect(container.textContent).not.toContain('Failed to load plugins')
     } finally {
       await entry.dispose()
     }
+    expect(document.querySelector('[data-dsh-boot-notice]')).toBeNull()
   })
 
   it('renders a missing bootstrap facade', async () => {
@@ -308,6 +319,7 @@ describe('plugin activation', () => {
     expect(target.mode).toBe('live')
     expect(events).toEqual(['consumer', 'mount'])
     expect(container.textContent).toBe('mounted')
+    expect(document.querySelector('[data-dsh-boot-notice]')).toBeNull()
     await entry.dispose()
   })
 })
