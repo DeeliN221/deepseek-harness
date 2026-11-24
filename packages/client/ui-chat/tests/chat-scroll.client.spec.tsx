@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import { useLayoutEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FlowMotionRows } from '../src/client/chat/flow-motion.ts'
+import { ChatViewport } from '../src/client/chat/use-chat-viewport.ts'
 import { useChatScroll, type ChatScrollInput } from '../src/client/chat/use-chat-scroll.ts'
 
 beforeEach(() => { vi.useFakeTimers() })
@@ -776,5 +777,75 @@ describe('Chat scroll collapse timing', () => {
     h.update({ submissionId: 'second' })
     expect(h.scroller.scrollTop).toBe(600)
     expect(h.scrollTo).toHaveBeenCalledTimes(2)
+  })
+})
+
+
+describe('forward reading at a bounded local floor', () => {
+  it('advances on wheel without a scroll event even when the slice has no visible anchor', () => {
+    const advanceRenderWindow = vi.fn(() => true)
+    const h = mountScroll(false, { renderedGlobalTail: false, advanceRenderWindow })
+    const scroll = vi.fn()
+    h.scroller.addEventListener('scroll', scroll)
+    h.scroller.scrollTop = 600
+    fireEvent.wheel(h.scroller, { deltaY: 15_000 })
+    expect(scroll).not.toHaveBeenCalled()
+    expect(advanceRenderWindow).toHaveBeenCalledOnce()
+    expect(h.scroller.scrollTop).toBe(600)
+  })
+
+  it('requires forward intent at the floor and leaves scrollable inner bodies to the browser', () => {
+    const advanceRenderWindow = vi.fn(() => true)
+    const h = mountScroll(false, { renderedGlobalTail: false, advanceRenderWindow })
+    h.scroller.scrollTop = 500
+    fireEvent.wheel(h.scroller, { deltaY: 100 })
+    h.scroller.scrollTop = 600
+    fireEvent.wheel(h.scroller, { deltaY: -100 })
+    fireEvent.wheel(h.scroller, { deltaY: 100, ctrlKey: true })
+    fireEvent.pointerDown(h.scroller)
+    fireEvent.keyDown(h.scroller, { key: 'ArrowUp' })
+    fireEvent.keyDown(h.scroller, { key: ' ', shiftKey: true })
+    const body = document.createElement('div')
+    body.setAttribute('data-step-process-body', '')
+    Object.defineProperties(body, { scrollHeight: { value: 1_000 }, clientHeight: { value: 100 } })
+    h.scroller.append(body)
+    fireEvent.wheel(body, { deltaY: 100 })
+    expect(advanceRenderWindow).not.toHaveBeenCalled()
+    body.scrollTop = 900
+    fireEvent.wheel(body, { deltaY: 100 })
+    expect(advanceRenderWindow).toHaveBeenCalledOnce()
+    h.update({ renderedGlobalTail: true })
+    fireEvent.keyDown(h.scroller, { key: 'PageDown' })
+    expect(advanceRenderWindow).toHaveBeenCalledOnce()
+  })
+
+  it('retains the semantic reading anchor before advancing the slice', () => {
+    const preserve = vi.spyOn(ChatViewport.prototype, 'beginPreserving')
+    const advanceRenderWindow = vi.fn(() => true)
+    const h = mountScroll(false, { renderedGlobalTail: false, advanceRenderWindow })
+    h.row.dataset.chatFlowKey = 'node-599'
+    h.row.dataset.chatAnchorKey = 'node-599'
+    h.row.textContent = 'Visible reading anchor'
+    h.scroller.scrollTop = 599.5
+    fireEvent.keyDown(h.scroller, { key: 'PageDown' })
+    expect(preserve).toHaveBeenLastCalledWith({ anchorKey: 'node-599', anchorTop: 0, scrollTop: 599.5 })
+    expect(advanceRenderWindow).toHaveBeenCalledOnce()
+  })
+
+  it('keeps live append away from the reader and lands at the new global floor after return-bottom', () => {
+    const order = Array.from({ length: 700 }, (_, index) => `node-${index}`)
+    const h = mountScroll(false, {
+      order, renderOrder: order.slice(100, 340), renderedGlobalTail: false, advanceRenderWindow: () => true,
+    })
+    h.scroller.scrollTop = 600
+    fireEvent.wheel(h.scroller, { deltaY: 100 })
+    h.scrollTo.mockClear()
+    const appended = [...order, 'node-700']
+    h.update({ order: appended, renderOrder: order.slice(100, 340), lastKey: 'node-700' })
+    expect(h.scrollTo).not.toHaveBeenCalled()
+    fireEvent.click(within(h.view.container).getByRole('button', { name: 'Return to bottom' }))
+    h.grow(1_600)
+    h.update({ renderOrder: appended.slice(-240), renderedGlobalTail: true })
+    expect(h.scroller.scrollTop).toBe(1_200)
   })
 })

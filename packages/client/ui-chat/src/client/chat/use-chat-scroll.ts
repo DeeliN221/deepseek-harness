@@ -121,7 +121,8 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
     }
     const tipChanged = previous === null || current.isOpen !== previous.isOpen
       || current.firstSeq !== previous.firstSeq || current.lastKey !== previous.lastKey
-      || current.order.length !== previous.order.length || current.running !== previous.running
+      || current.order.length !== previous.order.length || current.renderOrder !== previous.renderOrder
+      || current.running !== previous.running
       || current.steeringId !== previous.steeringId || current.submissionId !== previous.submissionId
     if (tipChanged && reading.followingTail) {
       navigation.cancel()
@@ -148,6 +149,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
         if (content.current.opened) navigation.requestHistoryCheck()
       },
       intent: () => { cancelPendingFollow(); reading.interruptFollow() },
+      forward: () => { if (content.current.opened) reading.onForwardIntent() },
       resize: () => {
         if (!content.current.opened) return
         navigation.requestHistoryCheck()

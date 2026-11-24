@@ -61,3 +61,30 @@ describe('bounded Chat render window', () => {
     })).toEqual({ start: 60, end: 300 })
   })
 })
+
+
+it('pages both directions through more than 240 nodes and keeps historical windows stable on append', () => {
+  const order = Array.from({ length: 1_000 }, (_, index) => `node-${index}`)
+  let range = tailRenderWindow(order.length)
+  while (range.start > 0) {
+    const next = earlierRenderWindow(order.length, range)
+    expect(next).not.toBeNull()
+    if (next === null) throw new Error('Older rows became unreachable')
+    expect(next.end - next.start).toBeLessThanOrEqual(240)
+    expect(next.end).toBeGreaterThan(range.start)
+    range = next
+  }
+  const anchor = renderWindowAnchor(order, 'session-a', range)
+  const appended = [...order, 'node-1000']
+  expect(resolveRenderWindow(appended, 'session-a', anchor)).toEqual(range)
+  while (range.end < appended.length) {
+    const next = laterRenderWindow(appended.length, range)
+    expect(next).not.toBeNull()
+    if (next === null) throw new Error('Newer rows became unreachable')
+    expect(next.end - next.start).toBeLessThanOrEqual(240)
+    expect(next.start).toBeLessThan(range.end)
+    range = next
+  }
+  expect(appended.slice(range.start, range.end).at(-1)).toBe('node-1000')
+  expect(resolveRenderWindow(appended, 'session-a', null)).toEqual(range)
+})

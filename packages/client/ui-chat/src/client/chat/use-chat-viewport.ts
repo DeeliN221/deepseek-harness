@@ -26,6 +26,8 @@ interface ViewportEvents {
   interact: () => void
   /** Any reading gesture, before paging ownership is consulted. */
   intent?: () => void
+  /** Explicit forward reading after any previous paging anchor has been released. */
+  forward?: () => void
   /** Recheck a prepared history page after an input or transition settles. */
   history?: () => void
 }
@@ -1103,9 +1105,17 @@ export class ChatViewport {
       if (event.type === 'keydown' && (!(event instanceof KeyboardEvent) || !SCROLL_KEYS.has(event.key))) return
     }
     this.events?.intent?.()
-    if (this.paging === null) return
-    this.stopPreserving()
-    this.events?.interact()
+    if (this.paging !== null) {
+      this.stopPreserving()
+      this.events?.interact()
+    }
+    const forward = event instanceof WheelEvent ? event.deltaY > 0 && !event.ctrlKey
+      : event instanceof KeyboardEvent && (['ArrowDown', 'PageDown', 'End'].includes(event.key)
+        || (event.key === ' ' && !event.shiftKey))
+    if (!forward) return
+    const body = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-step-process-body]') : null
+    if (body !== null && body.scrollTop < body.scrollHeight - body.clientHeight - 1) return
+    this.events?.forward?.()
   }
 }
 
