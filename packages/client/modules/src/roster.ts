@@ -42,7 +42,6 @@ export const DEFAULT_DEFERRED_ROWS: readonly DeferredRowConfig[] = [
   // Settings sections, reached by opening Settings.
   { id: '@deepseek-ai/dsh-client-ui-settings-account', slots: ['settings.section'], trigger: 'slot:settings.section' },
   { id: '@deepseek-ai/dsh-client-ui-settings-agent-loop', slots: ['settings.section'], trigger: 'slot:settings.section' },
-  { id: '@deepseek-ai/dsh-client-ui-settings-general', slots: ['settings.section'], trigger: 'slot:settings.section' },
   { id: '@deepseek-ai/dsh-client-ui-settings-models', slots: ['settings.section'], trigger: 'slot:settings.section' },
   { id: '@deepseek-ai/dsh-client-ui-settings-plugin-inventory', slots: ['settings.section'], trigger: 'slot:settings.section' },
   { id: '@deepseek-ai/dsh-client-ui-settings-plugins', slots: ['settings.section'], trigger: 'slot:settings.section' },
