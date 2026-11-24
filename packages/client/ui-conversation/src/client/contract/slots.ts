@@ -563,8 +563,6 @@ export interface ComposerBarInjected {
   /** Restart one failed file upload; absent without a session. */
   retryFileUpload: ((id: DraftAttachmentId) => void) | undefined
   toggleCommandMenu: ((selection: EditSelection) => void) | undefined
-  /** Persist the next-submission dispatch preference through the existing command route. */
-  setAsyncDispatch?: ((enabled: boolean) => Promise<string | null>) | undefined
   stop: (() => void) | undefined
   /**
    * Submit empty input to retry the displayed failed generation.

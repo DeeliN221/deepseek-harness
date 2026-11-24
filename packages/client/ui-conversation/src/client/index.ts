@@ -117,3 +117,5 @@ declare module '@deepseek-ai/cordis' {
 
 export type { TextInteractionDefinition, TextInteractionGesture, TextInteractionRequest, TextInteractionSurface, TextInteractionTrigger } from './contract/text-interaction.ts'
 export type { ConversationInteractionRegistry } from './conversation/interaction-registry.ts'
+
+export type { ModelMenuPaneRef, ModelMenuControls, ModelMenuOptions } from './contract/model-menu.ts'

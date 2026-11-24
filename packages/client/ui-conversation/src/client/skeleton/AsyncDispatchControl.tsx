@@ -1,36 +1,53 @@
-/** Compact, controlled dispatch preference; persistence errors stay beside the control. */
-import { useState } from 'react'
-import { Switch, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+/** Session dispatch preference contributed to the existing model menu. */
+import { useId, useRef, useState } from 'react'
+import { IconCheckOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type {} from '../contract/model-menu.ts'
+import type {} from '../../dispatch-types.ts'
 import css from './AsyncDispatchControl.module.css'
 
-/** @param props - projected value, localized copy and the Session-addressed write. @returns the toolbar switch. */
-export function AsyncDispatchControl({ checked, disabled, label, description, failureLabel, save }: {
-  checked: boolean
-  disabled: boolean
-  label: string
-  description: string
-  failureLabel: string
+/** The existing session-addressed write preserves workspace defaults and next-message admission. */
+export interface AsyncDispatchInjected {
   save: (enabled: boolean) => Promise<string | null>
-}) {
+}
+
+/** A checked menu item uses the projected value, never an optimistic copy of the preference. */
+export function AsyncDispatchControl({ useSession, useProjection, useAccess, locked, reportFailure, t, save }:
+  PropsRuntime<'conversation.input.model.options'> & PropsLocale<'conversation'> & AsyncDispatchInjected) {
+  const checked = useProjection('asyncDispatch') === true
+  const subagent = useSession(s => s.subagent) ?? null
+  const removed = useSession(s => s.removed) ?? false
+  const denied = useAccess('session/prompt') === false
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const change = async (enabled: boolean) => {
+  const pending = useRef(false)
+  const descriptionId = useId()
+  if (subagent !== null) return null
+  const disabled = locked || removed || denied || saving
+  const change = async () => {
+    if (disabled || pending.current) return
+    pending.current = true
     setSaving(true)
-    setError(null)
-    try { setError(await save(enabled)) }
-    catch (failure) { setError(`${failureLabel}: ${String(failure)}`) }
-    finally { setSaving(false) }
+    try {
+      const error = await save(!checked)
+      if (error !== null) reportFailure(error)
+    } catch (failure) {
+      reportFailure(`${t('dispatch.failed')}: ${String(failure)}`)
+    } finally {
+      pending.current = false
+      setSaving(false)
+    }
   }
   return (
-    <div className={css.root}>
-      <Tooltip label={description} side="top" portal>
-        <span className={css.control}>
-          <span>{label}</span>
-          <Switch checked={checked} disabled={disabled || saving} label={label}
-            onChange={(enabled) => { void change(enabled) }} />
-        </span>
-      </Tooltip>
-      {error === null ? null : <span className={css.error} role="alert">{error}</span>}
-    </div>
+    <button type="button" role="menuitemcheckbox" className={css.control}
+      aria-label={t('dispatch.label')} aria-checked={checked} aria-disabled={disabled} aria-busy={saving}
+      aria-describedby={descriptionId} onClick={() => { void change() }}>
+      <span className={css.copy}>
+        <span>{t('dispatch.label')}</span>
+        <span id={descriptionId} className={css.description}>{t('dispatch.description')}</span>
+      </span>
+      <span className={css.state} aria-hidden="true">
+        {saving ? <StateDot state="ongoing" size={14} /> : checked ? <IconCheckOutlineRegular /> : null}
+      </span>
+    </button>
   )
 }

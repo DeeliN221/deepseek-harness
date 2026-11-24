@@ -38,7 +38,6 @@ import { resolveSubmitMode } from '../input/submission-policy.ts'
 import { attachmentErrorText, imageSizeText } from '../image-labels.ts'
 import { isImageMediaType } from '../service.ts'
 import { ContextMeter } from './ContextMeter.tsx'
-import { AsyncDispatchControl } from './AsyncDispatchControl.tsx'
 import type {} from '../../dispatch-types.ts'
 import { observeControlRow } from './control-row-layout.ts'
 import css from './InputBar.module.css'
@@ -52,7 +51,7 @@ export type InputBarProps = ComposerBarProps
 export const InputBar = memo(function InputBar({
   useSession, useInput, inputActions, keyboard, addFiles, removeAttachment, resolveDraftAttachments,
   retryFileUpload, registerFileIntake,
-  toggleCommandMenu, stop, retry, t, setAsyncDispatch,
+  toggleCommandMenu, stop, retry, t,
   renderSlot, useBusyEnter, useFileUploads, useNotices, useLexicon, useMenuLauncher, useStopShortcut,
   useAccess,
   useProjection, sessionId, variant, occurrence, disabled: inert = false, blocked,
@@ -75,7 +74,6 @@ export const InputBar = memo(function InputBar({
   useEffect(() => { setActivity(false) }, [sessionId])
   const promptError = useSession(s => s.promptError) ?? null
   const running = useSession(s => s.running) ?? false
-  const asyncDispatch = useProjection('asyncDispatch') === true
   const retryableFailure = useProjection('conversationContinuation') ?? undefined
   const pendingHumanInput = useProjection('inbox', inbox =>
     inbox?.['next-step'].some(message =>
@@ -569,11 +567,7 @@ export const InputBar = memo(function InputBar({
             <div className={css.modes}>
               {sessionId === undefined ? null : renderSlot('conversation.input.permission', { locked })}
               {sessionId === undefined ? null : renderSlot('conversation.input.plan', { locked })}
-              {sessionId === undefined || subagent !== null || setAsyncDispatch === undefined ? null : (
-                <AsyncDispatchControl key={sessionId} checked={asyncDispatch} disabled={inert || removed || promptDenied}
-                  label={t('dispatch.label')} description={t('dispatch.description')}
-                  save={setAsyncDispatch} failureLabel={t('dispatch.failed')} />
-              )}
+
             </div>
             {input === undefined || sessionId === undefined
               ? null

@@ -79,6 +79,7 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
   let catalogFailure = false
   let groups = GROUPS
   let selectionFailure: RemoteError<'session/writer-held'> | undefined
+  let selectedSessionId: SessionId | undefined
   const sessionRemote = {
     modelCatalog: () => {
       calls.models += 1
@@ -104,7 +105,7 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
           : { reasoningEffort: brandString<ReasoningEffortId>(payload.reasoningEffort) },
       }
       projections.get(payload.sessionId)?.set({ lastUsed: null, next: selected })
-      return Promise.resolve({ ok: true as const, value: { selected } })
+      return Promise.resolve({ ok: true as const, value: { selected, sessionId: selectedSessionId } })
     },
   }
   const remote = Object.assign(new TestRemote(ctx), { session: sessionRemote })
@@ -156,6 +157,12 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
       ? { parentSessionId: sid('parent'), childSessionId: id, mode: 'continuable' as const }
       : undefined,
   })
+  const openSession = vi.fn()
+  // A sibling provider fiber enforces Cordis injection visibility; root provisions
+  // are inherited and would hide a missing ModelDirectoryResolver dependency.
+  await ctx.plugin(function workspaceProvider(ctx) {
+    ctx.provide('uiWorkspace', { openSession } as never)
+  }).await()
   const track = vi.fn()
   ctx.provide('productAnalytics', { enabled: true, track } as never)
   const fiber = ctx.plugin({ inject: [...inject], apply })
@@ -182,7 +189,8 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
     return { ...handle, projection }
   }
   return {
-    ctx, fiber, mint, calls, remote, track,
+    ctx, fiber, mint, calls, remote, track, openSession,
+    redirectSelectionTo: (id: SessionId) => { selectedSessionId = id },
     contribution: () => contribution!,
     popup: (): PopupSelectSpec => {
       const ui = contribution!.ui
@@ -207,6 +215,21 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
 const projection = (id: string) => ({ sessionId: sid(id) })
 
 describe('ui-model-selection dual entry', () => {
+  it('opens the host-created session after selecting a model through the real Cordis service', async () => {
+    const b = await bench()
+    try {
+      b.mint('blank', true)
+      const target = sid('external-agent-session')
+      b.redirectSelectionTo(target)
+      const face = b.seat().inject!(sid('blank'))
+      await expect(face.select({ provider: 'external', model: 'deepseek-v4-flash' }))
+        .resolves.toEqual({ ok: true, value: undefined })
+      expect(b.openSession).toHaveBeenCalledExactlyOnceWith(target)
+      expect(face.directory.getSnapshot().pending).toBeNull()
+    } finally {
+      await b.ctx.fiber.dispose()
+    }
+  })
   it('carries writer contention to the model seat and localizes the command failure', async () => {
     const b = await bench()
     b.mint('owned')
@@ -278,6 +301,7 @@ describe('ui-model-selection dual entry', () => {
     const settled = seatFace.select(selection)
     expect(seatFace.directory.getSnapshot()).toMatchObject({ status: 'selecting', pending: selection })
     expect(await settled).toEqual({ ok: true, value: undefined })
+    expect(b.openSession).not.toHaveBeenCalled()
     expect(seatFace.directory.getSnapshot()).toMatchObject({ status: 'ready', pending: null })
     expect(b.hostCurrent()).toEqual({
       provider: 'deepseek-official',

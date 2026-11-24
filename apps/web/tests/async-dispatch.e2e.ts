@@ -7,7 +7,7 @@ import { expect, it, onTestFinished } from 'vitest'
 import { launchWebScaffold, watchConsole } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage } from './support.ts'
 
-it('persists the session switch across reload, defaults a new session off, and fits desktop and mobile', async () => {
+it('persists the session menu preference across reload, defaults a new session off, and fits desktop and mobile', async () => {
   const fixture = fileURLToPath(new URL('../../../snapshots/web/plan-narrow-viewport/session.v3.jsonl', import.meta.url))
   const scaffold = await launchWebScaffold({ replayFixture: fixture, replayProvidersOnly: true })
   onTestFinished(() => scaffold.close())
@@ -17,7 +17,13 @@ it('persists the session switch across reload, defaults a new session off, and f
   const tripwire = watchConsole(page)
   await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
   await connectFreshWorkspace(page, scaffold.workspaceCwd)
-  const control = page.getByRole('switch', { name: 'Async dispatch', exact: true })
+  const trigger = page.getByRole('button', { name: /^Select model/ })
+  const openMenu = async () => {
+    if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click()
+  }
+  await openMenu()
+  const control = page.getByRole('menuitemcheckbox', { name: 'Async dispatch', exact: true })
+  expect(await page.getByRole('switch', { name: 'Async dispatch', exact: true }).count()).toBe(0)
   await expect.poll(() => control.getAttribute('aria-checked')).toBe('false')
   await control.click()
   try { await expect.poll(() => control.getAttribute('aria-checked')).toBe('true') }
@@ -29,6 +35,7 @@ it('persists the session switch across reload, defaults a new session off, and f
   await mkdir(evidence, { recursive: true })
   await page.screenshot({ path: join(evidence, 'desktop-on.png'), fullPage: true })
   await page.reload({ waitUntil: 'load' })
+  await openMenu()
   await expect.poll(() => control.getAttribute('aria-checked')).toBe('true')
   await page.setViewportSize({ width: 390, height: 844 })
   await page.locator('[data-sidebar-drawer]').waitFor()
@@ -36,6 +43,13 @@ it('persists the session switch across reload, defaults a new session off, and f
   if (await collapseSidebar.isVisible()) await collapseSidebar.click()
   await page.locator('[data-sidebar-drawer][data-sidebar-collapsed]').waitFor()
   await page.keyboard.press('Escape')
+  await page.evaluate(async () => {
+    await Promise.all(document.getAnimations()
+      .filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity)
+      .map(animation => animation.finished.catch(error => void error)))
+  })
+  await page.screenshot({ path: join(evidence, 'mobile-closed.png'), fullPage: true })
+  await openMenu()
   await expect.poll(() => control.evaluate((element) => {
     const box = element.getBoundingClientRect()
     const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)
@@ -67,11 +81,15 @@ it('persists the session switch across reload, defaults a new session off, and f
   source.session.append('turn/start', { turn: 1 })
   source.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
   await page.setViewportSize({ width: 1680, height: 900 })
+  await page.keyboard.press('Escape')
   await page.getByRole('button', { name: 'New session', exact: true }).last().click()
+  await openMenu()
   await expect.poll(() => control.getAttribute('aria-checked'), { timeout: 10_000 }).toBe('false')
   const freshId = new URL(page.url()).searchParams.get('session')
   expect(freshId).not.toBe(source.id)
+  await page.keyboard.press('Escape')
   await page.getByText('Async source', { exact: true }).click()
+  await openMenu()
   await expect.poll(() => control.getAttribute('aria-checked'), { timeout: 10_000 }).toBe('true')
   expect(tripwire.pageErrors).toEqual([])
   expect(tripwire.warnings.filter(warning => !/connection lost/i.test(warning))).toEqual([])
