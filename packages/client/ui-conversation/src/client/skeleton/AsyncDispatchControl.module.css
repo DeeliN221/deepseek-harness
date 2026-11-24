@@ -1,35 +1,46 @@
-.root {
-  position: relative;
-  flex: 0 0 auto;
+.control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--dsw-radius-md);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: start;
+  cursor: pointer;
 }
 
-.control {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 32px;
+.control:hover,
+.control:focus-visible {
+  outline: none;
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.control[aria-disabled="true"] {
+  color: var(--dsw-alias-label-dimmed);
+  cursor: default;
+}
+
+.copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.description {
+  display: block;
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
-  white-space: nowrap;
+  line-height: 18px;
 }
 
-.error {
-  position: absolute;
-  bottom: 100%;
-  inset-inline-start: 0;
-  max-width: min(280px, 70vw);
-  padding: 4px 8px;
-  color: var(--dsw-alias-label-primary);
-  background: var(--dsw-specific-input-major);
-  border-radius: var(--dsw-radius-md);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-
-
-/* The switch retains its full accessible label when the visible copy yields. */
-@container (max-width: 460px) {
-  .control > span {
-    display: none;
-  }
+.state {
+  display: flex;
+  flex: 0 0 16px;
+  align-items: center;
+  justify-content: center;
 }

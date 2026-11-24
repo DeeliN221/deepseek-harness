@@ -47,6 +47,7 @@ import { ConversationPanel } from './skeleton/ConversationPanel.tsx'
 import { ConversationHeader } from './skeleton/ConversationHeader.tsx'
 import { ConversationSession, ConversationSessionHeader } from './skeleton/ConversationSession.tsx'
 import { InputBar } from './skeleton/InputBar.tsx'
+import { AsyncDispatchControl, type AsyncDispatchInjected } from './skeleton/AsyncDispatchControl.tsx'
 import { todoDockEntry } from './skeleton/TodoPanel.tsx'
 import { installStopShortcut } from './stop-shortcut.ts'
 import { TRAJECTORY_VIEW_ID, resolveActiveView } from './view-selection.ts'
@@ -474,6 +475,26 @@ export function apply(ctx: Context, config: Config = Config({})): void {
     }),
   }, ConversationSessionHeader)
 
+  slots.inject('conversation.input.model.options', () => slots.register({
+    name: 'conversation.input.model.options',
+    id: 'async-dispatch',
+    order: 30,
+    locale: NS,
+    inject: (sessionId): AsyncDispatchInjected => ({
+      save: async (enabled) => {
+        const session = sessions.binding(sessionId)?.session
+        const commands = ctx.get('remote.commands')
+        if (session === undefined || commands === undefined) return t('dispatch.unavailable')
+        return concreteConversation(ctx).selectAsyncDispatch(session, enabled, async () => {
+          const result = await commands.execute(sessionId, `/async-dispatch ${enabled ? 'on' : 'off'}`, [])
+          if (!result.ok) return result.error.message
+          if (result.value === undefined) return t('dispatch.unavailable')
+          return result.value.result.kind === 'error' ? (result.value.result.text ?? t('dispatch.failed')) : null
+        })
+      },
+    }),
+  }, AsyncDispatchControl))
+
   const fileIntake = createComposerFileIntake()
   const registerComposerBar = () => slots.register({
     name: 'conversation.composer.bar',
@@ -518,17 +539,6 @@ export function apply(ctx: Context, config: Config = Config({})): void {
       return {
         registerFileIntake: fileIntake,
         keyboard: shell,
-        setAsyncDispatch: async (enabled) => {
-          const session = sessions.binding(sessionId)?.session
-          const commands = ctx.get('remote.commands')
-          if (session === undefined || commands === undefined) return t('dispatch.unavailable')
-          return conversation.selectAsyncDispatch(session, enabled, async () => {
-            const result = await commands.execute(sessionId, `/async-dispatch ${enabled ? 'on' : 'off'}`, [])
-            if (!result.ok) return result.error.message
-            if (result.value === undefined) return t('dispatch.unavailable')
-            return result.value.result.kind === 'error' ? (result.value.result.text ?? t('dispatch.failed')) : null
-          })
-        },
         addFiles: (files, directories = new Set()) => {
           if (sessions.binding(sessionId) === undefined) return t('file.sessionUnavailable')
           const { phase } = shell.snapshot

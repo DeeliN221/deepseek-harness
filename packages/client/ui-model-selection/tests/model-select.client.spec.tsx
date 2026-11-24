@@ -83,6 +83,33 @@ beforeEach(() => {
 
 afterEach(cleanup)
 
+describe('ModelSelect checkbox menu navigation', () => {
+  it('includes contributed checkbox rows in arrows, Home/End and Tab activation, with Escape returning focus', async () => {
+    const toggle = vi.fn()
+    render(<ModelSelect locked={false} available directory={createSnapshotStore(state())} load={vi.fn()}
+      resolveText={resolveText} select={vi.fn()} t={t}
+      renderSlot={(name, _owner, options) => name === 'conversation.input.model.options'
+        ? <button type="button" role="menuitemcheckbox" aria-checked="true" onClick={toggle}>异步派发</button>
+        : options?.fallback ?? null} />)
+    const trigger = screen.getByRole('button', { name: /选择模型，当前/ })
+    fireEvent.click(trigger)
+    const checkbox = screen.getByRole('menuitemcheckbox', { name: '异步派发' })
+    fireEvent.keyDown(trigger, { key: 'End' })
+    expect(document.activeElement).toBe(checkbox)
+    fireEvent.keyDown(checkbox, { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: /^模型/ }))
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowUp' })
+    expect(document.activeElement).toBe(checkbox)
+    fireEvent.keyDown(checkbox, { key: 'Tab' })
+    expect(toggle).toHaveBeenCalledOnce()
+    fireEvent.keyDown(checkbox, { key: 'Home' })
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: /^模型/ }))
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    expect(screen.queryByRole('menuitemcheckbox')).toBeNull()
+    await waitFor(() => expect(document.activeElement).toBe(trigger))
+  })
+})
+
 describe('ModelSelect label slot', () => {
   it('distinguishes identical model names and ids by provider across all placements and restores labels on unload', async () => {
     const runtime = await SlotTestRuntime.create()

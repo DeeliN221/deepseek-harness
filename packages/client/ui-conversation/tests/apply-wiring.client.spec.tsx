@@ -49,6 +49,23 @@ function entry(
 }
 
 describe('target-neutral Conversation apply wiring', () => {
+  it('contributes async dispatch only during the model-menu declaration lifetime', async () => {
+    const b = await bench()
+    expect(b.runtime.slots.entries('conversation.input.model.options')).toHaveLength(0)
+    const declare = () => b.runtime.slots.register({
+      name: 'conversation.input.model',
+      children: { 'conversation.input.model.options': { kind: 'list', scope: 'session' } },
+    }, () => null)
+    const dispose = declare()
+    expect(b.runtime.slots.entries('conversation.input.model.options').map(row => row.options.id)).toEqual(['async-dispatch'])
+    dispose()
+    expect(b.runtime.slots.entries('conversation.input.model.options')).toHaveLength(0)
+    declare()
+    expect(b.runtime.slots.entries('conversation.input.model.options')).toHaveLength(1)
+    await b.feature.dispose()
+    expect(b.runtime.slots.entries('conversation.input.model.options')).toHaveLength(0)
+    await b.runtime.dispose()
+  })
   it('hands every Session header the same profile View tab order and the settings row writes it', async () => {
     const b = await bench()
     b.runtime.slots.register({ name: 'conversation.view', id: 'trajectory', label: 'Trajectory' }, (() => null) as never)

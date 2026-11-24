@@ -296,7 +296,7 @@ export function ModelSelect(
 
   const moveFocus = (offset: number): void => {
     const items = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>(
-      'button[role="menuitem"]:not([disabled]), button[role="menuitemradio"]:not([disabled]), button[role="switch"]:not([disabled])',
+      'button[role="menuitem"]:not([disabled]), button[role="menuitemradio"]:not([disabled]), button[role="menuitemcheckbox"]:not([disabled]), button[role="switch"]:not([disabled])',
     ) ?? [])
     if (items.length === 0) return
     const active = items.findIndex(item => item === document.activeElement)
@@ -357,7 +357,7 @@ export function ModelSelect(
       // so the keystroke stays unconsumed there.
       const focused = document.activeElement
       const rows = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>(
-        'button[role="menuitem"]:not([disabled]), button[role="menuitemradio"]:not([disabled]), button[role="switch"]:not([disabled])',
+        'button[role="menuitem"]:not([disabled]), button[role="menuitemradio"]:not([disabled]), button[role="menuitemcheckbox"]:not([disabled]), button[role="switch"]:not([disabled])',
       ) ?? [])
       if (focused instanceof HTMLButtonElement && rows.includes(focused)) {
         event.preventDefault()
@@ -373,6 +373,12 @@ export function ModelSelect(
       }
       const checked = menuRef.current?.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]:not([disabled])')
       ;(checked ?? rows.find(item => !item.disabled))?.focus()
+      return
+    }
+    if ((event.key === 'Home' || event.key === 'End') && !(event.target instanceof HTMLInputElement)) {
+      event.preventDefault()
+      const rows = menuRef.current?.querySelectorAll<HTMLButtonElement>('button[role^="menuitem"]:not([disabled])')
+      rows?.[event.key === 'Home' ? 0 : rows.length - 1]?.focus()
       return
     }
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
