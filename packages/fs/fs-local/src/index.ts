@@ -233,8 +233,11 @@ export class LocalFileSystem extends FileSystem {
       const before = diffable
         ? await readTextForDiff(target.targetKey, this.config.diffBasisMaxBytes, signal)
         : null
-      await writeFileAtomic(target.targetKey, content, existing?.mode, signal, this.internals,
-        { displayPath: target.displayPath, createIfAbsent: expected?.kind === 'createIfAbsent' })
+      await writeFileAtomic(target.targetKey, content, existing?.mode, signal, this.internals, {
+        displayPath: target.displayPath,
+        createIfAbsent: expected?.kind === 'createIfAbsent',
+        ...(expected?.kind === 'replaceIfVersion' ? { expectedVersion: expected.version } : {}),
+      })
       const after = await probe(target.targetKey)
       return {
         operation: existing ? 'update' : 'create',
@@ -328,6 +331,7 @@ export class LocalFileSystem extends FileSystem {
       await writeFileAtomic(destination.targetKey, content, sourceInfo.mode, undefined, this.internals, {
         displayPath: destination.displayPath,
         createIfAbsent: options.expectedDestination?.kind === 'createIfAbsent',
+        ...(options.expectedDestination?.kind === 'replaceIfVersion' ? { expectedVersion: options.expectedDestination.version } : {}),
         existingDestination: existing !== null,
       })
       const outcome: FsWriteOutcome = {

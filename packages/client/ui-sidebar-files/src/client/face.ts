@@ -56,12 +56,12 @@ export type WatchWorkspaceDirectory = (sessionId: SessionId, path: string, signa
  * @returns a watcher that awaits stream disposal when its node ends.
  */
 export function createWatch(remote: ClientRemote): WatchWorkspaceDirectory {
-  return async function* (sessionId, path, signal) {
+  return async function* (_sessionId, path, signal) {
     const aborted = (): boolean => signal.aborted
     if (aborted()) return
     const stream = remote.$stream<WorkspaceFileWatchFrame>({
       name: `directory ${path}`,
-      open: lifetime => remote.workspaceFiles.changes(sessionId, path, lifetime),
+      open: lifetime => remote.workspaceFiles.ownerChanges(path, lifetime),
       ended: () => new Error(`Directory watch ended: ${path}`),
     })
     const abort = (): void => { void stream.dispose() }
@@ -97,7 +97,7 @@ export type ListWorkspaceDirectory = (
  * namespace's `list`, exactly as the Host's generated client declares it.
  */
 export type WorkspaceFilesListRemote = {
-  readonly workspaceFiles: Pick<ClientRemote['workspaceFiles'], 'list'>
+  readonly workspaceFiles: Pick<ClientRemote['workspaceFiles'], 'ownerList'>
 }
 
 /**
@@ -106,15 +106,17 @@ export type WorkspaceFilesListRemote = {
  * @returns the listing the tree's face performs.
  */
 export function createList(remote: WorkspaceFilesListRemote): ListWorkspaceDirectory {
-  return async (sessionId, path, signal) => {
-    const result = await remote.workspaceFiles.list(sessionId, path, signal)
+  return async (_sessionId, path, signal) => {
+    const result = await remote.workspaceFiles.ownerList(path, signal)
     if (!result.ok) return result
-    return { ok: true, value: { entries: result.value.entries, truncated: result.value.truncated } }
+    return { ok: true, value: result.value }
   }
 }
 
 /** The tree's injected business face, as the navigator receives it. */
 export interface FilesInjected {
+  /** Validate and open an absolute directory using the authenticated owner's Host filesystem. */
+  readonly navigate: (paneId: PaneId, path: string) => void
   /**
    * Register a navigator mounted for one tab in one pane, until the returned
    * release. A pane's records — the store's tree, the scroll offset, the file
@@ -149,7 +151,7 @@ export interface FilesInjected {
    * @param root - absolute path of the workspace root.
    * @returns the release; the listing closes once no hold remains when the current task ends.
    */
-  readonly hold: (paneId: PaneId, root: string) => () => void
+  readonly hold: (paneId: PaneId, root: string, workspaceRoot?: string) => () => void
   /**
    * Refresh the open directory tree, and run the pane's search again when it
    * has a query, since its results are a snapshot of one search.
@@ -313,6 +315,9 @@ export function canOpenOf(registry: TabTypeRegistry): HostObservable<(address: s
 
 /** One pane's listing and drawings, outside React. */
 interface PaneRecord {
+  workspaceRoot?: string
+  /** Superseded navigation requests are aborted and cannot replace the latest directory. */
+  navigating?: AbortController | undefined
   /** Ends when the records are forgotten; set once a navigator attached the pane. */
   lifetime: AbortController | undefined
   /** Navigators registered in the pane. */
@@ -426,6 +431,7 @@ export function filesFace(
     const homes = new Map<TabId, TabHome>()
     const forget = (paneId: PaneId, pane: PaneRecord): void => {
       pane.lifetime?.abort()
+      pane.navigating?.abort()
       void pane.root?.close()
       pane.root = undefined
       pane.unobserve?.()
@@ -588,7 +594,7 @@ export function filesFace(
       const address = pane.revealing
       const tree = store.getSnapshot().byPane[paneId]?.tree
       if (address === undefined || tree === undefined || pane.root === undefined) return
-      const path = relativeFileOf(address, sessionId, tree.root)
+      const path = relativeFileOf(address, sessionId, tree.root, pane.workspaceRoot)
       const location = path === undefined ? undefined : locateFile(tree, path)
       const next = location?.ancestors.find(ancestor => !tree.expanded.includes(ancestor.path))
       if (next !== undefined) {
@@ -654,6 +660,28 @@ export function filesFace(
       for (const home of homes.values()) if (home.pane === pane) answerNavigation(home)
     }
     const face: FilesInjected = {
+      navigate(paneId, path) {
+        const pane = panes.get(paneId)
+        if (pane?.lifetime === undefined) return
+        pane.navigating?.abort()
+        const controller = new AbortController()
+        pane.navigating = controller
+        actions.navigating(paneId)
+        list(sessionId, path, controller.signal).then((result) => {
+          if (controller.signal.aborted || pane.navigating !== controller) return
+          pane.navigating = undefined
+          if (!result.ok) {
+            actions.navigationFailed(paneId, result.error)
+            return
+          }
+          endSearch(pane)
+          actions.navigated(paneId, result.value.absolutePath ?? path)
+        }).catch((error: unknown) => {
+          if (controller.signal.aborted || pane.navigating !== controller) return
+          pane.navigating = undefined
+          actions.navigationFailed(paneId, new RemoteError('gateway/internal', error instanceof Error ? error.message : String(error), {}))
+        })
+      },
       attach(paneId, tabId, tabSignal) {
         if (tabSignal.aborted) {
           drop(paneId)
@@ -696,9 +724,10 @@ export function filesFace(
         }
       },
       placeBeside: tabId => place(tabId, face),
-      hold(paneId, root) {
+      hold(paneId, root, workspaceRoot = root) {
         const pane = panes.get(paneId)
         if (pane?.lifetime === undefined) return () => {}
+        pane.workspaceRoot = workspaceRoot
         pane.holds += 1
         open(paneId, pane, pane.lifetime.signal, root)
         let held = true

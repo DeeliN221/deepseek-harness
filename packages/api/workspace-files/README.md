@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Use this package to preview files readable through a Session's filesystem from the web client. It reads UTF-8 text by page, reads bounded byte windows or complete files, resolves related files from a base file's directory, and reports file metadata. Follow changes to a file or a directory's direct entries. Search the workspace for entries by name or relative path. File reads and watches may target paths outside the workspace; directory listing, search, and directory watches remain workspace-scoped. The service exposes no mutation operation.
+Use this package to preview files readable through a Session's filesystem from the web client. It reads UTF-8 text by page, reads bounded byte windows or complete files, resolves related files from a base file's directory, and reports file metadata. Follow changes to a file or a directory's direct entries. Search the workspace for entries by name or relative path. File reads and watches may target paths outside the workspace; directory listing, search, and directory watches remain workspace-scoped. Authenticated owners additionally browse arbitrary absolute directories and explicitly save existing UTF-8 text files with version-conflict protection; agent filesystem policy is unchanged.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ Use this package to preview files readable through a Session's filesystem from t
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the package beside `dsh-fs`, `dsh-sandbox-policy`, the Session store, and the Typert Gateway; the bundle does so right after the Session Controller. Every method takes the Session identity on the wire, so a Client calls `remote.workspaceFiles.read(sessionId, path, range, signal)`, `stat(sessionId, path, signal)`, `readBytes(sessionId, path, options, signal)`, `list(sessionId, path, signal)`, `search(sessionId, request, signal)`, or `changes(sessionId, path, signal)` and never names a root itself. The Host reads a live Session header or uses persistence `stat` for a cold Session; it does not activate an Agent, read the event body, or borrow a parent Session's root. Session persistence is optional for live reads, but without it a cold Session cannot resolve and the Gateway returns `gateway/lookup-not-found`.
+Mount the package beside `dsh-fs`, `dsh-sandbox-policy`, the Session store, and the Typert Gateway; the bundle does so right after the Session Controller. The Session-scoped methods take the Session identity on the wire, so a Client calls `remote.workspaceFiles.read(sessionId, path, range, signal)`, `stat(sessionId, path, signal)`, `readBytes(sessionId, path, options, signal)`, `list(sessionId, path, signal)`, `search(sessionId, request, signal)`, or `changes(sessionId, path, signal)` and never names a root itself. The Host reads a live Session header or uses persistence `stat` for a cold Session; it does not activate an Agent, read the event body, or borrow a parent Session's root. Session persistence is optional for live reads, but without it a cold Session cannot resolve and the Gateway returns `gateway/lookup-not-found`.
 
 | Method | Returns | Purpose |
 |---|---|---|
@@ -35,6 +35,14 @@ Mount the package beside `dsh-fs`, `dsh-sandbox-policy`, the Session store, and 
 | `list(path)` | `WorkspaceDirectoryListing { path, entries, truncated }` | Direct children of one directory |
 | `search({ query, excludedPaths, includeHidden, respectGitignore })` | `WorkspaceFileSearchResult { matches, truncated, incomplete }` | Entries anywhere in the workspace whose name or relative path contains the query |
 | `changes(path)` | stream of `WorkspaceFileWatchFrame` | Subscription readiness, then invalidations of one file or a directory's direct entries |
+
+### Authenticated owner browsing and editing
+
+The additional `ownerList(path, signal)`, `ownerStat(path, signal)`, `ownerRead(path, signal)`, `ownerChanges(path, signal)` and `saveText(path, { text, version }, signal)` methods require an absolute path and no Session identity. They check `invocation.peer.principal.kind === 'owner'` before filesystem access, including when called in-process; missing invocations and non-owner callers fail with `workspace-file/owner-required` even if a Remote access policy grants the action. The native Connection authentication admits the Peer and Gateway supplies the invocation; path arguments or a Session id never establish owner authority.
+
+`ownerList` returns `OwnerDirectoryListing { absolutePath, parentPath, entries, truncated }`; the parent equals the directory at a filesystem root. It follows directory symlinks, preserves backend name ordering, and applies `maxEntries`. `ownerChanges` observes the chosen absolute file or directory using the existing change feed. `ownerStat` returns `WorkspaceFileStat`. `ownerRead` returns that metadata plus complete `text`, preserving BOM, CRLF and final newline, with a post-read version check. Both editing and saving enforce `maxFileBytes` and reject NUL, invalid UTF-8, and final file symlinks. Replacement text also rejects unpaired surrogates.
+
+`saveText` requires the version loaded by the editor and only replaces an existing regular text file; it never creates a missing file or overwrites binary content. It delegates to the composed filesystem's `replaceIfVersion` write with a per-call owner policy, then returns the committed version and byte size. A stale or deleted file, or a file changed during `ownerRead`, fails with `workspace-file/conflict` and `{ path }`; the editor must reload before deciding to save again. There is no force-save option. The owner write does not modify sandbox defaults, Session permissions, tool registrations or agent observations. The local provider checks the expected version again after staging completes and before publishing the replacement, rejecting intervening changes and cleaning its temporary file. This narrows the external-write race; it is not a cross-process atomic compare-and-swap, because a small interval remains between the final version check and rename.
 
 ### Addressing and paths
 

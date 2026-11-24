@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-使用本包可从 Web Client 预览 Session 文件系统允许读取的文件。它按页读取 UTF-8 文本、按有界窗口或完整文件读取原始字节、从基文件目录解析关联文件，并报告文件元数据。可以跟随一个文件或一个目录直接子项的变化。可以按名称或相对路径搜索工作区条目。文件读取和监听可以指向工作区外路径；目录列举、搜索和目录监听仍限定于工作区。本服务不提供修改操作。
+使用本包可从 Web Client 预览 Session 文件系统允许读取的文件。它按页读取 UTF-8 文本、按有界窗口或完整文件读取原始字节、从基文件目录解析关联文件，并报告文件元数据。可以跟随一个文件或一个目录直接子项的变化。可以按名称或相对路径搜索工作区条目。文件读取和监听可以指向工作区外路径；目录列举、搜索和目录监听仍限定于工作区。已认证 owner 还可以浏览任意绝对目录，并显式保存已有 UTF-8 文本文件，保存受版本冲突保护；agent 文件系统策略保持不变。
 
 ## 目录
 
@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-把本包与 `dsh-fs`、`dsh-sandbox-policy`、Session store 和 Typert Gateway 一起挂载；bundle 把它紧随 Session Controller 之后挂载。每个方法都在线路上携带 Session 身份，Client 调用 `remote.workspaceFiles.read(sessionId, path, range, signal)`、`stat(sessionId, path, signal)`、`readBytes(sessionId, path, options, signal)`、`list(sessionId, path, signal)`、`search(sessionId, request, signal)` 或 `changes(sessionId, path, signal)`，从不自己指定根。Host 读取 live Session header，cold Session 则使用持久层 `stat`；它不会激活 Agent、读取事件正文或借用父 Session 的根。live 读取不要求挂载 Session persistence；未挂载时 cold Session 无法解析，Gateway 返回 `gateway/lookup-not-found`。
+把本包与 `dsh-fs`、`dsh-sandbox-policy`、Session store 和 Typert Gateway 一起挂载；bundle 把它紧随 Session Controller 之后挂载。Session 范围方法在线路上携带 Session 身份，Client 调用 `remote.workspaceFiles.read(sessionId, path, range, signal)`、`stat(sessionId, path, signal)`、`readBytes(sessionId, path, options, signal)`、`list(sessionId, path, signal)`、`search(sessionId, request, signal)` 或 `changes(sessionId, path, signal)`，从不自己指定根。Host 读取 live Session header，cold Session 则使用持久层 `stat`；它不会激活 Agent、读取事件正文或借用父 Session 的根。live 读取不要求挂载 Session persistence；未挂载时 cold Session 无法解析，Gateway 返回 `gateway/lookup-not-found`。
 
 | 方法 | 返回 | 用途 |
 |---|---|---|
@@ -35,6 +35,14 @@ kind: "package-reference"
 | `list(path)` | `WorkspaceDirectoryListing { path, entries, truncated }` | 一个目录的直接子项 |
 | `search({ query, excludedPaths, includeHidden, respectGitignore })` | `WorkspaceFileSearchResult { matches, truncated, incomplete }` | 工作区任意位置中名称或相对路径包含查询的条目 |
 | `changes(path)` | `WorkspaceFileWatchFrame` 流 | 订阅就绪确认，随后为单个文件或目录直接子项的失效通知 |
+
+### 已认证 owner 浏览与编辑
+
+新增 `ownerList(path, signal)`、`ownerStat(path, signal)`、`ownerRead(path, signal)`、`ownerChanges(path, signal)` 和 `saveText(path, { text, version }, signal)` 接受绝对路径，不需要 Session 身份。所有入口先检查 `invocation.peer.principal.kind === 'owner'`，包括进程内直接调用；缺失调用身份或非 owner 均返回 `workspace-file/owner-required`，即使 Remote 策略授予了该动作也不例外。原生 Connection 鉴权负责准入 Peer，Gateway 传入调用身份；路径参数或 Session id 不能建立 owner 权限。
+
+`ownerList` 返回 `OwnerDirectoryListing { absolutePath, parentPath, entries, truncated }`，文件系统根的父路径等于自身。它跟随目录符号链接，保留后端名称顺序并应用 `maxEntries`。`ownerChanges` 通过既有变更流监听选定的绝对文件或目录。`ownerStat` 返回 `WorkspaceFileStat`。`ownerRead` 在元数据之外返回完整 `text`，保留 BOM、CRLF 与末尾换行，并在读取之后复核版本。编辑读取及保存均应用 `maxFileBytes`，拒绝 NUL、无效 UTF-8 与末端文件符号链接。替换文本还拒绝未配对代理码元。
+
+`saveText` 必须携带编辑器加载的版本，仅替换已有普通文本文件；不创建缺失文件，不覆盖二进制内容。它通过组合文件系统的 `replaceIfVersion` 写入，传递仅对本次人工保存有效的 owner 策略，返回已提交版本与字节数。文件已变化、被删除或在 `ownerRead` 期间发生变化时，返回 `workspace-file/conflict` 与 `{ path }`；编辑器必须重新加载后再决定是否保存，不提供强制覆盖选项。该写入不修改沙箱默认值、Session 权限、工具注册或 agent 观察记录。本地提供方在暂存完成、发布替换之前再次核对预期版本，拒绝暂存期间的外部变化并清理本次临时文件。这缩小了外部写入竞态窗口，但不构成跨进程原子比较并交换；最后一次版本检查到 rename 之间仍有微小窗口。
 
 ### 寻址与路径
 

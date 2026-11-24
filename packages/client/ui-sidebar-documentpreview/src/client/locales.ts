@@ -1,3 +1,5 @@
+import { editZh, editEn, editJa, editEs, editFr, editDe, editRu, editPt } from './edit-locales.ts'
+
 /**
  * `sidebarDocumentPreview` namespace dictionaries.
  *
@@ -8,6 +10,7 @@
 
 /** Simplified Chinese dictionary and key-set source of truth. */
 export const zh = {
+  ...editZh,
   loading: '文档渲染中...',
   loadMore: '加载更多',
   changed: '文件已更新，当前显示为旧内容',
@@ -37,6 +40,7 @@ export type SidebarDocumentPreviewKey = keyof typeof zh
 
 /** English dictionary, checked against the Chinese key set. */
 export const en = {
+  ...editEn,
   loading: 'Rendering document...',
   loadMore: 'Load more',
   changed: 'The file has changed, showing the previous content.',
@@ -63,6 +67,7 @@ export const en = {
 
 /** Japanese copy, checked against the English keys. */
 export const ja = {
+  ...editJa,
   'loading': 'ドキュメントをレンダリング中…',
   'loadMore': 'さらに読み込む',
   'changed': 'ファイルが変更されました。以前の内容を表示しています。',
@@ -89,6 +94,7 @@ export const ja = {
 
 /** Spanish dictionary, checked against the English keys. */
 export const es = {
+  ...editEs,
   loading: 'Representando documento...',
   loadMore: 'Cargar más',
   changed: 'El archivo ha cambiado, mostrando el contenido anterior.',
@@ -115,6 +121,7 @@ export const es = {
 
 /** French dictionary, checked against the English keys. */
 export const fr = {
+  ...editFr,
   loading: 'Rendu du document...',
   loadMore: 'Charger plus',
   changed: 'Le fichier a changé, affichant le contenu précédent.',
@@ -141,6 +148,7 @@ export const fr = {
 
 /** German dictionary, checked against the English keys. */
 export const de = {
+  ...editDe,
   loading: 'Dokument wird gerendert...',
   loadMore: 'Mehr laden',
   changed: 'Die Datei wurde geändert und zeigt den vorherigen Inhalt an.',
@@ -167,6 +175,7 @@ export const de = {
 
 /** Russian dictionary, checked against the English keys. */
 export const ru = {
+  ...editRu,
   loading: 'Оформление документа...',
   loadMore: 'Загрузить больше',
   changed: 'Файл изменился, показывая предыдущее содержимое.',
@@ -193,6 +202,7 @@ export const ru = {
 
 /** Portuguese dictionary, checked against the English keys. */
 export const pt = {
+  ...editPt,
   loading: 'Renderizando documento...',
   loadMore: 'Carregar mais',
   changed: 'O arquivo foi alterado, mostrando o conteúdo anterior.',

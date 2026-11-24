@@ -20,6 +20,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Simplified Chinese dictionary and key-set source of truth. */
 export const zh = {
+  'path.label': '绝对目录路径',
+  'path.parent': '上级',
+  'path.go': '前往',
   'shortcut.noSession': '请先选择会话',
   'type.label': '文件',
   'guide.title': '工作区文件',
@@ -42,7 +45,7 @@ export const zh = {
   'error.outsideWorkspace': '这个目录在工作区之外，侧栏不会读取它。',
   'error.notDirectory': '这不是一个目录。',
   'error.unavailable': '读取失败：{message}',
-  'search.placeholder': '搜索文件',
+  'search.placeholder': '搜索工作区文件',
   'search.settings': '搜索设置',
   'search.clear': '清空搜索',
   'search.showHidden': '显示隐藏项',
@@ -80,6 +83,9 @@ export type SidebarFilesKey = keyof typeof zh
 
 /** English dictionary, checked against the Chinese key set. */
 export const en = {
+  'path.label': 'Absolute directory path',
+  'path.parent': 'Up',
+  'path.go': 'Go',
   'shortcut.noSession': 'Select a session first',
   'type.label': 'Files',
   'guide.title': 'Workspace files',
@@ -102,7 +108,7 @@ export const en = {
   'error.outsideWorkspace': 'That directory is outside the workspace, so the sidebar will not read it.',
   'error.notDirectory': 'That is not a directory.',
   'error.unavailable': 'Read failed: {message}',
-  'search.placeholder': 'Search files',
+  'search.placeholder': 'Search workspace files',
   'search.settings': 'Search settings',
   'search.clear': 'Clear search',
   'search.showHidden': 'Show hidden entries',
@@ -137,6 +143,9 @@ export const en = {
 
 /** Japanese copy, checked against the English keys. */
 export const ja = {
+  'path.label': '絶対ディレクトリパス',
+  'path.parent': '親へ',
+  'path.go': '移動',
   'shortcut.noSession': '先にセッションを選択してください',
   'type.label': 'ファイル',
   'guide.title': 'ワークスペースのファイル',
@@ -194,6 +203,9 @@ export const ja = {
 
 /** Spanish dictionary, checked against the English keys. */
 export const es = {
+  'path.label': 'Ruta absoluta del directorio',
+  'path.parent': 'Subir',
+  'path.go': 'Ir',
   'shortcut.noSession': 'Seleccione una sesión primero',
   'type.label': 'Archivos',
   'guide.title': 'Archivos de espacio de trabajo',
@@ -251,6 +263,9 @@ export const es = {
 
 /** French dictionary, checked against the English keys. */
 export const fr = {
+  'path.label': 'Chemin absolu du dossier',
+  'path.parent': 'Parent',
+  'path.go': 'Ouvrir',
   'shortcut.noSession': "Sélectionnez d'abord une session",
   'type.label': 'Fichiers',
   'guide.title': "Fichiers de l'espace de travail",
@@ -308,6 +323,9 @@ export const fr = {
 
 /** German dictionary, checked against the English keys. */
 export const de = {
+  'path.label': 'Absoluter Verzeichnispfad',
+  'path.parent': 'Nach oben',
+  'path.go': 'Öffnen',
   'shortcut.noSession': 'Wählen Sie zunächst eine Sitzung aus',
   'type.label': 'Dateien',
   'guide.title': 'Arbeitsbereichsdateien',
@@ -365,6 +383,9 @@ export const de = {
 
 /** Russian dictionary, checked against the English keys. */
 export const ru = {
+  'path.label': 'Абсолютный путь каталога',
+  'path.parent': 'Вверх',
+  'path.go': 'Перейти',
   'shortcut.noSession': 'Сначала выберите сеанс',
   'type.label': 'Файлы',
   'guide.title': 'Файлы рабочей области',
@@ -422,6 +443,9 @@ export const ru = {
 
 /** Portuguese dictionary, checked against the English keys. */
 export const pt = {
+  'path.label': 'Caminho absoluto do diretório',
+  'path.parent': 'Acima',
+  'path.go': 'Ir',
   'shortcut.noSession': 'Selecione uma sessão primeiro',
   'type.label': 'Arquivos',
   'guide.title': 'Arquivos do espaço de trabalho',

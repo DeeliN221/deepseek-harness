@@ -25,7 +25,7 @@ import type {} from 'mdast-util-math'
 import { normalizeUri } from 'micromark-util-sanitize-uri'
 import type { CodeToolbarLabels } from '../CodeToolbar.tsx'
 import { FenceCodeBlock, FenceMathBlock } from './FenceBlocks.tsx'
-import { isExplicitFilePath, parseFileLink } from './file-link.ts'
+import { isExplicitFilePath, isFilePathCandidate, parseFileLink } from './file-link.ts'
 import { renderTexToReact } from './katex.tsx'
 import { LinkIconMedium, classifyLinkPath } from '../LinkIcon.tsx'
 import { useMarkdownDelegate } from './MarkdownDelegate.tsx'
@@ -60,6 +60,7 @@ function sanitizeUrl(url: string): string {
       case 'vbscript:':
       case 'data:':
       case 'blob:':
+      case 'file:':
         return ''
       default:
         return url
@@ -315,7 +316,8 @@ function renderChildren(
 function renderNode(node: Md.RootContent, key: Key, context: MarkdownRenderContext): ReactNode {
   switch (node.type) {
     case 'text':
-      return node.value
+      return context.streaming || context.inLink === true ? node.value
+        : <MarkdownPathText key={key} value={node.value} />
     case 'paragraph':
       return <p key={key}>{renderChildren(node.children, context)}</p>
     case 'heading':
@@ -350,28 +352,19 @@ function renderNode(node: Md.RootContent, key: Key, context: MarkdownRenderConte
       // path, and query render unchanged.
       const href = inlineCodeHttpUrl(value)
       if (href !== undefined) return <code key={key}>{renderSafeLink(href, [value], 'link')}</code>
-      // A token the owner's file-mention vocabulary recognizes opens that
-      // file; the resolver, not this renderer, decides what names a file.
+      // Keep vocabulary aliases outside a resource scope. With live metadata,
+      // their canonical path is checked before using the scoped file opener.
       // Inside an anchor the token stays inert — a button cannot nest there.
-      const mention = context.inLink === true ? undefined : context.fileMentions?.resolve(value)
-      if (mention !== undefined) {
-        return (
-          <code key={key}>
-            <button
-              type="button"
-              className={css.fileMention}
-              title={mention.title}
-              aria-label={mention.label}
-              onClick={mention.open}
-              {...mention.contextMenuProps}
-            >
-              <LinkIconMedium kind={classifyLinkPath(value)} className={css.linkIcon} />
-              {value}
-            </button>
-          </code>
-        )
-      }
-      return <code key={key}>{value}</code>
+      if (context.inLink === true || context.streaming) return <code key={key}>{value}</code>
+      const mention = context.fileMentions?.resolve(value)
+      const fallback = mention === undefined ? value : (
+        <button type="button" className={css.fileMention} title={mention.title}
+          aria-label={mention.label} onClick={mention.open} {...mention.contextMenuProps}>
+          <LinkIconMedium kind={classifyLinkPath(value)} className={css.linkIcon} />
+          {value}
+        </button>
+      )
+      return <code key={key}><MarkdownInlinePath value={value} path={mention?.title}>{fallback}</MarkdownInlinePath></code>
     }
     case 'html':
       // No HTML parser enters the pipeline: raw HTML is literal text, or nothing where the owner omits it.
@@ -634,11 +627,55 @@ function renderAnchor(url: string, children: ReactNode[], key: Key, glyph = true
   return renderSafeLink(normalizeUri(url), children, key, glyph)
 }
 
-function MarkdownFileLink({ file, glyph, children }: {
+/** Candidate recognition does not grant navigation; the live resource below does. */
+function MarkdownInlinePath({ value, path, children }: { value: string; path?: string | undefined; children: ReactNode }): ReactNode {
+  const { fileResources } = useMarkdownDelegate()
+  if (fileResources === undefined) return children
+  const parsed = isFilePathCandidate(value) ? parseFileLink(value) : undefined
+  // Vocabulary titles are already decoded canonical paths, not Markdown URLs.
+  const file = path === undefined ? parsed : { ...parsed, path }
+  return file === undefined ? value : <MarkdownFileLink file={file} glyph>{value}</MarkdownFileLink>
+}
+
+function MarkdownPathText({ value }: { value: string }): ReactNode {
+  const { fileResources } = useMarkdownDelegate()
+  if (fileResources === undefined) return value
+  const parts: ReactNode[] = []
+  let end = 0
+  // Whitespace and prose delimiters are not part of unquoted paths. Paths with
+  // spaces or punctuation remain unambiguous in inline code or explicit links.
+  for (const match of value.matchAll(/[^\s<>"'`()\[\]{},;，。；：！？（）【】「」『』“”‘’]+/gu)) {
+    const token = match[0].replace(/[.!?:]+$/u, '')
+    if (!isFilePathCandidate(token)) continue
+    parts.push(value.slice(end, match.index))
+    parts.push(<MarkdownInlinePath key={match.index} value={token}>{token}</MarkdownInlinePath>)
+    end = match.index + token.length
+  }
+  parts.push(value.slice(end))
+  return <>{parts}</>
+}
+
+type MarkdownFileLinkProps = {
   readonly file: { path: string; line?: number }
   readonly glyph: boolean
-  readonly children: ReactNode[]
+  readonly children: ReactNode
+}
+
+function MarkdownFileLink(props: MarkdownFileLinkProps): ReactNode {
+  const { fileResources, openFile } = useMarkdownDelegate()
+  if (openFile === undefined) return props.children
+  return fileResources === undefined ? <AvailableMarkdownFileLink {...props} />
+    : <CheckedMarkdownFileLink {...props} resources={fileResources} />
+}
+
+function CheckedMarkdownFileLink({ resources, ...props }: MarkdownFileLinkProps & {
+  resources: NonNullable<ReturnType<typeof useMarkdownDelegate>['fileResources']>
 }): ReactNode {
+  const metadata = resources.useResource(resources.address(props.file.path))
+  return metadata.status === 'live' ? <AvailableMarkdownFileLink {...props} /> : props.children
+}
+
+function AvailableMarkdownFileLink({ file, glyph, children }: MarkdownFileLinkProps): ReactNode {
   const { openFile, fileImages, getTriggerProps } = useMarkdownDelegate()
   const [load] = useState(nextImageLoad)
   if (openFile === undefined) return <>{children}</>

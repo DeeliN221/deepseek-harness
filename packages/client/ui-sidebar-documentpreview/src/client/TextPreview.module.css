@@ -1,6 +1,49 @@
 /* The preview takes the pane's definite height outright, so the header stays
    put while the body below owns the remaining height. A renderer may replace
    the body's scrolling role with an inner scrollport. */
+.editor {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.sourceEditor {
+  flex: 1 1 auto;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 0;
+  padding: 12px 16px;
+  resize: none;
+  color: var(--dsw-alias-label-primary);
+  caret-color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-1);
+  border: 0;
+  font-family: var(--dsw-font-mono, ui-monospace, monospace);
+  font-size: 16px;
+  line-height: 1.6;
+  tab-size: 2;
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+.sourceEditor:focus-visible {
+  outline: 2px solid var(--dsw-alias-label-primary);
+  outline-offset: -2px;
+}
+
+.editor .changed {
+  flex-wrap: wrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.action:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 .preview {
   display: flex;
   flex: 1 1 auto;

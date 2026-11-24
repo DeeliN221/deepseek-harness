@@ -64,6 +64,9 @@ export function navigatorGeometry(available: number | undefined, width: number):
  * the tree keys every level by absolute path instead, so the adapter drops it.
  */
 export interface DirLevel {
+  /** Host-normalized directory and parent, when returned by the owner navigator. */
+  readonly absolutePath?: string
+  readonly parentPath?: string
   /** The directory's entries, in the endpoint's order. */
   readonly entries: readonly WorkspaceDirectoryEntry[]
   /** The listing hit the endpoint's entry cap, so entries are missing. */
@@ -144,6 +147,11 @@ export interface FilesSearchState {
 
 /** One pane's navigator: whether and how wide it is shown, its tree once started, and its search. */
 export interface FilesPaneState {
+  /** Owner-selected host directory; absent until the first explicit navigation. */
+  directory?: string
+  /** A pending navigation keeps the current tree until the Host accepts the path. */
+  navigating?: boolean
+  navigationFailure?: RemoteFailure | undefined
   /**
    * Whether a preview's navigator is shown; `undefined`, hidden, until the
    * pane's first choice. The `files` page shows its tree regardless.
@@ -235,13 +243,14 @@ export function locateFile(tree: FilesTreeState, relativePath: string): TreeFile
  * @param address - the tab's content address.
  * @param sessionId - the Session the tree lists.
  * @param root - the tree's root.
+ * @param workspaceRoot - the Session root that relative resource addresses resolve against.
  * @returns the `/`-separated relative path, or `undefined` for anything else.
  */
-export function relativeFileOf(address: string, sessionId: SessionId, root: string): string | undefined {
+export function relativeFileOf(address: string, sessionId: SessionId, root: string, workspaceRoot = root): string | undefined {
   const file = parseFileAddress(address)
   if (file?.scope !== 'session' || file.sessionId !== sessionId) return undefined
   const path = file.path.replace(/\\/g, '/')
-  const normalized = isAbsoluteWorkspacePath(path) ? underRoot(path, root) : path
+  const normalized = isAbsoluteWorkspacePath(path) ? underRoot(path, root) : underRoot(childPath(workspaceRoot, path).replace(/\\/g, '/'), root)
   if (normalized === undefined || normalized === '' || isAbsoluteWorkspacePath(normalized)) return undefined
   return normalized.split('/').some(part => part === '' || part === '.' || part === '..') ? undefined : normalized
 }
@@ -285,6 +294,9 @@ function tree(state: FilesState, paneId: PaneId): FilesTreeState {
 
 /** The tree store's write set; every action names the pane it writes. */
 type FilesActions = {
+  navigating: (draft: FilesState, paneId: PaneId) => void
+  navigated: (draft: FilesState, paneId: PaneId, directory: string) => void
+  navigationFailed: (draft: FilesState, paneId: PaneId, failure: RemoteFailure) => void
   autoRefresh: (draft: FilesState, paneId: PaneId, enabled: boolean) => void
   start: (draft: FilesState, paneId: PaneId, root: string) => void
   loading: (draft: FilesState, paneId: PaneId, path: string) => void
@@ -312,6 +324,24 @@ export function createFilesStore(): EngineStoreHandle<FilesState, FilesActions> 
   return defineStore({
     init: (): FilesState => ({ byPane: {} }),
     actions: {
+      navigating: (d, paneId: PaneId) => {
+        const state = pane(d, paneId)
+        state.navigating = true
+        state.navigationFailure = undefined
+      },
+      navigated: (d, paneId: PaneId, directory: string) => {
+        const state = pane(d, paneId)
+        state.directory = directory
+        state.navigating = false
+        state.navigationFailure = undefined
+        state.query = ''
+        state.search = undefined
+      },
+      navigationFailed: (d, paneId: PaneId, failure: RemoteFailure) => {
+        const state = pane(d, paneId)
+        state.navigating = false
+        state.navigationFailure = failure
+      },
       autoRefresh: (d, paneId: PaneId, enabled: boolean) => { tree(d, paneId).autoRefresh = enabled },
       /**
        * Seed one pane's tree at its workspace root, with the root expanded.

@@ -175,6 +175,50 @@
   margin-right: 12px;
 }
 
+.pathBar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  min-width: 0;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l3);
+}
+
+.pathInput {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 6px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-base);
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-sm);
+  font: inherit;
+}
+
+.pathButton {
+  flex: none;
+  padding: 5px 6px;
+  color: var(--dsw-alias-label-primary);
+  background: transparent;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-sm);
+  font: inherit;
+  cursor: pointer;
+}
+
+.pathButton:hover:not(:disabled) {
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.pathButton:disabled { opacity: 0.5; cursor: default; }
+.pathInput:focus-visible,
+.pathButton:focus-visible { outline: 2px solid var(--dsw-alias-label-primary); outline-offset: 2px; }
+
+@media (width < 768px) {
+  .pathInput { font-size: 16px; }
+}
+
 .body {
   flex: 1 1 auto;
   min-height: 0;

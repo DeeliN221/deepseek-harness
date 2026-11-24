@@ -38,6 +38,7 @@ import { EMPTY_CONVERSATION_SNAPSHOT } from '@deepseek-ai/dsh-client-ui-conversa
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { PartialArguments } from '@deepseek-ai/dsh-util-values'
+import { sessionFileAddress } from '@deepseek-ai/dsh-util-workspace-path'
 import { createChatStore } from '../src/client/stores.ts'
 import { derivePresentationPolicy, type CollapseTiming, type FoldedReplies } from '../src/client/presentation-policy.ts'
 import { CHAT_FLOW_INJECT, CHAT_NODE_INJECT } from '../src/client/apply.ts'
@@ -554,7 +555,7 @@ function makeHarness(
     ...allowAllAccess,
     useProjection: (key: string) => {
       const inbox = useTestSession(snapshot => snapshot.testInbox)
-      return key === 'inbox' ? inbox : outlineValue
+      return key === 'inbox' ? inbox : key === 'turnOutline' ? outlineValue : undefined
     },
     useInput: (() => { throw new Error('unused') }),
     inputActions: {
@@ -570,6 +571,7 @@ function makeHarness(
     },
     useStore: bindSnapshotSelector(chat),
     actions: chat.actions,
+    useFilePathBase: bindSnapshotSelector(createSnapshotStore<unknown>(undefined)),
     useInteractionIds: bindSnapshotSelector(createSnapshotStore<readonly string[]>([])),
     dispatchInteraction: () => null,
     usePresentation: bindSnapshotSelector(derivePresentationPolicy(transcriptView, collapseTiming, foldedReplies)),
@@ -834,12 +836,49 @@ describe('Chat node rendering', () => {
       nodes: [user(1, 'explain'), assistant(2, '[source](src/index.ts#L24-L30)', 1)],
       turnEnds: new Map([[1, 2]]),
     })
+    const resource = vi.fn(() => ({ status: 'live' as const, value: undefined, failure: undefined }))
+    h.props.useResource = resource
     const view = render(<h.ChatView {...h.props} />)
+    expect(resource).toHaveBeenCalledWith(sessionFileAddress(SID, 'src/index.ts'))
     fireEvent.click(view.getByRole('button', { name: 'source' }))
     expect(h.openFile).toHaveBeenCalledWith('src/index.ts', { line: 24 })
   })
 
-  it('threads the injected file-mention vocabulary into the closing prose only', () => {
+  it('rechecks cached Markdown addresses when the injected path base changes', () => {
+    const h = makeHarness({
+      nodes: [user(1, 'explain'), assistant(2, '[source](src/index.ts#L24)', 1)],
+      turnEnds: new Map([[1, 2]]),
+    })
+    const base = createSnapshotStore<unknown>('/workspace/one')
+    h.props.useFilePathBase = bindSnapshotSelector(base)
+    h.props.resolveFilePath = path => `${String(base.getSnapshot())}/${path}`
+    const resource = vi.fn(() => ({ status: 'none' as const, value: undefined, failure: undefined }))
+    h.props.useResource = resource
+    render(<h.ChatView {...h.props} />)
+    expect(resource).toHaveBeenCalledWith(sessionFileAddress(SID, '/workspace/one/src/index.ts'))
+    resource.mockClear()
+    act(() => { base.set('/workspace/two') })
+    expect(resource).toHaveBeenCalledWith(sessionFileAddress(SID, '/workspace/two/src/index.ts'))
+    expect(h.openFile).not.toHaveBeenCalled()
+  })
+
+  it.each(['none', 'loading', 'failed'] as const)('keeps unavailable Markdown files as text while resources are %s', (status) => {
+    const h = makeHarness({
+      nodes: [user(1, 'explain'), assistant(2, '[source](src/index.ts#L24) `src/index.ts` src/index.ts', 1)],
+      turnEnds: new Map([[1, 2]]),
+    })
+    const resource = vi.fn(() => ({ status, value: undefined, failure: undefined }))
+    h.props.useResource = resource
+    const view = render(<h.ChatView {...h.props} />)
+    expect(resource).toHaveBeenCalledWith(sessionFileAddress(SID, 'src/index.ts'))
+    expect(view.container.textContent).toContain('source src/index.ts src/index.ts')
+    expect(view.queryByRole('button', { name: 'source' })).toBeNull()
+    expect(view.queryByRole('button', { name: 'src/index.ts' })).toBeNull()
+    expect(view.queryByRole('link', { name: 'source' })).toBeNull()
+    expect(h.openFile).not.toHaveBeenCalled()
+  })
+
+  it('checks the closing prose vocabulary path and uses the scoped opener', () => {
     const wrote = (seq: number, callId: string): ToolResultNode => ({
       ...toolResult(seq, callId, 'write'),
     })
@@ -856,11 +895,17 @@ describe('Chat node rendering', () => {
     let directory = '/workspace'
     h.props.useContextMenu = contextMenuHook(opened)
     h.props.resolveFilePath = path => `${directory}/${path}`
+    const vocabularyOpen = vi.fn()
+    const resource = vi.fn((address: string) => ({
+      status: address === sessionFileAddress(SID, '/workspace/site/report.html') ? 'live' as const : 'none' as const,
+      value: undefined, failure: undefined,
+    }))
+    h.props.useResource = resource
     h.props.fileMentions = (owner, getFileTriggerProps) => ({
       resolve: (value) => {
         if (value !== 'report.html') return undefined
         return {
-          open: () => { void h.openFile(`for-seq-${String(owner.seq)}/site/report.html`) },
+          open: () => { vocabularyOpen(owner.seq) },
           label: '打开 site/report.html',
           title: 'site/report.html',
           contextMenuProps: getFileTriggerProps('site/report.html'),
@@ -868,11 +913,12 @@ describe('Chat node rendering', () => {
       },
     })
     const view = render(<h.ChatView {...h.props} />)
-    // Exactly one live mention: the closing message links, the mid-turn
-    // narration stays inert code, and the unknown file resolves to nothing.
+    // Only the closing vocabulary's canonical path has live metadata; the
+    // mid-turn basename and the unknown file stay inert code.
     const mentions = view.container.querySelectorAll('code button')
     expect(mentions).toHaveLength(1)
-    const mention = view.getByRole('button', { name: '打开 site/report.html' })
+    expect(resource).toHaveBeenCalledWith(sessionFileAddress(SID, '/workspace/site/report.html'))
+    const mention = view.getByRole('button', { name: 'report.html' })
     expect(mention.getAttribute('title')).toBe('site/report.html')
     fireEvent.contextMenu(mention, { clientX: 12, clientY: 34 })
     expect(opened).toHaveBeenLastCalledWith({
@@ -886,8 +932,10 @@ describe('Chat node rendering', () => {
     expect(opened).toHaveBeenCalledTimes(2)
     expect(h.openFile).not.toHaveBeenCalled()
     fireEvent.click(mention)
-    // The vocabulary was built from the closing message's own owner currency.
-    expect(h.openFile).toHaveBeenCalledWith('for-seq-4/site/report.html')
+    // Metadata gates the canonical path; activation uses the Sidebar delegate,
+    // not a historical vocabulary callback.
+    expect(h.openFile).toHaveBeenCalledWith('site/report.html')
+    expect(vocabularyOpen).not.toHaveBeenCalled()
   })
 
   it('formatRunDuration localizes units and floors partial seconds', () => {

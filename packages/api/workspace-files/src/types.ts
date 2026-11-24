@@ -93,6 +93,32 @@ export interface WorkspaceFileBytes<Data extends Uint8Array = Uint8Array> extend
   readonly eof: boolean
 }
 
+/** Complete, lossless UTF-8 text for an authenticated owner's explicit edit. */
+export interface OwnerFileText extends WorkspaceFileStat {
+  /** Complete content, including BOM, original line endings and final newline. */
+  readonly text: string
+}
+
+/** Replace an existing text file only at the version the editor loaded. */
+export interface WorkspaceFileSaveRequest {
+  /** Complete replacement UTF-8 text; NUL and unpaired surrogates are refused. */
+  readonly text: string
+  /** Required opaque version from ownerRead or the preceding successful save. */
+  readonly version: string
+}
+
+/** An authenticated owner's directory listing in the filesystem execution world. */
+export interface OwnerDirectoryListing {
+  /** Canonical absolute directory path. */
+  readonly absolutePath: string
+  /** Absolute parent directory, equal to absolutePath at a filesystem root. */
+  readonly parentPath: string
+  /** Direct children in the backend's stable name order. */
+  readonly entries: readonly WorkspaceDirectoryEntry[]
+  /** Whether the configured entry cap omitted children. */
+  readonly truncated: boolean
+}
+
 /** One direct child of a listed workspace directory. */
 export interface WorkspaceDirectoryEntry {
   /** Basename inside the listed directory. */
@@ -205,6 +231,10 @@ export type WorkspaceFileWatchFrame =
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
+    /** The operation requires the authenticated owner Peer, including for in-process calls. */
+    'workspace-file/owner-required': Record<string, never>
+    /** The file changed or disappeared since the editor loaded it; reload before retrying. */
+    'workspace-file/conflict': { readonly path: string }
     /** Search cannot run: missing subprocess, launch/execution failure, or configured timeout. */
     'workspace-file/search-failed': Record<string, never>
     /** The filesystem provider cannot initialize a watch for this target. */

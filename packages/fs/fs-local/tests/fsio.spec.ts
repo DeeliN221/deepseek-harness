@@ -796,6 +796,46 @@ describe('writeFileAtomic — temp-file safety', () => {
     expect(await readFile(file, 'utf8')).toBe('new')
   })
 
+  it.each(['linux', 'win32'] as const)('rejects a staged replacement conflict before %s publication', async (platform) => {
+    const file = join(dir, 'a.txt')
+    await writeFile(file, 'old')
+    const before = (await probe(file))!
+    const replaceFile = vi.fn(async (target: string, temp: string) => { await rename(temp, target) })
+    let staging: string | undefined
+    await expect(writeFileAtomic(file, 'ours', before.mode, undefined, {
+      platform,
+      copyFileDacl: () => Promise.resolve(),
+      replaceFile,
+      inspectTemp: async ({ stagingDir }) => {
+        staging = stagingDir
+        await writeFile(file, 'external update')
+      },
+    }, { expectedVersion: before.version })).rejects.toMatchObject({ code: 'FS_STALE_VERSION' })
+    expect(replaceFile).not.toHaveBeenCalled()
+    expect(await readFile(file, 'utf8')).toBe('external update')
+    expect(staging).toBeDefined()
+    await expect(stat(staging!)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('does not recreate a versioned Windows target that vanishes at native replacement', async () => {
+    const file = join(dir, 'a.txt')
+    await writeFile(file, 'old')
+    const before = (await probe(file))!
+    const missing = Object.assign(new Error('target vanished'), { code: 'ENOENT' })
+    const replaceFile = vi.fn(async () => {
+      await unlink(file)
+      throw missing
+    })
+    await expect(writeFileAtomic(file, 'ours', before.mode, undefined, {
+      platform: 'win32',
+      copyFileDacl: () => Promise.resolve(),
+      replaceFile,
+    }, { expectedVersion: before.version })).rejects.toMatchObject({ code: 'FS_STALE_VERSION', cause: missing })
+    expect(replaceFile).toHaveBeenCalledOnce()
+    await expect(stat(file)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect((await readdir(dir)).filter(name => name.includes('.tmp'))).toEqual([])
+  })
+
   it('recreates a vanished Windows target with the already-protected temp', async () => {
     const file = join(dir, 'a.txt')
     await writeFile(file, 'old')

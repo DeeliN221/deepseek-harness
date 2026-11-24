@@ -29,8 +29,20 @@ export interface TextPage {
   readonly lines: number
 }
 
+/** Complete source draft; never reconstructed from preview pages. */
+export interface TextEditState {
+  readonly path: string
+  readonly original: string
+  readonly text: string
+  readonly version: string
+  readonly busy: 'reading' | 'saving' | undefined
+  readonly failure: RemoteFailure | undefined
+}
+
 /** One tab's pages and view. */
 export interface TextTabState {
+  /** Unsaved source survives tab switches; cleared only explicitly or at tab disposal. */
+  edit?: TextEditState
   autoRefresh: boolean
   resourcesDirty: boolean
   /** Explicit viewer choice for this tab; absence follows automatic matching. */
@@ -96,6 +108,7 @@ function bucket(state: TextState, tabId: TabId): TextTabState {
 
 /** The preview store's write set; every action names the tab it writes. */
 type TextActions = {
+  edited: (draft: TextState, tabId: TabId, edit: TextEditState | undefined) => void
   toggledAutoRefresh: (draft: TextState, tabId: TabId) => void
   resourceChanged: (draft: TextState, tabId: TabId) => void
   selected: (draft: TextState, tabId: TabId, rendererId: string | undefined) => void
@@ -123,6 +136,10 @@ export function createTextStore(): EngineStoreHandle<TextState, TextActions> {
   return defineStore({
     init: (): TextState => ({ byTab: {} }),
     actions: {
+      edited: (d, tabId, edit) => {
+        if (edit === undefined) delete bucket(d, tabId).edit
+        else bucket(d, tabId).edit = edit
+      },
       toggledAutoRefresh: (d, tabId: TabId) => {
         const state = bucket(d, tabId)
         state.autoRefresh = !state.autoRefresh

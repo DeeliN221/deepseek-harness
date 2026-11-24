@@ -8,7 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { constants as bufferConstants } from 'node:buffer'
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, unlink, utimes, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, symlink, unlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, parse, relative } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -516,6 +516,49 @@ describe('writeText', () => {
     const outcome = await fs.writeText(target, 'new', { kind: 'replaceIfVersion', version: await versionOf(target) })
     expect(outcome.operation).toBe('update')
     expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('new')
+  })
+
+  it.each(['write', 'replace', 'delete', 'directory', 'symlink'] as const)(
+    'replaceIfVersion preserves an external %s during staging and removes its own temp', async (change) => {
+      const path = join(dir, 'a.txt')
+      const competitor = join(dir, 'competitor.txt')
+      await writeFile(path, 'old')
+      await writeFile(competitor, 'external replacement')
+      const target = await fs.resolve('a.txt')
+      const version = await versionOf(target)
+      let staging: string | undefined
+      fs.internals.inspectTemp = async ({ stagingDir, tempPath }) => {
+        staging = stagingDir
+        expect(await readFile(tempPath, 'utf8')).toBe('ours')
+        if (change === 'write') await writeFile(path, 'external in-place change')
+        else if (change === 'replace') await rename(competitor, path)
+        else {
+          await unlink(path)
+          if (change === 'directory') await mkdir(path)
+          if (change === 'symlink') await symlink(competitor, path)
+        }
+      }
+
+      await expect(fs.writeText(target, 'ours', { kind: 'replaceIfVersion', version }))
+        .rejects.toMatchObject({ code: 'FS_STALE_VERSION' })
+      expect(staging).toBeDefined()
+      await expect(stat(staging!)).rejects.toMatchObject({ code: 'ENOENT' })
+      if (change === 'delete') await expect(stat(path)).rejects.toMatchObject({ code: 'ENOENT' })
+      else if (change === 'directory') expect((await lstat(path)).isDirectory()).toBe(true)
+      else {
+        expect(await readFile(path, 'utf8')).toBe(change === 'write' ? 'external in-place change' : 'external replacement')
+        if (change === 'symlink') expect((await lstat(path)).isSymbolicLink()).toBe(true)
+      }
+    },
+  )
+
+  it('keeps unguarded writes unconditional when another writer changes the target during staging', async () => {
+    const path = join(dir, 'a.txt')
+    await writeFile(path, 'old')
+    const target = await fs.resolve('a.txt')
+    fs.internals.inspectTemp = async () => { await writeFile(path, 'external change') }
+    await fs.writeText(target, 'ours')
+    expect(await readFile(path, 'utf8')).toBe('ours')
   })
 
   it('replaceIfVersion rejects a stale version', async () => {

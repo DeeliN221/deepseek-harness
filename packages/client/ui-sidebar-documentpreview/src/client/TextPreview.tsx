@@ -15,7 +15,7 @@
  * loading states. A document layer handling Escape calls `preventDefault()` to
  * keep the navigator from also closing.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import clsx from 'clsx'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
@@ -26,6 +26,8 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { pathPartsOf } from '@deepseek-ai/dsh-util-workspace-path'
 import type { TextInjected } from './face.ts'
+import { useTextEdit } from './edit.ts'
+import type { TextEditInjected } from './edit.ts'
 import { emptyFailureRecourse, failureLine } from './failure-line.ts'
 import { LoadingIndicator } from './LoadingIndicator.tsx'
 import { PreviewFrame } from './PreviewFrame.tsx'
@@ -43,7 +45,7 @@ export { linesOf, loadedPages, lastLineLoaded, scrollToLine } from './text/lines
 export type { LoadedPage } from './text/lines.ts'
 
 /** Private registration inputs; the framework binds the registry source to useDocumentPreviews. */
-export interface TextPreviewInjected extends TextInjected {
+export interface TextPreviewInjected extends TextInjected, TextEditInjected {
   readonly hooks: { readonly documentPreviews: ObservableSnapshot<readonly DocumentPreviewDefinition[]> }
 }
 
@@ -67,7 +69,7 @@ export type TextPreviewProps =
 export function TextPreview({
   useTabInfo, useResource, useStore, actions, loadPage, reloadPages,
   loadAll, reloadAll, prepareRenderer, useDocumentPreviews, renderSlot, renderFactorySlot, t,
-  addResource, setResources, useContextMenu, sessionId,
+  addResource, setResources, useContextMenu, sessionId, readEdit, saveEdit,
 }: TextPreviewProps): ReactNode {
   const { tab, panel } = useTabInfo()
   const { getTriggerProps } = useContextMenu()
@@ -76,6 +78,19 @@ export function TextPreview({
   const canRead = meta.status !== 'none'
   const file = useMemo(() => hostFileOf(tab.contentId), [tab.contentId])
   const state = useStore(s => s.byTab[tab.id])
+  const editor = useTextEdit({ edit: state?.edit, tab, actions, readEdit, saveEdit, t })
+  const editorId = useId()
+  const sourceRef = useRef<HTMLTextAreaElement | null>(null)
+  const editButtonRef = useRef<HTMLButtonElement | null>(null)
+  const wasEditing = useRef(false)
+  const editing = state?.edit !== undefined
+  const editVersion = state?.edit?.version
+  const editBusy = state?.edit?.busy
+  useEffect(() => {
+    if (editVersion && editBusy === undefined) sourceRef.current?.focus()
+    if (!editing && wasEditing.current) editButtonRef.current?.focus()
+    wasEditing.current = editing
+  }, [editing, editVersion, editBusy])
   const definitions = useDocumentPreviews(value => value)
   const unviewable = useMemo(() => unviewableBinaryPath(file.path), [file.path])
   const candidates = useMemo(() => {
@@ -190,14 +205,15 @@ export function TextPreview({
     && observedVersion !== current.version && observedVersion !== current.observedVersion)
     || state?.resourcesDirty === true
   const reload = useCallback((): void => {
+    if (state?.edit !== undefined && !editor.discard()) return
     if (!canRead) return
     if (mode === 'text-pages') reloadPages(tab.id, file, signal, observedVersion)
     else if (mode === 'bytes-complete') reloadAll(tab.id, file, signal, observedVersion)
     else rendererReload()
-  }, [canRead, mode, reloadPages, reloadAll, rendererReload, tab.id, file, signal, observedVersion])
+  }, [canRead, mode, reloadPages, reloadAll, rendererReload, tab.id, file, signal, observedVersion, state?.edit, editor.discard])
   useEffect(() => tab.actions.bindCommands({ refresh: reload }), [tab.actions, reload])
   useEffect(() => {
-    if (state?.autoRefresh && changed && current !== undefined && !current.loading && meta.status === 'live') reload()
+    if (state?.edit === undefined && state?.autoRefresh && changed && current !== undefined && !current.loading && meta.status === 'live') reload()
   }, [state?.autoRefresh, changed, current?.loading, meta.status, reload])
   const content = useMemo((): DocumentContent | undefined => {
     if (mode === 'renderer') {
@@ -223,6 +239,43 @@ export function TextPreview({
     renderFactorySlot,
   }
   const handoff = fileOwner !== undefined && renderSlot('sidebar.right.tab.document.actions', fileOwner)
+  const edit = state?.edit
+  if (edit !== undefined) {
+    const busy = edit.busy !== undefined
+    const failure = edit.failure
+    const failureKey = failure?.code === 'workspace-file/conflict' ? 'edit.conflict'
+      : failure?.code === 'workspace-file/not-text' ? 'edit.notText'
+        : failure?.code === 'workspace-file/too-large' ? 'edit.tooLarge'
+          : failure?.code === 'workspace-file/owner-required' ? 'edit.ownerRequired' : 'edit.failed'
+    return (
+      <PreviewFrame {...frame} handoff={handoff} data-textpreview-state="editing" tools={(
+        <>
+          <button type="submit" form={editorId} className={css.action} disabled={busy || !editor.dirty || edit.version === ''}>
+            {t(edit.busy === 'saving' ? 'edit.saving' : 'edit.save')}</button>
+          <button type="button" className={css.action} disabled={busy} onClick={reload}>{t('edit.cancel')}</button>
+        </>
+      )}>
+        <form id={editorId} className={css.editor} aria-busy={busy} aria-label={t('edit.label')}
+          onSubmit={event => { event.preventDefault(); void editor.save() }}>
+          <div className={css.changed}>
+            <label htmlFor={`${editorId}-source`}>{t('edit.label')}</label>
+            <span role="status">{t(edit.busy === 'reading' ? 'edit.loading'
+              : edit.busy === 'saving' ? 'edit.saving' : editor.dirty ? 'edit.unsaved' : 'edit.saved')}</span>
+          </div>
+          {failure !== undefined && <p className={css.changed} role="alert" data-textpreview-edit-error={failure.code}>
+            <span id={`${editorId}-error`}>{t(failureKey, { message: failure.message })}</span>
+            <button type="button" className={css.action} disabled={busy} onClick={() => {
+              if (editor.discard()) void editor.start(edit.path)
+            }}>{t('reloadNow')}</button>
+          </p>}
+          <textarea id={`${editorId}-source`} name="source" ref={sourceRef} className={css.sourceEditor} value={edit.text}
+            aria-describedby={failure === undefined ? undefined : `${editorId}-error`}
+            readOnly={busy || edit.version === ''} spellCheck={false} autoCapitalize="off" autoComplete="off" autoCorrect="off"
+            onChange={event => { editor.change(event.currentTarget.value) }} />
+        </form>
+      </PreviewFrame>
+    )
+  }
 
   // A known binary suffix with no matching renderer never reads: no plain-text
   // fallback, no viewer control, only the path, the unsupported line, and the
@@ -297,6 +350,10 @@ export function TextPreview({
         )}
       tools={(
         <>
+          {absolutePath !== undefined && !unviewable && !binaryDocumentPath(definitions, file.path)
+            && current?.failure?.code !== 'workspace-file/not-text' && (
+            <button type="button" ref={editButtonRef} className={css.action} onClick={() => { void editor.start(absolutePath) }}>{t('edit.start')}</button>
+          )}
           {candidates.length > 1
             && (
               <Menu

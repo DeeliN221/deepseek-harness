@@ -11,6 +11,8 @@ English | [中文](README.zh.md)
 
 Preview files in the right Sidebar and choose among registered renderers. Markdown and code support paged text; PDF, HTML, common images, and spreadsheets receive complete bytes; unknown extensions use plain text. Word and PowerPoint documents convert locally to PDF; spreadsheets open in the browser. The tab provides file status, renderer selection, wrap, and automatic or manual reload. Plugins can add local opening controls to the header and unsupported-preview empty state.
 
+Text-compatible files offer an explicit Edit action for the signed-in owner. Editing loads complete UTF-8 source through `workspaceFiles.ownerRead` and saves only on Save through `saveText`, with the required base version. Preview reads remain read-only; binary files have no source editor. BOM, untouched line endings, and final newlines are preserved. Conflicts and failed saves retain the draft without overwriting a newer file. Drafts live in the tab store across body remounts; closing, replacing, switching file tabs, cancelling, and reloading ask before leaving unsaved changes. Browser refresh/close uses the browser's native unsaved-changes warning. Session navigation retains drafts but does not share the file-tab confirmation path.
+
 ## Table of Contents
 
 - [What it registers](#what-it-registers)

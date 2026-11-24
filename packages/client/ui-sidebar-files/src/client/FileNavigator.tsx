@@ -167,7 +167,7 @@ function SearchFailure({ failure, onRetry, t }: {
  */
 export function FileNavigator({
   useTabInfo, page, onOpen, sessionId, useSessions, useStore, actions, useRowWidth, useCanOpen, useSearchPreferences,
-  attach, placeBeside, hold, toggle, scrolled, bodyDrawn, currentDrawn, navigatorDrawn,
+  attach, placeBeside, hold, navigate, toggle, scrolled, bodyDrawn, currentDrawn, navigatorDrawn,
   setQuery, toggleSearch, retrySearch, setSearchPreferences, searchDrawn, t, renderFactorySlot, useContextMenu,
 }: FactoryComponentPropsOf<'sidebar.files.navigator'>): ReactNode {
   const { tab, panel } = useTabInfo()
@@ -182,7 +182,11 @@ export function FileNavigator({
   const open = page || state?.open === true
   // Measured by the face; the viewport rule is CSS's, read again when a file opens.
   const mode = navigatorMode(rowWidth)
-  const tree = state?.tree?.root === cwd ? state?.tree : undefined
+  const directory = state?.directory ?? cwd
+  const tree = state?.tree?.root === directory ? state?.tree : undefined
+  const rootLevel = tree?.levels[tree.root]
+  const parentDirectory = rootLevel?.kind === 'ready' ? rootLevel.level.parentPath : undefined
+  const [pathDraft, setPathDraft] = useState<string | undefined>(undefined)
   // The face resolves every key to a source, so the renderer never reports one unavailable.
   /* v8 ignore next -- the fallback only satisfies the keyed hook's optional snapshot type. */
   const preferences: WorkspaceSearchPreferences = useSearchPreferences(cwd ?? '') ?? defaultSearchPreferences()
@@ -220,9 +224,9 @@ export function FileNavigator({
   useEffect(() => attach(paneId, tab.id, tab.signal), [attach, paneId, tab.id, tab.signal])
   // Only a navigator that can draw a tree keeps the workspace command on its tab.
   useEffect(() => page || cwd === undefined ? undefined : placeBeside(tab.id), [page, cwd, placeBeside, tab.id])
-  useEffect(() => cwd === undefined || !open ? undefined : hold(paneId, cwd), [cwd, open, paneId, hold])
+  useEffect(() => directory === undefined || !open ? undefined : hold(paneId, directory, cwd), [directory, cwd, open, paneId, hold])
 
-  const relativePath = tree === undefined ? undefined : relativeFileOf(tab.contentId, sessionId, tree.root)
+  const relativePath = tree === undefined ? undefined : relativeFileOf(tab.contentId, sessionId, tree.root, cwd)
   const location = useMemo(
     () => tree === undefined || relativePath === undefined ? undefined : locateFile(tree, relativePath),
     [tree, relativePath],
@@ -238,10 +242,11 @@ export function FileNavigator({
     [root, levels, expanded, t, showHidden],
   )
   const resultTree = found !== undefined && found.count > 0 ? found.tree : undefined
-  const resultCurrent = useMemo(
-    () => resultTree === undefined || relativePath === undefined ? undefined : locateFile(resultTree, relativePath).current,
-    [resultTree, relativePath],
-  )
+  const resultCurrent = useMemo(() => {
+    if (resultTree === undefined) return undefined
+    const path = relativeFileOf(tab.contentId, sessionId, resultTree.root, cwd)
+    return path === undefined ? undefined : locateFile(resultTree, path).current
+  }, [resultTree, tab.contentId, sessionId, cwd])
   const resultEntries = useMemo(
     () => resultTree === undefined ? undefined : workspaceEntries(resultTree.levels, showHidden),
     [resultTree, showHidden],
@@ -255,16 +260,17 @@ export function FileNavigator({
       root: treeRootOf(tree.root),
       expanded: tree.expanded,
       onToggle: (entry: TreeEntry) => { toggle(paneId, parentOf(tree, entry.path), entry.path, tree.expanded) },
-      onOpen: (entry: TreeEntry) => { onOpen(fileAddressFor(sessionId, tree.root, entry.path)) },
-      canOpen: (entry: TreeEntry) => canOpen(fileAddressFor(sessionId, tree.root, entry.path)),
+      onOpen: (entry: TreeEntry) => { onOpen(fileAddressFor(sessionId, cwd, entry.path)) },
+      canOpen: (entry: TreeEntry) => canOpen(fileAddressFor(sessionId, cwd, entry.path)),
       rowTriggerProps: (entry: TreeEntry, kind: 'file' | 'directory') => getTriggerProps(kind === 'directory'
         ? { kind, value: { sessionId, path: entry.path } }
         : { kind, value: { sessionId, path: entry.path, paneId } }),
     }
-  }, [tree, paneId, sessionId, toggle, canOpen, onOpen, getTriggerProps])
+  }, [tree, cwd, paneId, sessionId, toggle, canOpen, onOpen, getTriggerProps])
   // The results keep their own expansion; every other gesture acts as on the tree.
   const resultView = useMemo(() => view === undefined || resultTree === undefined ? undefined : {
     ...view,
+    root: treeRootOf(resultTree.root),
     expanded: resultTree.expanded,
     onToggle: (entry: TreeEntry) => { toggleSearch(paneId, entry.path) },
   }, [view, resultTree, toggleSearch, paneId])
@@ -292,7 +298,7 @@ export function FileNavigator({
       data-files-navigator={paneId}
       data-files-navigator-mode={shown}
       data-files-state="tree"
-      data-files-root={cwd}
+      data-files-root={directory}
       onKeyDown={(event) => {
         moveAlongRows(event)
         // A settings panel keeps its own Escape; a menu or anything else that prevented it keeps it too.
@@ -346,6 +352,24 @@ export function FileNavigator({
           }}
         />
       )}
+      <form className={css.pathBar} aria-label={t('path.label')} onSubmit={(event) => {
+        event.preventDefault()
+        navigate(paneId, pathDraft ?? directory ?? '')
+        setPathDraft(undefined)
+      }}>
+        <button type="button" className={css.pathButton} data-files-parent
+          disabled={state?.navigating || parentDirectory === undefined || parentDirectory === directory}
+          onClick={() => {
+            if (parentDirectory !== undefined) navigate(paneId, parentDirectory)
+            setPathDraft(undefined)
+          }}>{t('path.parent')}</button>
+        <input className={css.pathInput} name="directory" aria-label={t('path.label')} data-files-path-input
+          value={pathDraft ?? directory ?? ''} onChange={event => { setPathDraft(event.target.value) }}
+          spellCheck={false} autoComplete="off" autoCapitalize="none" />
+        <button type="submit" className={css.pathButton} disabled={state?.navigating} data-files-go>{t('path.go')}</button>
+      </form>
+      {state?.navigating && <p className={css.note} role="status">{t('loading')}</p>}
+      {state?.navigationFailure !== undefined && <p className={css.note} role="alert">{failureLine(t, state.navigationFailure)}</p>}
       {searchBarOpen && <div className={css.searchBar}>
         <div className={css.searchField}>
           <Tooltip label={t('search.settings')} side="bottom" portal>

@@ -48,6 +48,7 @@ function hookOf<T>(inst: { subscribe: (fn: () => void) => () => void; getSnapsho
 
 /** The owner's tab actions as recording mocks. */
 interface MockedTabActions {
+  readonly setLeaveGuard: Mock<SidebarRightTabActions['setLeaveGuard']>
   readonly bindCommands: Mock<SidebarRightTabActions['bindCommands']>
   readonly openResource: Mock<SidebarRightTabActions['openResource']>
   readonly openTab: Mock<SidebarRightTabActions['openTab']>
@@ -135,6 +136,7 @@ function harness(placement: Placement, controller: AbortController, book: Worksp
     await script.dispose()
   })
   const tabActions: MockedTabActions = {
+    setLeaveGuard: vi.fn(),
     bindCommands: vi.fn(() => vi.fn()),
     openResource: vi.fn<SidebarRightTabActions['openResource']>(),
     openTab: vi.fn<SidebarRightTabActions['openTab']>(),

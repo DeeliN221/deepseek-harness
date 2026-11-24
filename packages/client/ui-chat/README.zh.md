@@ -38,7 +38,7 @@ kind: "package-reference"
 
 已发送的普通文件附件保留草稿中的[文件卡片圆角](../../../docs/ui-radius.zh.md#radius-scale)。
 
-`ChatView` 通过节点列表外围既有的 `MarkdownDelegateProvider` 提供文件及 HTTP(S) 导航，直接传入 `requestOpenFile`、`openExternalLink` 和 `fileImages`。文件打开动作保留 Chat 的失败反馈与重试处理。Assistant Markdown 文件链接在消息落定后可于右侧栏打开，包括未修改文件的引用。相对路径基于当前查看的 Session 工作区解析；绝对路径仍使用同一 Session 的文件系统访问。[支持的 Markdown 行号引用](../ui-primitives/README.zh.md#rendering-agent-output)定位到指定起始行，并复用现有文件标签。文件缺失时显示预览错误状态。
+`ChatView` 通过节点列表外围既有的 `MarkdownDelegateProvider` 提供文件及 HTTP(S) 导航，传入 `requestOpenFile`、`openExternalLink`、`fileImages` 和 `fileResources`。框架资源 hook 在来源 Session 的作用域内检测文件元数据，使用与侧栏打开器相同的当前工作目录解析规则。消息落定后，正文路径、行内代码路径及显式本地链接仅在元数据为 `live` 时成为按钮，包括未修改文件的引用；加载中、文件缺失、资源不可用或失败均保持普通文本。词表别名使用规范路径检测，再通过同一侧栏 delegate 打开。按钮保留原生键盘激活与可见焦点；鼠标点击及带修饰键点击均仅打开右侧栏。绝对路径保留来源 Session 的文件系统作用域。[支持的 Markdown 行号引用](../ui-primitives/README.zh.md#rendering-agent-output)定位到指定起始行，并复用现有文件标签。激活后的失败仍沿用 Chat 文件打开动作的反馈与重试处理。
 
 `ChatView` 还传入 `renderCode`，因此 Chat 消息流中带语言且有内容的每个 Markdown 围栏都经由 session 作用域的 `conversation.chat.markdown.fence` hoc slot 渲染。其 `entryKey` 为小写的围栏语言，owner props 携带该 `lang`、围栏 `code`、`streaming` 状态，以及存在时为 info string 其余部分的 `meta`。slot 内容是不带统一 diff 行的普通代码块，因此没有对应层的语言按代码渲染。Chat 自带 `math` 层，消息流式输出时显示源码，落定后显示行间 TeX；还自带 `diff` 与 `patch` 层，以统一 diff 行代替内容渲染。其他插件注册 `key` 为小写语言的层即可接入该语言：不渲染 `children` 的层替换代码块，渲染 `children` 的层装饰代码块，两者都可以自行从 `meta` 解析参数。
 
