@@ -112,6 +112,8 @@ export function apply(ctx: ClientContext): void {
       },
       inject: (sessionId, actions): TextPreviewInjected => ({
         ...face(sessionId, actions),
+        readEdit: (path, signal) => ctx.remote.workspaceFiles.ownerRead(path, signal),
+        saveEdit: (path, value, signal) => ctx.remote.workspaceFiles.saveText(path, value, signal),
         hooks: { documentPreviews: source },
       }),
     },

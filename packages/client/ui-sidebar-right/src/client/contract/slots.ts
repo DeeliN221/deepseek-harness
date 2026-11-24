@@ -152,8 +152,18 @@ export interface SidebarRightTabCommands {
   readonly refresh?: () => void
 }
 
+/** Tab-lifetime protection for drafts, including inactive/unmounted pages. */
+export interface SidebarRightLeaveGuard {
+  /** Reports dirty or saving state without displaying UI, for browser unload. */
+  readonly hasUnsavedChanges: () => boolean
+  /** Confirm a close (draft destroyed) or switch (draft retained); false cancels the intent. */
+  readonly beforeLeave: (reason: 'close' | 'switch') => boolean
+}
+
 /** The actions one tab may take on itself; each acts on the session the tab is in. */
 export interface SidebarRightTabActions {
+  /** Replace the guard until tab disposal; survives body unmount. Rebind when dirty state changes to arm/disarm browser unload. Pass undefined to clear. */
+  setLeaveGuard(guard: SidebarRightLeaveGuard | undefined): void
   /**
    * Bind page operations until the body unmounts or the tab lifetime ends.
    * @param commands - operations supported by this page; omitted operations are unavailable.

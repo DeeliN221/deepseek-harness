@@ -23,7 +23,7 @@ import { findTabPane } from '@deepseek-ai/dsh-client-ui-dockkit'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SidebarRightNavigationParams } from './contract/params.ts'
-import type { SidebarRightTabActions, SidebarRightTabCommands, SidebarRightTabNavigation, SidebarRightTabPlacement } from './contract/slots.ts'
+import type { SidebarRightLeaveGuard, SidebarRightTabActions, SidebarRightTabCommands, SidebarRightTabNavigation, SidebarRightTabPlacement } from './contract/slots.ts'
 import type { SidebarRightOpenResourceOptions, SidebarRightOpenTabOptions, SidebarRightPlacement } from './service.ts'
 
 /**
@@ -64,6 +64,8 @@ export interface TabOccurrence {
 
 /** An occurrence plus what only the domain touches. */
 interface Held extends TabOccurrence {
+  leaveGuard: SidebarRightLeaveGuard | undefined
+  releaseUnload: (() => void) | undefined
   commands: SidebarRightTabCommands
 
   readonly controller: AbortController
@@ -142,6 +144,11 @@ export class TabDomain {
     existing.navigation.set({ ...target, revision: existing.navigation.getSnapshot().revision + 1 })
   }
 
+  /** Ask a tab's retained guard before a destructive or hiding intent commits. */
+  canLeave(sessionId: SessionId, tabId: TabId, reason: 'close' | 'switch'): boolean {
+    return this.bySession.get(sessionId)?.get(tabId)?.leaveGuard?.beforeLeave(reason) ?? true
+  }
+
   /** Abort every occurrence of every session; the package is unloading. */
   dispose(): void {
     for (const held of this.bySession.values()) {
@@ -179,11 +186,32 @@ export class TabDomain {
       tabId,
       controller,
       commands: {},
+      leaveGuard: undefined,
+      releaseUnload: undefined,
       signal: controller.signal,
       navigation: createSnapshotStore(navigation),
       paneId: undefined,
       pinned: false,
       tabActions: {
+        setLeaveGuard: guard => {
+          if (controller.signal.aborted) return
+          held.releaseUnload?.()
+          held.leaveGuard = guard
+          if (guard === undefined || !guard.hasUnsavedChanges() || typeof window === 'undefined') return
+          const beforeUnload = (event: BeforeUnloadEvent): void => {
+            if (!guard.hasUnsavedChanges()) return
+            event.preventDefault()
+            event.returnValue = ''
+          }
+          const release = (): void => {
+            window.removeEventListener('beforeunload', beforeUnload)
+            controller.signal.removeEventListener('abort', release)
+            held.releaseUnload = undefined
+          }
+          window.addEventListener('beforeunload', beforeUnload)
+          controller.signal.addEventListener('abort', release, { once: true })
+          held.releaseUnload = release
+        },
         bindCommands: (commands) => {
           if (controller.signal.aborted) return () => {}
           held.commands = commands

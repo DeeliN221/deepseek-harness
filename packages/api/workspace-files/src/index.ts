@@ -9,7 +9,9 @@
  * read-containment restriction. Directory listings, searches, and change
  * observations remain workspace-scoped; a search reports workspace-relative
  * paths. File-kind checks and configured read caps apply to
- * every preview; this service exposes no mutations.
+ * every preview. Separate owner methods require the authenticated invocation
+ * Peer, accept absolute paths, and expose bounded complete text editing with
+ * version-guarded saves. They do not change Session or agent sandbox policy.
  *
  * A page is cut from `streamText`, which decodes and rejects non-UTF-8 as it
  * goes, so the file is read only up to the first character past the page and
@@ -33,6 +35,9 @@ import { Remote, RemoteError, TypertRemoteService, type TypertLookup } from '@de
 import { WorkspaceChangeFeed } from './changes.ts'
 import { searchWorkspace, type SearchLimits } from './search.ts'
 import type {
+  OwnerDirectoryListing,
+  OwnerFileText,
+  WorkspaceFileSaveRequest,
   WorkspaceByteRange,
   WorkspaceByteReadOptions,
   WorkspaceDirectoryEntry,
@@ -233,6 +238,138 @@ export class WorkspaceFiles extends TypertRemoteService {
         },
       })
     })
+  }
+
+  /**
+   * List any directory for the authenticated human owner, independently of Sessions.
+   * @param path - absolute directory path in the filesystem's execution world.
+   * @param signal - caller cancellation.
+   * @returns canonical directory and parent paths, with bounded direct children.
+   */
+  @Remote
+  async ownerList(path: string, signal: AbortSignal): Promise<OwnerDirectoryListing> {
+    this.requireOwner(path)
+    const target = await this.ctx.fs.resolve(path, { signal })
+    const info = await this.ctx.fs.stat(target, signal)
+    if (info === undefined) throw new RemoteError('workspace-file/not-found', `no entry at "${path}"`, { path })
+    if (info.type !== 'directory') {
+      throw new RemoteError('workspace-file/not-directory', `"${path}" is a ${info.type}`, { path, kind: info.type })
+    }
+    const children = await this.ctx.fs.listDir(target, signal)
+    const absolutePath = this.ctx.fs.processPath(target)
+    const paths = absolutePath.startsWith('/') ? posix : win32
+    return {
+      absolutePath,
+      parentPath: paths.dirname(absolutePath),
+      entries: children.slice(0, this.config.maxEntries).map(directoryEntry),
+      truncated: children.length > this.config.maxEntries,
+    }
+  }
+
+  /**
+   * Inspect a regular file for the authenticated human owner.
+   * @param path - absolute file path.
+   * @param signal - caller cancellation.
+   * @returns canonical identity, version and size.
+   */
+  @Remote
+  async ownerStat(path: string, signal: AbortSignal): Promise<WorkspaceFileStat> {
+    this.requireOwner(path)
+    const { target, info } = await this.locateFile({ workspaceRoot: path }, path, signal)
+    return this.statOf(target, info)
+  }
+
+  /**
+   * Load complete text for explicit editing; refuse a file changed during the read.
+   * @param path - absolute regular file path; final symlinks are refused.
+   * @param signal - caller cancellation.
+   * @returns exact UTF-8 text and its version, bounded by maxFileBytes.
+   */
+  @Remote
+  async ownerRead(path: string, signal: AbortSignal): Promise<OwnerFileText> {
+    this.requireOwner(path)
+    const { target, info } = await this.locateFile({ workspaceRoot: path }, path, signal)
+    const text = await this.ownerText(target, path, signal)
+    const after = await this.ctx.fs.stat(target, signal)
+    if (after?.version !== info.version) this.conflict(path)
+    return { ...this.statOf(target, info), text }
+  }
+
+  /**
+   * Replace an existing text file after an authenticated owner's explicit save.
+   * @param path - absolute regular file path; final symlinks are refused.
+   * @param request - complete replacement text and required loaded version.
+   * @param signal - caller cancellation before publication.
+   * @returns the committed version and replacement byte size.
+   */
+  @Remote
+  async saveText(path: string, request: WorkspaceFileSaveRequest, signal: AbortSignal): Promise<WorkspaceFileStat> {
+    this.requireOwner(path)
+    if (request.version.length === 0) throw new RemoteError('gateway/bad-request', 'version is required', {})
+    if (request.text.includes(NUL) || !request.text.isWellFormed()) {
+      throw new RemoteError('workspace-file/not-text', 'Replacement must be UTF-8 text without NUL bytes', { path })
+    }
+    const bytes = Buffer.byteLength(request.text, 'utf8')
+    if (bytes > this.config.maxFileBytes) {
+      throw new RemoteError('workspace-file/too-large', `"${path}" exceeds the text save cap`, { path, limit: this.config.maxFileBytes })
+    }
+    try {
+      const { target, info } = await this.locateFile({ workspaceRoot: path }, path, signal)
+      if (info.version !== request.version) this.conflict(path)
+      // Validate the existing bytes as well: a caller cannot overwrite a binary file with text.
+      await this.ownerText(target, path, signal)
+      const result = await this.ctx.fs.writeText(target, request.text,
+        { kind: 'replaceIfVersion', version: info.version }, signal,
+        { mode: 'danger-full-access', workspaceRoot: path })
+      return { absolutePath: this.ctx.fs.processPath(target), version: result.version, bytes }
+    } catch (error: unknown) {
+      if (typeof error === 'object' && error !== null && 'code' in error
+        && (error.code === 'FS_STALE_VERSION' || error.code === 'FS_NOT_FOUND' || error.code === 'workspace-file/not-found')) this.conflict(path)
+      throw error
+    }
+  }
+
+  /**
+   * Observe a file or directory chosen by the authenticated human owner.
+   * @param path - absolute target path, independently of any Session workspace.
+   * @param signal - generation cancellation.
+   * @returns readiness then current metadata for target invalidations.
+   */
+  @Remote({ mode: 'stream' })
+  ownerChanges(path: string, signal: AbortSignal): AsyncIterable<WorkspaceFileWatchFrame> {
+    this.requireOwner(path)
+    return this.feed.follow(path, path, signal)
+  }
+
+  private requireOwner(path: string): void {
+    if (this.ctx.invocation?.peer.principal.kind !== 'owner') {
+      throw new RemoteError('workspace-file/owner-required', 'Authenticated owner access is required', {})
+    }
+    if (path.includes(NUL) || !(posix.isAbsolute(path) || /^[A-Za-z]:[\\/]/u.test(path) || /^\\\\[^\\]+\\[^\\]+/u.test(path))) {
+      throw new RemoteError('gateway/bad-request', 'path must be absolute', {})
+    }
+  }
+
+  private conflict(path: string): never {
+    throw new RemoteError('workspace-file/conflict', `"${path}" changed; reload before saving`, { path })
+  }
+
+  private async ownerText(target: FsTarget, path: string, signal: AbortSignal): Promise<string> {
+    const limit = this.config.maxFileBytes
+    const data = await this.ctx.fs.readBytes(target, signal, limit).catch((error: unknown) => {
+      if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'FS_TOO_LARGE') {
+        throw new RemoteError('workspace-file/too-large', `"${path}" exceeds the text edit cap`, { path, limit }, { cause: error })
+      }
+      throw error
+    })
+    let text: string
+    try {
+      text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(data)
+    } catch (error: unknown) {
+      throw new RemoteError('workspace-file/not-text', `"${path}" is not UTF-8 text`, { path }, { cause: error })
+    }
+    if (text.includes(NUL)) throw new RemoteError('workspace-file/not-text', `"${path}" contains NUL bytes`, { path })
+    return text
   }
 
   /**
@@ -443,7 +580,7 @@ export class WorkspaceFiles extends TypertRemoteService {
    * component. Directory containment is checked separately by `list`.
    */
   private async inspect(
-    workspaceFileScope: WorkspaceFileScope,
+    workspaceFileScope: Pick<WorkspaceFileScope, 'workspaceRoot'>,
     path: string,
     signal: AbortSignal,
   ): Promise<{ root: FsTarget; workspaceRoot: string; entry: FsPathInfo }> {
@@ -473,7 +610,7 @@ export class WorkspaceFiles extends TypertRemoteService {
    * changed kind in between.
    */
   private async locateFile(
-    workspaceFileScope: WorkspaceFileScope,
+    workspaceFileScope: Pick<WorkspaceFileScope, 'workspaceRoot'>,
     path: string,
     signal: AbortSignal,
   ): Promise<{ target: FsTarget; info: FsInfo }> {

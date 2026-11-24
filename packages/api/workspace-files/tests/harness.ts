@@ -46,20 +46,22 @@ export interface Harness {
  * Create the workspace, its outside sibling, and a context with the local
  * backend rooted at the workspace.
  * @param prefix - temp directory prefix naming the suite.
+ * @param backend - local filesystem implementation, optionally the sandbox-enforcing provider.
  * @returns the harness; dispose it in `afterEach`.
  */
-export async function openWorkspace(prefix: string): Promise<Harness> {
+export async function openWorkspace(prefix: string, backend: typeof LocalFileSystem = LocalFileSystem): Promise<Harness> {
   const root = await mkdtemp(join(tmpdir(), prefix))
   const workspace = join(root, 'workspace')
   const outside = join(root, 'outside')
   await mkdir(workspace, { recursive: true })
   await mkdir(outside, { recursive: true })
   const ctx = new Context()
-  const fiber = await ctx.plugin(LocalFileSystem, { cwd: workspace })
   ctx.provide('sandboxPolicy', {
+    defaultMode: 'workspace-write',
     workspaceRoot: workspace,
     resolve: () => ({ mode: 'workspace-write', workspaceRoot: workspace }),
   } as never)
+  const fiber = await ctx.plugin(backend, { cwd: workspace })
   let service: WorkspaceFiles | undefined
   return {
     workspace,

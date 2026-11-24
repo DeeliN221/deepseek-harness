@@ -3,7 +3,7 @@ import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { Mock } from 'vitest'
 import { RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { WorkspaceDirectoryListing } from '@deepseek-ai/dsh-api-workspace-files/types'
+import type { OwnerDirectoryListing } from '@deepseek-ai/dsh-api-workspace-files/types'
 import { canOpenOf, createList, filesFace } from '../src/client/face.ts'
 import type { FilesInjected, TabTypeRegistry, WorkspaceFilesListRemote } from '../src/client/face.ts'
 import { childPath } from '../src/client/store.ts'
@@ -582,25 +582,26 @@ describe('canOpenOf', () => {
 })
 
 describe('createList', () => {
-  it('passes the session, the absolute path, and the signal through, and keeps entries and truncation', async () => {
-    const listing: WorkspaceDirectoryListing = {
-      path: 'src',
+  it('uses the authenticated owner endpoint and keeps canonical parent metadata', async () => {
+    const listing: OwnerDirectoryListing = {
+      absolutePath: `${ROOT}/src`,
+      parentPath: ROOT,
       entries: [{ name: 'a.ts', type: 'file', size: 3 }],
       truncated: true,
     }
-    const list = vi.fn<WorkspaceFilesListRemote['workspaceFiles']['list']>()
+    const list = vi.fn<WorkspaceFilesListRemote['workspaceFiles']['ownerList']>()
       .mockResolvedValue({ ok: true, value: listing })
     const signal = new AbortController().signal
-    const result = await createList({ workspaceFiles: { list } })(SESSION, `${ROOT}/src`, signal)
-    expect(list).toHaveBeenCalledWith(SESSION, `${ROOT}/src`, signal)
-    expect(result).toEqual({ ok: true, value: { entries: listing.entries, truncated: true } })
+    const result = await createList({ workspaceFiles: { ownerList: list } })(SESSION, `${ROOT}/src`, signal)
+    expect(list).toHaveBeenCalledWith(`${ROOT}/src`, signal)
+    expect(result).toEqual({ ok: true, value: listing })
   })
 
   it('returns a failure as the endpoint reported it', async () => {
     const error = new RemoteError('workspace-file/not-directory', 'file', { path: 'x', kind: 'file' })
-    const list = vi.fn<WorkspaceFilesListRemote['workspaceFiles']['list']>()
+    const list = vi.fn<WorkspaceFilesListRemote['workspaceFiles']['ownerList']>()
       .mockResolvedValue({ ok: false, error })
-    const result = await createList({ workspaceFiles: { list } })(SESSION, `${ROOT}/x`, new AbortController().signal)
+    const result = await createList({ workspaceFiles: { ownerList: list } })(SESSION, `${ROOT}/x`, new AbortController().signal)
     expect(result).toEqual({ ok: false, error })
   })
 })

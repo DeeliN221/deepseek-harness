@@ -435,6 +435,7 @@ export class SidebarRightController implements ISidebarRight {
   }
 
   private removeAfterCleanup(sessionId: SessionId, tab: TabRecord, commit: () => void): void {
+    if (!this.tabDomain.canLeave(sessionId, tab.id, 'close')) return
     this.closeHandlers.get(tab.kind)?.(sessionId, tab)
     commit()
   }
@@ -465,6 +466,9 @@ export class SidebarRightController implements ISidebarRight {
   ): void {
     const layout = this.adopted.get(sessionId)?.store.getSnapshot().bySession[sessionId]?.layout
     const revealed = layout === undefined ? undefined : findHostContentTab(layout, destination, claim.contentId, claim.kind)
+    const paneId = layout === undefined ? undefined : revealed !== undefined
+      ? findTabPane(layout, revealed).id : destination === 'sidebar' ? activeDockPaneId(layout) : undefined
+    if (paneId !== undefined && !this.canSwitchIn(sessionId, paneId, revealed)) return
     actions.openContent(sessionId, { kind: claim.kind, contentId: claim.contentId, title: claim.title, destination },
       (tabId) => { this.tabDomain.navigate(sessionId, tabId, { address, params }) })
     if (layout !== undefined && revealed !== undefined) this.flashShowing(sessionId, layout, revealed)
@@ -524,8 +528,11 @@ export class SidebarRightController implements ISidebarRight {
         ? findPaneContentTab(layout, pagePane, claim.contentId, claim.kind)
         : placement.revealIfOpened === false ? undefined : findContentTab(layout, claim.contentId, claim.kind)
     // Only new content takes the replaced tab's place; a reveal keeps it open.
-    if (replaced === undefined || revealed !== undefined) commit()
-    else this.removeAfterCleanup(sessionId, replaced, commit)
+    if (replaced === undefined || revealed !== undefined) {
+      const paneId = layout !== undefined && revealed !== undefined ? findTabPane(layout, revealed).id : targetPane
+      if ((revealed !== undefined || !preferNewPane) && paneId !== undefined && !this.canSwitchIn(sessionId, paneId, revealed)) return
+      commit()
+    } else this.removeAfterCleanup(sessionId, replaced, commit)
     // A reveal focuses the tab where it is.
     if (layout !== undefined && revealed !== undefined) this.flashShowing(sessionId, layout, revealed)
   }
@@ -606,6 +613,8 @@ export class SidebarRightController implements ISidebarRight {
   /** Collapse the column, or expand it and focus its active dock pane after rendering. */
   toggleExpanded(): void {
     const { sessionId, actions } = this.require()
+    const layout = this.mountedSurface()?.layout
+    if (layout?.expanded && !dockPaneIds(layout).every(id => this.canSwitchIn(sessionId, id))) return
     this.host.openWithFocus(sessionId, () => {
       actions.toggleExpanded(sessionId)
       const layout = this.mountedSurface()?.layout
@@ -618,9 +627,22 @@ export class SidebarRightController implements ISidebarRight {
    * @param tabId - the tab to focus.
    */
   focus(tabId: TabId): void {
-    const { sessionId, actions } = this.require()
-    if (this.mountedSurface()?.layout.tabs[tabId] === undefined) return
-    actions.focusTab(sessionId, tabId)
+    this.focusIn(this.require().sessionId, tabId)
+  }
+
+  /** Focus through the retained draft guard, including a Session-bound UI intent. */
+  focusIn(sessionId: SessionId, tabId: TabId): void {
+    const layout = this.adopted.get(sessionId)?.store.getSnapshot().bySession[sessionId]?.layout
+    if (layout?.tabs[tabId] === undefined) return
+    if (!this.canSwitchIn(sessionId, findTabPane(layout, tabId).id, tabId)) return
+    this.actionsFor(sessionId)?.focusTab(sessionId, tabId)
+  }
+
+  /** Confirm before another tab hides a pane's current body. */
+  canSwitchIn(sessionId: SessionId, paneId: PaneId, next?: TabId): boolean {
+    const pane = this.adopted.get(sessionId)?.store.getSnapshot().bySession[sessionId]?.layout.nodes[paneId]
+    return pane?.kind !== 'pane' || pane.activeTabId === undefined || pane.activeTabId === next
+      || this.tabDomain.canLeave(sessionId, pane.activeTabId, 'switch')
   }
 
   /**
@@ -751,7 +773,11 @@ export class SidebarRightController implements ISidebarRight {
     const { sessionId, actions } = this.require()
     const autoFullscreen = this.host.autoFullscreen()
     const fullscreen = autoFullscreen || this.mountedSurface()?.layout.mode === 'fullscreen'
-    if (fullscreen && autoFullscreen) actions.setExpanded(sessionId, false)
+    if (fullscreen && autoFullscreen) {
+      const layout = this.mountedSurface()?.layout
+      if (layout !== undefined && !dockPaneIds(layout).every(id => this.canSwitchIn(sessionId, id))) return
+      actions.setExpanded(sessionId, false)
+    }
     actions.setMode(sessionId, fullscreen ? 'push' : 'fullscreen')
   }
 

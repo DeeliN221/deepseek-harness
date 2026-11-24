@@ -45,6 +45,17 @@ export interface MarkdownDelegate {
     resourceAddress?: ((path: string) => string) | undefined
     labels: ImageLightboxLabels & { open: string; loading: string; failed: string }
   } | undefined
+  /**
+   * Live file metadata supplied by the owner's framework resource hook. Only
+   * `live` destinations are interactive; loading, absent and failed resources
+   * retain their authored text. Omit to retain explicit-link-only navigation.
+   */
+  readonly fileResources?: {
+    /** Build the resource address for a decoded path in the originating scope. */
+    address: (path: string) => string
+    /** The framework-provided resource hook, passed through without a new subscription layer. */
+    useResource: (address: string) => { readonly status: 'none' | 'loading' | 'live' | 'failed' }
+  } | undefined
   /** Ordinary HTTP(S) activation; absent handlers retain native anchor behavior. */
   readonly openExternalLink?: MarkdownExternalLinkHandler | undefined
   /**
@@ -81,11 +92,12 @@ export function MarkdownDelegateProvider({
   openExternalLink,
   openFile,
   fileImages,
+  fileResources,
   getTriggerProps,
   renderCode,
 }: MarkdownDelegateProviderProps): ReactNode {
-  const delegate = useMemo(() => ({ openExternalLink, openFile, fileImages, getTriggerProps, renderCode }),
-    [openExternalLink, openFile, fileImages, getTriggerProps, renderCode])
+  const delegate = useMemo(() => ({ openExternalLink, openFile, fileImages, fileResources, getTriggerProps, renderCode }),
+    [openExternalLink, openFile, fileImages, fileResources, getTriggerProps, renderCode])
   return (
     <MarkdownDelegateContext.Provider value={delegate}>
       {children}

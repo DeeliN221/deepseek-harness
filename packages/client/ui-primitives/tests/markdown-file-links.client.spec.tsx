@@ -11,6 +11,12 @@ afterEach(cleanup)
 describe('Markdown file links', () => {
   it.each([
     ['src/index.ts', 'src/index.ts', undefined],
+    ['index.ts:24', 'index.ts', { line: 24 }],
+    ['index%2Ets:24', 'index.ts', { line: 24 }],
+    ['Makefile:12', 'Makefile', { line: 12 }],
+    ['example.com:8080', 'example.com', { line: 8080 }],
+    ['file:///etc/passwd:24', '/etc/passwd', { line: 24 }],
+    ['file:///C:/work/a.ts#L5', 'C:/work/a.ts', { line: 5 }],
     ['src/index.ts:24', 'src/index.ts', { line: 24 }],
     ['/workspace/src/index.ts:24', '/workspace/src/index.ts', { line: 24 }],
     ['./README:24', './README', { line: 24 }],
@@ -152,7 +158,7 @@ describe('Markdown file links', () => {
     'javascript:alert', 'data:text/plain,hi', 'vbscript:msgbox',
     '%6Aavascript:alert', '#L2', 'file.ts?raw=1', 'file%ZZ.ts', 'file%00.ts', ':24',
     'data:123', 'blob:123', 'javascript:123', '%6Aavascript:123',
-    'javascript:alert:24', 'index%2Ets:24', 'C:/file.ts?raw=1',
+    'javascript:alert:24', 'C:/file.ts?raw=1', 'file:///etc/passwd?raw=1',
   ])('keeps unsupported destination %s inert', (target) => {
     const openFile = vi.fn()
     const view = render(
@@ -167,8 +173,8 @@ describe('Markdown file links', () => {
 
   it.each([
     'mailto:10086', 'https:123', 'http:123', 'https://example.com:8080',
-    'index.ts:24', 'example.com:8080', 'localhost:3000', 'Makefile:12', 'tel:10086',
-    'vscode:open', 'file:///etc/passwd:24', 'custom.scheme:value:24', 'C:123',
+    'localhost:3000', 'tel:10086',
+    'vscode:open', 'custom.scheme:value:24', 'C:123',
   ])(
     'preserves external destination %s with and without a file opener', (target) => {
       const openFile = vi.fn()

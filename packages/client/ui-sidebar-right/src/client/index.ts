@@ -217,7 +217,7 @@ export function apply(ctx: ClientContext): void {
         } }
       },
     }
-    const injected: Omit<SidebarRightInjected, 'keyedHooks' | 'occurrence' | 'closeTab' | 'measureRoom' | 'hooks'> = {
+    const injected: Omit<SidebarRightInjected, 'keyedHooks' | 'occurrence' | 'closeTab' | 'focusTab' | 'toggleExpanded' | 'measureRoom' | 'hooks'> = {
       syncPresentation({ shown, track, fullscreen }) {
         if (shown) layout.openRightbar(track, fullscreen)
         else layout.closeRightbar()
@@ -257,6 +257,8 @@ export function apply(ctx: ClientContext): void {
             try { controller.closeIn(sessionId, tabId) }
             catch (error) { console.error('Sidebar tab close failed:', error) }
           },
+          focusTab: tabId => controller.focusIn(sessionId, tabId),
+          toggleExpanded: () => controller.toggleExpanded(),
           keyedHooks: { tabNavigation: key => controller.tabDomain.occurrence(sessionId, { id: key as TabId }).navigation },
           occurrence: tab => controller.tabDomain.occurrence(sessionId, tab),
         }),

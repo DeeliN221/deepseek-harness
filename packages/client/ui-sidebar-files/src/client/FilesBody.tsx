@@ -52,10 +52,11 @@ export function FilesBody(props: FilesBodyProps): ReactNode {
     [tab.actions, panel.id, refresh],
   )
   const cwd = useSessions(sessions => sessions.byId[sessionId]?.cwd)
+  const directory = useStore(store => store.byPane[panel.id]?.directory) ?? cwd ?? ''
   // The setting belongs to a listed tree, so there is nothing to set before one.
   const autoRefresh = useStore((store) => {
     const tree = store.byPane[panel.id]?.tree
-    return tree?.root === cwd ? tree?.autoRefresh : undefined
+    return tree?.root === directory ? tree?.autoRefresh : undefined
   })
   const searchBarOpen = useStore(store => store.byPane[panel.id]?.searchBarOpen) === true
   useEffect(() => cwd === undefined ? undefined : placeBeside(tab.id), [cwd, placeBeside, tab.id])
@@ -72,8 +73,8 @@ export function FilesBody(props: FilesBodyProps): ReactNode {
   return (
     <div className={css.page} data-files-page>
       <div className={css.header}>
-        <PathLabel path={cwd} className={css.path} data-files-path
-          {...getTriggerProps({ kind: 'directory', value: { sessionId, path: cwd } })} />
+        <PathLabel path={directory} className={css.path} data-files-path
+          {...getTriggerProps({ kind: 'directory', value: { sessionId, path: directory } })} />
         <span hidden>
           <button type="button" className={css.tool} aria-label={t('autoRefresh')}
             aria-pressed={automatic} disabled={autoRefresh === undefined} data-files-auto-refresh
@@ -111,7 +112,7 @@ export function FilesBody(props: FilesBodyProps): ReactNode {
             <IconSearchOutlineRegular />
           </button>
         </Tooltip>
-        {renderSlot('sidebar.right.tab.files.actions', { absolutePath: cwd })}
+        {renderSlot('sidebar.right.tab.files.actions', { absolutePath: directory })}
       </div>
       <div className={css.content} data-files-content data-files-navigator-row>{navigator}</div>
     </div>

@@ -139,7 +139,7 @@ export function harness(script: Record<number, RemoteResult<WorkspaceFileText>> 
   const useResource = vi.fn<() => ResourceSnapshot<WorkspaceFileStat>>(() => current.snapshot)
   const controller = new AbortController()
   onTestFinished(() => { controller.abort() })
-  const tabActions = { bindCommands: vi.fn(() => vi.fn()), openResource: vi.fn(), openTab: vi.fn(), close: vi.fn(), replace: vi.fn() }
+  const tabActions = { setLeaveGuard: vi.fn(), bindCommands: vi.fn(() => vi.fn()), openResource: vi.fn(), openTab: vi.fn(), close: vi.fn(), replace: vi.fn() }
   const definitions = [textBodyDefinition(() => t('viewer.text'))]
   // The document slot renders the plain body; other positions mark their input.
   const renderSlot: TextPreviewProps['renderSlot'] = (key: string, owner: unknown, opts?: { hookContext?: unknown }) =>
@@ -163,6 +163,8 @@ export function harness(script: Record<number, RemoteResult<WorkspaceFileText>> 
       },
     }),
     sessionId: SESSION,
+    readEdit: vi.fn(async () => ({ ok: true, value: { absolutePath: ABSOLUTE_PATH, version: 'v1', text: 'source\n' } })),
+    saveEdit: vi.fn(async () => ({ ok: true, value: { absolutePath: ABSOLUTE_PATH, version: 'v2' } })),
     useResource,
     useContextMenu: contextMenuHook(),
     useStore: hookOf(instance),

@@ -37,6 +37,10 @@ export interface SupervisedStreamOptions<Item> {
 /** The `workspaceFiles` namespace methods this package calls, as the generated Remote declares them. */
 export type WorkspaceFilesNamespace = Pick<ClientRemote['workspaceFiles'], 'stat' | 'changes'>
 
+/** Authenticated owner operations, inferred from the generated Remote declaration. */
+export type OwnerWorkspaceFilesNamespace = Pick<ClientRemote['workspaceFiles'],
+  'ownerList' | 'ownerRead' | 'ownerStat' | 'ownerChanges' | 'saveText'>
+
 /** The Client Remote as this package sees it. */
 export interface WorkspaceFilesRemote {
   /**

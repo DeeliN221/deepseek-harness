@@ -329,6 +329,8 @@ export interface ChatViewInjected {
   /** Dispatch one gesture to the Conversation plugin registry. */
   dispatchInteraction: (gesture: TextInteractionGesture) => string | null
   hooks: {
+    /** Invalidate file addresses when the Session's path base changes; resolution belongs to resolveFilePath. */
+    filePathBase: ObservableSnapshot<unknown>
     /** Live plugin IDs; removed plugins dismiss their active surface. */
     interactionIds: ObservableSnapshot<readonly string[]>
     /** Live presentation policy derived from the accepted work-details mode. */

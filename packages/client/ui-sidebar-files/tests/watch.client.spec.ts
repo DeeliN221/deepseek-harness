@@ -11,6 +11,7 @@ const ROOT = '/work/app'
 
 function mount() {
   const remote = new FakeRemote()
+  Object.assign(remote.workspaceFiles, { ownerChanges: (path: string, signal: AbortSignal) => remote.workspaceFiles.changes(SESSION, path, signal) })
   remote.autoReady = false
   const controller = new AbortController()
   const supervise = vi.spyOn(remote, '$stream')

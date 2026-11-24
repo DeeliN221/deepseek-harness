@@ -334,15 +334,15 @@
   text-align: inherit;
 }
 
-.fileMention:focus {
-  outline: none;
+.fileMention:focus-visible {
+  outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 2px;
   text-decoration: underline dotted var(--dsw-alias-link);
   text-underline-offset: 3px;
 }
 
 @media (hover: hover) {
   .fileMention:hover {
-    outline: none;
     text-decoration: underline dotted var(--dsw-alias-link);
     text-underline-offset: 3px;
   }

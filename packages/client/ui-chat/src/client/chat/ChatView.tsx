@@ -25,7 +25,7 @@ import {
   renderWindowAnchor, resolveRenderWindow, savedAnchorIndex,
 } from './render-window.ts'
 import type { ChatRenderWindowAnchor } from './render-window.ts'
-import { fileMediaUrl, resolveWorkspacePath, sessionFileAddress } from '@deepseek-ai/dsh-util-workspace-path'
+import { fileAddressFor, fileMediaUrl, resolveWorkspacePath, sessionFileAddress } from '@deepseek-ai/dsh-util-workspace-path'
 import css from './ChatView.module.css'
 
 /** Host/OS refusal text for the file-open dialog; empty throws keep a locale fallback. */
@@ -68,9 +68,9 @@ const MOTION_TAIL_MS = 800
  */
 export function ChatView({
   useSession, useChat, useConversation, useSessions, renderSlot,
-  sessionId, openFile, openExternalLink, resolveFilePath, useContextMenu,
+  sessionId, openFile, openExternalLink, resolveFilePath, useContextMenu, useResource,
   loadOlder, consumeOlder, loadThrough, loadImage, inspectCall, chatScroll, forkAt,
-  usePresentation, useProjection, useInteractionIds, dispatchInteraction, t, fileDrag,
+  usePresentation, useProjection, useFilePathBase, useInteractionIds, dispatchInteraction, t, fileDrag,
 }: ChatViewSlotProps) {
   const { getTriggerProps } = useContextMenu()
   const getMarkdownTriggerProps = useCallback((target: MarkdownMenuTarget) => getTriggerProps(() => {
@@ -134,6 +134,13 @@ export function ChatView({
   const inbox = useProjection('inbox') as InboxState | undefined
   // Workspace root off the session list row: path summaries display relative to it.
   const cwd = useSessions(s => s.byId[sessionId]?.cwd)
+  const filePathBase = useFilePathBase(value => value)
+  // The raw projection is only an invalidation token; the injected resolver
+  // owns its interpretation and reads the same live path base as the opener.
+  const fileResources = useMemo(() => ({
+    useResource,
+    address: (path: string) => fileAddressFor(sessionId, cwd, resolveFilePath(path)),
+  }), [useResource, sessionId, cwd, resolveFilePath, filePathBase])
   const fileImages = useMemo(() => ({
     fileDrag,
     resolve: (path: string) => fileMediaUrl(document.baseURI, resolveWorkspacePath(cwd, path)),
@@ -437,6 +444,7 @@ export function ChatView({
               openFile={requestOpenFile}
               openExternalLink={openExternalLink}
               fileImages={fileImages}
+              fileResources={fileResources}
               renderCode={renderCode}
             >
               {renderSlot('conversation.chat.flow', {

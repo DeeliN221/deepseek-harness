@@ -103,6 +103,9 @@ export interface SidebarRightInjected {
   readonly openTab: (kind: string, options?: SidebarRightOpenTabOptions) => void
   /** Close through the resource owner's cleanup handler. */
   readonly closeTab: (tabId: TabId) => void
+  /** Focus and collapse through the owner's draft guards. */
+  readonly focusTab: (tabId: TabId) => void
+  readonly toggleExpanded: () => void
   /** Split through the same controller as keyboard commands. */
   readonly splitPane: (paneId: PaneId) => void
   /** Toggle the dock panel using its current display mode. */
@@ -138,6 +141,8 @@ interface PanelProps {
   readonly renderSlot: Children['renderSlot']
   readonly openTab: SidebarRightInjected['openTab']
   readonly closeTab: SidebarRightInjected['closeTab']
+  readonly focusTab: SidebarRightInjected['focusTab']
+  readonly toggleExpanded: SidebarRightInjected['toggleExpanded']
   readonly getTabTriggerProps: NonNullable<DockSurfaceProps['getTabTriggerProps']>
   readonly tabMenuOpen: boolean
   readonly splitPane: SidebarRightInjected['splitPane']
@@ -168,9 +173,9 @@ function guideIn(layout: LayoutState, paneId: PaneId): TabId | undefined {
  * @param openTab - the navigation face's `openTab`, which the strip's add control asks for a guide through.
  * @returns the intents the kit reports gestures to.
  */
-export function intentsFor(sessionId: SessionId, actions: Store['actions'], openTab: PanelProps['openTab'], closeTab?: PanelProps['closeTab'], splitPane?: PanelProps['splitPane']): DockIntents {
+export function intentsFor(sessionId: SessionId, actions: Store['actions'], openTab: PanelProps['openTab'], closeTab?: PanelProps['closeTab'], splitPane?: PanelProps['splitPane'], focusTab?: PanelProps['focusTab']): DockIntents {
   return {
-    focusTab: (tabId) => { actions.focusTab(sessionId, tabId) },
+    focusTab: focusTab ?? ((tabId) => { actions.focusTab(sessionId, tabId) }),
     focusPane: (paneId) => { actions.focusPane(sessionId, paneId) },
     splitPane: splitPane ?? ((paneId) => { actions.splitPane(sessionId, paneId) }),
     // The guide is unique per pane: the control is drawn only while its pane
@@ -270,7 +275,7 @@ function ExitFullscreenGlyph(): ReactNode {
 }
 
 /** The panel's two controls, placed by the kit at the top-right pane's strip end. */
-function PanelChrome({ sessionId, fullscreen, actions, t, shortcuts, toggleFullscreen }: Pick<PanelProps, 'sessionId' | 'actions' | 't' | 'fullscreen' | 'shortcuts' | 'toggleFullscreen'>): ReactNode {
+function PanelChrome({ fullscreen, t, shortcuts, toggleFullscreen, toggleExpanded }: Pick<PanelProps, 't' | 'fullscreen' | 'shortcuts' | 'toggleFullscreen' | 'toggleExpanded'>): ReactNode {
   const next: DockMode = fullscreen ? 'push' : 'fullscreen'
   const modeLabel = fullscreen ? t('chrome.exitFullscreen') : t('chrome.toFullscreen')
   const mode = shortcuts.find(entry => entry.id === 'pane.fullscreen.toggle')
@@ -296,7 +301,7 @@ function PanelChrome({ sessionId, fullscreen, actions, t, shortcuts, toggleFulls
           aria-label={t('chrome.collapseAria')}
           aria-keyshortcuts={toggle?.aria}
           data-sidebar-right-toggle
-          onClick={() => { actions.toggleExpanded(sessionId) }}
+          onClick={toggleExpanded}
         >
           <IconPanelLeftOutlineRegular className={css.collapseGlyph} />
         </button>
@@ -360,7 +365,7 @@ function SidebarPanel(panel: PanelProps & { width: number; panelRef: RefObject<H
           minPaneFraction={0.2}
           canAddTab={paneId => guideIn(surface.layout, paneId) === undefined}
           canCloseTab={tabId => canCloseTab(surface, tabId)}
-          intents={intentsFor(sessionId, actions, openTab, panel.closeTab, panel.splitPane)}
+          intents={intentsFor(sessionId, actions, openTab, panel.closeTab, panel.splitPane, panel.focusTab)}
           labels={dockLabels(t, panel.shortcuts.find(entry => entry.id === 'pane.split'), panel.shortcuts.find(entry => entry.id === 'page.close'))}
           renderTab={bodiesFor(panel)}
           renderTabTitle={titlesFor(panel)}
@@ -368,7 +373,7 @@ function SidebarPanel(panel: PanelProps & { width: number; panelRef: RefObject<H
           keepMounted={tab => types.find(type => type.kind === tab.kind)?.keepMounted === true}
           getTabTriggerProps={panel.getTabTriggerProps} tabMenuOpen={panel.tabMenuOpen}
           chrome={<PanelChrome
-            sessionId={sessionId} fullscreen={fullscreen} actions={actions} t={t}
+            fullscreen={fullscreen} t={t} toggleExpanded={panel.toggleExpanded}
             shortcuts={panel.shortcuts} toggleFullscreen={panel.toggleFullscreen}
           />}
           onRoom={reportRoom}
@@ -387,7 +392,7 @@ function SidebarPanel(panel: PanelProps & { width: number; panelRef: RefObject<H
  */
 export function RightbarSeat({
   sessionId, width, viewportWidth, canShow, useStore, actions, t, renderSlot, syncPresentation, measureRoom, reportAutoFullscreen,
-  openTab, closeTab, useContextMenu, useContextMenuTarget, useTabTypes, useTabNavigation, occurrence, retainTab,
+  openTab, closeTab, focusTab, toggleExpanded, useContextMenu, useContextMenuTarget, useTabTypes, useTabNavigation, occurrence, retainTab,
   active, useShortcuts, splitPane, toggleFullscreen, useFlash,
 }: RightbarSeatProps): ReactNode {
   const { getTriggerProps } = useContextMenu()
@@ -457,7 +462,7 @@ export function RightbarSeat({
 
   if (surface === undefined) return null
   const panel: PanelProps = {
-    sessionId, actions, t, renderSlot, surface, openTab, closeTab, getTabTriggerProps, tabMenuOpen, useTabTypes, useTabNavigation,
+    sessionId, actions, t, renderSlot, surface, openTab, closeTab, focusTab, toggleExpanded, getTabTriggerProps, tabMenuOpen, useTabTypes, useTabNavigation,
     useStore, useFlash, occurrence,
     fullscreen, autoFullscreen, reportRoom, active, retainTab, shortcuts, splitPane, toggleFullscreen,
   }

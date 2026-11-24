@@ -256,7 +256,10 @@ export function apply(ctx: Context): void {
         return {
           ...nodeSources(binding),
           fileDrag: ctx.fileDrag.actions,
-          hooks: { presentation, interactionIds: ctx.uiConversation.interactions },
+          hooks: {
+            presentation, interactionIds: ctx.uiConversation.interactions,
+            filePathBase: session.projections.faceOf('workingDirectory'),
+          },
           dispatchInteraction: gesture => ctx.uiConversation.interactions.dispatch(sessionId, gesture),
           // Files open in the right Sidebar, not in a desktop application: the
           // content stays in the product, beside the conversation that produced
