@@ -417,9 +417,10 @@ export interface HeroAgentPresetOwnerProps {
   children?: never
 }
 
-/** Header actions derive their state from standard Session props. */
+/** Header actions share the navigation already exposed by the visible tab strip. */
 export interface ConversationHeaderActionOwnerProps {
-  /** Marker field: entries receive no owner-specific values. */
+  /** A visible fleet tab already provides subagent navigation, regardless of selection. */
+  hasVisibleSubagentView?: boolean
   children?: never
 }
 

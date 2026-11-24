@@ -89,6 +89,7 @@ export function ConversationSessionHeader({
     .filter(viewTab => !SUBAGENT_VIEW_IDS.includes(viewTab.id) || hasChildSessionsForTab || viewTab.id === selectedId)
   const active = resolveActiveView(headerTabs, selectedId)
   const showTabs = !hideChrome && tabs.length > 1
+  const hasVisibleSubagentView = showTabs && headerTabs.some(viewTab => viewTab.id === 'fleet')
   return (
     <>
       <div className={css.titleRow}>
@@ -154,7 +155,7 @@ export function ConversationSessionHeader({
               // Keep single-View actions outside the title's clipping and
               // fade, so shrinking the title cannot hide their hit targets.
               <div className={css.headerActions}>
-                {renderSlot('conversation.session.header.actions', {})}
+                {renderSlot('conversation.session.header.actions', { hasVisibleSubagentView })}
               </div>
             )}
             <div className={css.headerUtilities}>
@@ -189,7 +190,7 @@ export function ConversationSessionHeader({
             ))}
           </div>
           <div className={css.tabActions}>
-            {renderSlot('conversation.session.header.actions', {})}
+            {renderSlot('conversation.session.header.actions', { hasVisibleSubagentView })}
           </div>
         </div>
       )}

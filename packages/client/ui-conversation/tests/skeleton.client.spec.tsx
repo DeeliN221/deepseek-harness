@@ -33,7 +33,8 @@ import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
 import type {
   ComposerBarOwnerProps, ConversationContentInputProps, ConversationContentProps,
-  ConversationHeaderLineageOwnerProps, ConversationSessionHeaderSlotProps, ConversationSessionSlotProps, ConversationSlotProps,
+  ConversationHeaderActionOwnerProps, ConversationHeaderLineageOwnerProps, ConversationSessionHeaderSlotProps,
+  ConversationSessionSlotProps, ConversationSlotProps,
   ConversationViewsProps, HeroFrameOwnerProps,
 } from '../src/client/contract/slots.ts'
 import type { ViewTab } from '../src/client/contract/views.ts'
@@ -208,6 +209,7 @@ function mount(
   const slotCalls: string[] = []
   const headerFactory = vi.fn<ConversationSessionHeaderSlotProps['renderFactorySlot']>(() => null)
   const lineageOwners: ConversationHeaderLineageOwnerProps[] = []
+  const headerActionOwners: ConversationHeaderActionOwnerProps[] = []
   const viewTabs = options.viewTabs ?? [
     { id: 'chat', label: 'Chat' },
     { id: 'trajectory', label: 'Trajectory' },
@@ -233,6 +235,7 @@ function mount(
       return opts?.fallback ?? null
     }
     if (key === 'conversation.session.header.actions') {
+      headerActionOwners.push(owner as ConversationHeaderActionOwnerProps)
       return <div data-testid="session-header-actions" />
     }
     if (key === 'conversation.header') {
@@ -419,6 +422,8 @@ function mount(
   const view = render(<ConversationMainPanel {...props} />)
   return {
     view, store, wiring, sink, retargetWorkspace, session, conversation, slotCalls, headerFactory, lineageOwners, seatOwners, open,
+    headerActionOwner: () => headerActionOwners.at(-1),
+    sessions,
     pickerOwner: () => pickerOwner,
     frameOwner: () => frameOwners.at(-1),
     rerender: () => { view.rerender(<ConversationMainPanel {...props} />) },
@@ -780,6 +785,38 @@ describe('ConversationRoot resident composer', () => {
     const b = mount(sessionSnapshotOf(), undefined, undefined, { viewTabs, childSubagent: true })
     expect(within(b.view.getByRole('tablist')).getAllByRole('tab').map(tab => tab.textContent))
       .toEqual(['chat', 'fleet', 'context'])
+  })
+
+  it.each(['chat', 'fleet'])('reports the visible fleet entry while %s is selected', (selected) => {
+    const viewTabs = ['chat', 'fleet', 'context'].map(id => ({ id, label: id }))
+    const b = mount(sessionSnapshotOf(), undefined, undefined, { viewTabs, childSubagent: true })
+    fireEvent.click(b.view.getByRole('tab', { name: selected }))
+    expect(b.headerActionOwner()?.hasVisibleSubagentView).toBe(true)
+    expect(b.view.getByRole('tab', { name: selected }).getAttribute('aria-selected')).toBe('true')
+    expect(b.view.getByTestId('session-header-actions')).toBeTruthy()
+  })
+
+  it.each([
+    { ids: ['chat', 'context'], childSubagent: true },
+    { ids: ['chat', 'fleet', 'context'], childSubagent: false },
+    { ids: ['fleet'], childSubagent: true },
+  ])('keeps the catalog fallback when no fleet tab is rendered: $ids', ({ ids, childSubagent }) => {
+    const viewTabs = ids.map(id => ({ id, label: id }))
+    const b = mount(sessionSnapshotOf(), undefined, undefined, { viewTabs, childSubagent })
+    expect(b.headerActionOwner()?.hasVisibleSubagentView).toBe(false)
+  })
+
+  it('updates fleet-entry availability as the child Session list changes', () => {
+    const viewTabs = ['chat', 'fleet', 'context'].map(id => ({ id, label: id }))
+    const b = mount(sessionSnapshotOf(), undefined, undefined, { viewTabs, childSubagent: true })
+    expect(b.headerActionOwner()?.hasVisibleSubagentView).toBe(true)
+    act(() => {
+      const list = b.sessions.getSnapshot()
+      b.sessions.set({ ...list, byId: Object.fromEntries(Object.entries(list.byId)
+        .filter(([, row]) => row.origin !== 'subagent')) })
+    })
+    expect(b.view.queryByRole('tab', { name: 'fleet' })).toBeNull()
+    expect(b.headerActionOwner()?.hasVisibleSubagentView).toBe(false)
   })
 
   it('selects a View from its tab and keeps the selection across rerenders', () => {
