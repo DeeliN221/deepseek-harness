@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react
 import { TextPreview } from '../src/client/TextPreview.tsx'
 import type { TextPreviewProps } from '../src/client/TextPreview.tsx'
 import { sourceText } from '../src/client/edit.ts'
+import { RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import { ABSOLUTE_PATH, TAB_ID, harness, page } from './fixtures.client.ts'
 
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
@@ -44,7 +45,7 @@ describe('explicit source editing', () => {
 
   it('retains a dirty draft after external changes and a conflict, and confirms before reload', async () => {
     const h = editorHarness('original\n')
-    h.saveEdit.mockResolvedValue({ ok: false, error: { code: 'workspace-file/conflict', message: 'changed', details: { path: ABSOLUTE_PATH } } })
+    h.saveEdit.mockResolvedValue({ ok: false, error: new RemoteError('workspace-file/conflict', 'changed', { path: ABSOLUTE_PATH }) })
     const { view, input } = await enter(h)
     fireEvent.change(input, { target: { value: 'draft\n' } })
     act(() => { h.setVersion('external') })
@@ -79,7 +80,7 @@ describe('explicit source editing', () => {
 
   it('keeps failed reads read-only and prevents saving an unknown binary source', async () => {
     const h = editorHarness()
-    h.readEdit.mockResolvedValue({ ok: false, error: { code: 'workspace-file/not-text', message: 'binary', details: { path: ABSOLUTE_PATH } } })
+    h.readEdit.mockResolvedValue({ ok: false, error: new RemoteError('workspace-file/not-text', 'binary', { path: ABSOLUTE_PATH }) })
     const view = render(<TextPreview {...h.props} />)
     fireEvent.click(await view.findByRole('button', { name: 'edit.start' }))
     await view.findByRole('alert')

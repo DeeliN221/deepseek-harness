@@ -274,6 +274,7 @@ function mount(options: MountOptions = {}) {
   const unbind = vi.fn()
   const tabActions = {
     bindCommands: vi.fn<SidebarRightTabActions['bindCommands']>(() => unbind),
+    setLeaveGuard: vi.fn<SidebarRightTabActions['setLeaveGuard']>(),
     openResource: vi.fn<SidebarRightTabActions['openResource']>(),
     openTab: vi.fn<SidebarRightTabActions['openTab']>(),
     close: vi.fn<SidebarRightTabActions['close']>(),

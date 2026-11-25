@@ -40,7 +40,7 @@ function tabInfo(visible: boolean, openResource: SidebarRightTabActions['openRes
       visible,
       navigation: { address: 'sidebar://forge-panel', params: undefined, revision: 0 },
       signal: new AbortController().signal,
-      actions: { bindCommands: () => () => {}, openResource, openTab: unused, close: unused },
+      actions: { bindCommands: () => () => {}, setLeaveGuard: unused, openResource, openTab: unused, close: unused },
     },
   }
 }
