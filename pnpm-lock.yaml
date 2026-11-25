@@ -3825,6 +3825,26 @@ importers:
         specifier: workspace:*
         version: link:../../host/webserver
 
+  packages/client/sidebar-files:
+    dependencies:
+      '@deepseek-ai/dsh-client-ui-sidebar-files':
+        specifier: workspace:*
+        version: link:../ui-sidebar-files
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+
+  packages/client/sidebar-terminal:
+    dependencies:
+      '@deepseek-ai/dsh-client-ui-sidebar-terminal':
+        specifier: workspace:*
+        version: link:../ui-sidebar-terminal
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+
   packages/client/store:
     devDependencies:
       '@deepseek-ai/cordis':
