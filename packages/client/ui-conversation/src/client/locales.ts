@@ -9,10 +9,11 @@ const PLAN_NEXT_ACTION_EN = 'describe your task to generate plan'
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
-  'dispatch.label': '异步派发',
+  'dispatch.label': '后台派发',
+  'dispatch.hint': '对下一条消息生效；已开始的任务继续执行。',
   'dispatch.description': '开启后优先派发适合的执行任务；关闭时在当前会话执行。对下一条消息生效',
   'dispatch.failed': '保存失败',
-  'dispatch.unavailable': '异步派发设置暂不可用',
+  'dispatch.unavailable': '后台派发设置暂不可用',
   'quote.remove': '移除引用',
   'shortcut.newline': '换行',
   'shortcut.complementary': '使用互补的 Queue／Steer 方式',
@@ -426,6 +427,7 @@ export type ConversationKey = keyof typeof zh
 /** English dictionary, checked complete against the zh key set. */
 export const en = {
   'dispatch.label': 'Async dispatch',
+  'dispatch.hint': 'Applies to the next message; existing work continues.',
   'dispatch.description': 'Prefer dispatching suitable execution tasks when on; work in this conversation when off. Applies to the next message.',
   'dispatch.failed': 'Save failed',
   'dispatch.unavailable': 'Async dispatch settings are unavailable',
@@ -841,6 +843,7 @@ export const en = {
 /** Japanese copy, checked against the English keys. */
 export const ja = {
   'dispatch.label': 'Async dispatch',
+  'dispatch.hint': 'Applies to the next message; existing work continues.',
   'dispatch.description': 'Applies to the next message; existing work continues.',
   'dispatch.failed': 'Save failed',
   'dispatch.unavailable': 'Async dispatch settings are unavailable',
@@ -1254,6 +1257,7 @@ export const ja = {
 /** Spanish dictionary, checked against the English keys. */
 export const es = {
   'dispatch.label': 'Async dispatch',
+  'dispatch.hint': 'Applies to the next message; existing work continues.',
   'dispatch.description': 'Applies to the next message; existing work continues.',
   'dispatch.failed': 'Save failed',
   'dispatch.unavailable': 'Async dispatch settings are unavailable',
@@ -1669,6 +1673,7 @@ export const es = {
 /** French dictionary, checked against the English keys. */
 export const fr = {
   'dispatch.label': 'Async dispatch',
+  'dispatch.hint': 'Applies to the next message; existing work continues.',
   'dispatch.description': 'Applies to the next message; existing work continues.',
   'dispatch.failed': 'Save failed',
   'dispatch.unavailable': 'Async dispatch settings are unavailable',
@@ -2084,6 +2089,7 @@ export const fr = {
 /** German dictionary, checked against the English keys. */
 export const de = {
   'dispatch.label': 'Async dispatch',
+  'dispatch.hint': 'Applies to the next message; existing work continues.',
   'dispatch.description': 'Applies to the next message; existing work continues.',
   'dispatch.failed': 'Save failed',
   'dispatch.unavailable': 'Async dispatch settings are unavailable',
@@ -2499,6 +2505,7 @@ export const de = {
 /** Russian dictionary, checked against the English keys. */
 export const ru = {
   'dispatch.label': 'Async dispatch',
+  'dispatch.hint': 'Applies to the next message; existing work continues.',
   'dispatch.description': 'Applies to the next message; existing work continues.',
   'dispatch.failed': 'Save failed',
   'dispatch.unavailable': 'Async dispatch settings are unavailable',
@@ -2914,6 +2921,7 @@ export const ru = {
 /** Portuguese dictionary, checked against the English keys. */
 export const pt = {
   'dispatch.label': 'Async dispatch',
+  'dispatch.hint': 'Applies to the next message; existing work continues.',
   'dispatch.description': 'Applies to the next message; existing work continues.',
   'dispatch.failed': 'Save failed',
   'dispatch.unavailable': 'Async dispatch settings are unavailable',

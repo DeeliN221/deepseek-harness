@@ -4,13 +4,13 @@ import { afterEach, expect, it, onTestFinished, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import { TeamModePane, TeamModeToggle, type TeamModePaneProps, type TeamModeToggleProps } from '../src/client/TeamModeToggle.tsx'
+import { TeamModeToggle, type TeamModeToggleProps } from '../src/client/TeamModeToggle.tsx'
 import { de, en, es, fr, ja, pt, ru, zh } from '../src/client/locales.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
 
 afterEach(cleanup)
 
-type TestProps = TeamModePaneProps & TeamModeToggleProps
+type TestProps = TeamModeToggleProps
 
 function props(enabled: boolean | undefined, selectTeamMode = vi.fn(async () => null as string | null), child?: 'addressed' | 'listed', requestedModel: boolean | 'loading' = false): TestProps {
   return {
@@ -28,50 +28,24 @@ function props(enabled: boolean | undefined, selectTeamMode = vi.fn(async () => 
 
 it.each(Object.entries({ zh, en, ja, es, fr, de, ru, pt }).flatMap(([locale, dictionary]) =>
   [false, true].map(enabled => ({ locale, dictionary, enabled })),
-))('opens Team settings from the $locale summary without changing mode (enabled: $enabled)', ({ locale, dictionary, enabled }) => {
+))('toggles directly from the $locale menu row (enabled: $enabled)', async ({ dictionary, enabled }) => {
   const input = props(enabled)
   render(<TeamModeToggle {...input} t={makeTranslate(dictionary)} />)
-  const summary = screen.getByRole('menuitem', { name: new RegExp(dictionary['command.title']) })
-  expect(summary.textContent).toBe(dictionary['command.title'] + dictionary[enabled ? 'mode.on' : 'mode.off'])
-  if (locale === 'zh') expect(summary.textContent).toBe(`智能体团队协作${enabled ? '开启' : '关闭'}`)
-  expect(summary.getAttribute('data-model-menu-pane')).toBe('agent-team')
-  expect(screen.queryByRole('switch')).toBeNull()
-  expect(screen.queryByRole('tooltip', { hidden: true })).toBeNull()
-  expect(screen.queryByText(dictionary['mode.description'])).toBeNull()
-  fireEvent.click(summary)
-  expect(input.openPane).toHaveBeenCalledExactlyOnceWith({ key: 'agent-team', title: dictionary['command.title'] })
-  expect(input.selectTeamMode).not.toHaveBeenCalled()
-  expect(input.requestDisableConfirmation).not.toHaveBeenCalled()
+  const toggle = screen.getByRole('switch', { name: dictionary['command.title'] })
+  expect(toggle.getAttribute('aria-checked')).toBe(String(enabled))
+  expect(screen.queryByRole('menuitem')).toBeNull()
+  await act(async () => { fireEvent.click(toggle) })
+  expect(input.selectTeamMode).toHaveBeenCalledExactlyOnceWith(!enabled)
+  expect(input.openPane).not.toHaveBeenCalled()
   expect(input.dismiss).not.toHaveBeenCalled()
-})
-
-it('keeps summary state projection-owned and blocks navigation while locked', () => {
-  const input = props(false)
-  const view = render(<TeamModeToggle {...input} />)
-  expect(screen.getByText('关闭')).toBeTruthy()
-  const lockedInput = props(true)
-  view.rerender(<TeamModeToggle {...lockedInput} locked />)
-  expect(screen.getByText('开启')).toBeTruthy()
-  const summary = screen.getByRole('menuitem')
-  expect(summary.hasAttribute('disabled')).toBe(true)
-  fireEvent.click(summary)
-  expect(lockedInput.openPane).not.toHaveBeenCalled()
-})
-
-it('allows reading settings from the summary while model history loads', () => {
-  const input = props(false, undefined, undefined, 'loading')
-  render(<TeamModeToggle {...input} />)
-  fireEvent.click(screen.getByRole('menuitem'))
-  expect(input.openPane).toHaveBeenCalledOnce()
-  expect(input.selectTeamMode).not.toHaveBeenCalled()
 })
 
 it.each([false, true])('blocks repeated writes while waiting for persisted mode (enabled: %s)', async (enabled) => {
   const pending = Promise.withResolvers<string | null>()
   onTestFinished(async () => { await act(async () => { pending.resolve(null) }) })
   const select = vi.fn(() => pending.promise)
-  const view = render(<TeamModePane {...props(enabled, select)} />)
-  const toggle = screen.getByRole('switch', { name: '开启智能体团队协作' })
+  const view = render(<TeamModeToggle {...props(enabled, select)} />)
+  const toggle = screen.getByRole('switch', { name: '智能体团队协作' })
   toggle.focus()
   fireEvent.click(toggle)
   expect(select).toHaveBeenCalledExactlyOnceWith(!enabled)
@@ -83,7 +57,7 @@ it.each([false, true])('blocks repeated writes while waiting for persisted mode 
   await act(async () => { pending.resolve(null) })
   expect(toggle.getAttribute('aria-checked')).toBe(String(enabled))
   expect(toggle.hasAttribute('disabled')).toBe(false)
-  view.rerender(<TeamModePane {...props(!enabled, select)} />)
+  view.rerender(<TeamModeToggle {...props(!enabled, select)} />)
   expect(toggle.getAttribute('aria-checked')).toBe(String(!enabled))
 })
 
@@ -93,7 +67,7 @@ it.each(['returned', 'error', 'string'])('reports rejected mode writes through t
     if (failure === 'string') throw 'offline'
     return 'offline'
   }))
-  render(<TeamModePane {...input} />)
+  render(<TeamModeToggle {...input} />)
   const toggle = screen.getByRole('switch')
   toggle.focus()
   await act(async () => { fireEvent.click(toggle) })
@@ -104,15 +78,15 @@ it.each(['returned', 'error', 'string'])('reports rejected mode writes through t
 
 it.each(Object.entries({ zh, en, ja, es, fr, de, ru, pt }).flatMap(([locale, dictionary]) =>
   [false, true].map(locked => ({ locale, dictionary, locked })),
-))('shows the full $locale explanation in the settings pane (locked: $locked)', ({ dictionary, locked }) => {
+))('provides the $locale explanation without a paragraph or subpane (locked: $locked)', ({ dictionary, locked }) => {
   const input = props(false)
-  render(<TeamModePane {...input} locked={locked} t={makeTranslate(dictionary)} />)
+  render(<TeamModeToggle {...input} locked={locked} t={makeTranslate(dictionary)} />)
   const description = screen.getByText(dictionary['mode.description'], { exact: true })
-  expect(description.tagName).toBe('P')
+  expect(description.tagName).toBe('SPAN')
   expect(screen.queryByRole('tooltip', { hidden: true })).toBeNull()
   expect(screen.queryByRole('button')).toBeNull()
-  const toggle = screen.getByRole('switch', { name: dictionary['mode.label'], description: dictionary['mode.description'] })
-  expect(document.activeElement === toggle).toBe(!locked)
+  const toggle = screen.getByRole('switch', { name: dictionary['command.title'], description: dictionary['mode.description'] })
+  expect(document.activeElement === toggle).toBe(false)
   expect(toggle.compareDocumentPosition(description) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(toggle.hasAttribute('disabled')).toBe(locked)
   expect(toggle.getAttribute('aria-checked')).toBe('false')
@@ -121,7 +95,7 @@ it.each(Object.entries({ zh, en, ja, es, fr, de, ru, pt }).flatMap(([locale, dic
 
 it('dismisses the menu before requesting disable confirmation after a recorded model request', () => {
   const input = props(true, undefined, undefined, true)
-  render(<TeamModePane {...input} />)
+  render(<TeamModeToggle {...input} />)
   fireEvent.click(screen.getByRole('switch'))
   expect(input.dismiss).toHaveBeenCalledOnce()
   expect(input.dismiss).toHaveBeenCalledBefore(vi.mocked(input.requestDisableConfirmation))
@@ -132,7 +106,7 @@ it('dismisses the menu before requesting disable confirmation after a recorded m
 
 it.each([false, true])('enables directly regardless of model history (requested: %s)', async (requested) => {
   const input = props(false, undefined, undefined, requested)
-  render(<TeamModePane {...input} />)
+  render(<TeamModeToggle {...input} />)
   await act(async () => { fireEvent.click(screen.getByRole('switch')) })
   expect(input.selectTeamMode).toHaveBeenCalledWith(true)
   expect(input.requestDisableConfirmation).not.toHaveBeenCalled()
@@ -141,7 +115,7 @@ it.each([false, true])('enables directly regardless of model history (requested:
 
 it('disables directly when a model is selected but no request has been recorded', async () => {
   const input = props(true)
-  render(<TeamModePane {...input} />)
+  render(<TeamModeToggle {...input} />)
   await act(async () => { fireEvent.click(screen.getByRole('switch')) })
   expect(input.selectTeamMode).toHaveBeenCalledWith(false)
   expect(input.requestDisableConfirmation).not.toHaveBeenCalled()
@@ -150,7 +124,7 @@ it('disables directly when a model is selected but no request has been recorded'
 
 it('waits for model history before allowing the settings switch to change', () => {
   const input = props(true, undefined, undefined, 'loading')
-  render(<TeamModePane {...input} />)
+  render(<TeamModeToggle {...input} />)
   expect(screen.getByRole('switch').hasAttribute('disabled')).toBe(true)
   fireEvent.click(screen.getByRole('switch'))
   expect(input.selectTeamMode).not.toHaveBeenCalled()
@@ -158,8 +132,7 @@ it('waits for model history before allowing the settings switch to change', () =
 })
 
 it.each([
-  { name: 'summary', Component: TeamModeToggle },
-  { name: 'settings pane', Component: TeamModePane },
+  { name: 'direct switch', Component: TeamModeToggle },
 ])('hides the $name until the Team projection is available', ({ Component }) => {
   const { container } = render(<Component {...props(undefined)} />)
   expect(container.textContent).toBe('')
@@ -168,8 +141,7 @@ it.each([
 })
 
 it.each([
-  { name: 'summary', Component: TeamModeToggle },
-  { name: 'settings pane', Component: TeamModePane },
+  { name: 'direct switch', Component: TeamModeToggle },
 ].flatMap(entry => (['addressed', 'listed'] as const).map(child => ({ ...entry, child }))))(
   'hides the $name on a $child child Session', ({ Component, child }) => {
     const input = props(false, undefined, child)

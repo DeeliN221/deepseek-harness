@@ -1,46 +1,55 @@
 .control {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 8px;
-  border: 0;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 34px;
+  padding: 0 8px;
   border-radius: var(--dsw-radius-md);
-  background: transparent;
   color: var(--dsw-alias-label-primary);
-  font: inherit;
   font-size: 13px;
   line-height: 20px;
-  text-align: start;
-  cursor: pointer;
 }
 
-.control:hover,
-.control:focus-visible {
-  outline: none;
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-.control[aria-disabled="true"] {
-  color: var(--dsw-alias-label-dimmed);
-  cursor: default;
-}
-
-.copy {
-  flex: 1;
+.label {
   min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The switch receives label-area taps as well, without a second click handler. */
+.control .toggle {
+  position: static;
+  flex: none;
+}
+
+.toggle::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--dsw-radius-md);
+}
+
+.control:has(.toggle:focus-visible) {
+  outline: 2px solid var(--dsw-alias-label-primary);
+  outline-offset: -2px;
 }
 
 .description {
-  display: block;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
-  line-height: 18px;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
 }
 
-.state {
-  display: flex;
-  flex: 0 0 16px;
-  align-items: center;
-  justify-content: center;
+@media (hover: hover) {
+  .control:has(.toggle:not(:disabled)):hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+@media (pointer: coarse) {
+  .control { min-height: 44px; }
 }
