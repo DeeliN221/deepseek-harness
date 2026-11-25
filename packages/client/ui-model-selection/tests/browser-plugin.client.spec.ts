@@ -74,6 +74,10 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
   let selected = defaultSelection
   const calls = { models: 0, select: 0 }
   const projections = new Map<SessionId, SnapshotStore<ModelSelectionProjection | undefined>>()
+  // The real Session Controller clears prior-Host projections on reconnection.
+  ctx.on('connection/reset', () => {
+    for (const projection of projections.values()) projection.set(undefined)
+  })
   // Whether the Host advertises available models for the current route.
   let routable = true
   let catalogFailure = false
@@ -397,7 +401,7 @@ describe('ui-model-selection dual entry', () => {
     expect(face.directory.getSnapshot().pending).toBeNull()
   })
 
-  it('hides the effective selection until the reconnected catalog validates it', async () => {
+  it('hides the effective selection until the reconnected projection arrives', async () => {
     const b = await bench()
     b.mint('s1')
     const face = b.seat().inject!(sid('s1'))
@@ -437,7 +441,7 @@ describe('ui-model-selection dual entry', () => {
     }
   })
 
-  it('retains the selected model while refreshing its catalog', async () => {
+  it('applies confirmed selection changes while refreshing its catalog', async () => {
     const b = await bench()
     b.mint('s1')
     const face = b.seat().inject!(sid('s1'))
@@ -450,7 +454,7 @@ describe('ui-model-selection dual entry', () => {
       next: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
     })
     expect(face.directory.getSnapshot()).toMatchObject({
-      current: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      current: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
       groups: GROUPS,
       routable: null,
       status: 'loading',
