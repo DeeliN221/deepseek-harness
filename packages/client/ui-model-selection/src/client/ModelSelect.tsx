@@ -356,6 +356,12 @@ export function ModelSelect(
       // control inside the card (a retry button) keeps the browser's traversal,
       // so the keystroke stays unconsumed there.
       const focused = document.activeElement
+      // Leaving a preference switch never changes its value; Space/Enter toggle it.
+      if (focused?.getAttribute('role') === 'switch') {
+        event.preventDefault()
+        close(true)
+        return
+      }
       const rows = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>(
         'button[role="menuitem"]:not([disabled]), button[role="menuitemradio"]:not([disabled]), button[role="menuitemcheckbox"]:not([disabled]), button[role="switch"]:not([disabled])',
       ) ?? [])
@@ -377,7 +383,7 @@ export function ModelSelect(
     }
     if ((event.key === 'Home' || event.key === 'End') && !(event.target instanceof HTMLInputElement)) {
       event.preventDefault()
-      const rows = menuRef.current?.querySelectorAll<HTMLButtonElement>('button[role^="menuitem"]:not([disabled])')
+      const rows = menuRef.current?.querySelectorAll<HTMLButtonElement>('button[role^="menuitem"]:not([disabled]), button[role="switch"]:not([disabled])')
       rows?.[event.key === 'Home' ? 0 : rows.length - 1]?.focus()
       return
     }
@@ -390,6 +396,13 @@ export function ModelSelect(
   const onBlur = (event: FocusEvent<HTMLDivElement>): void => {
     // Clicking explanation text can clear focus without leaving its page.
     if (pane.kind === 'detail' && event.relatedTarget === null) return
+    // Native disabled switches lose focus during their save. Keep keyboard focus
+    // inside the menu rather than dismissing it halfway through the operation.
+    if (event.relatedTarget === null && event.target instanceof HTMLButtonElement
+      && event.target.getAttribute('role') === 'switch' && event.target.disabled) {
+      menuRef.current?.focus()
+      return
+    }
     if (event.relatedTarget instanceof Node && (
       rootRef.current?.contains(event.relatedTarget) === true
       || menuRef.current?.contains(event.relatedTarget) === true
@@ -531,7 +544,7 @@ export function ModelSelect(
         <MenuSurface
           ref={menuRef}
           data-model-menu=""
-          tabIndex={pane.kind === 'detail' ? -1 : undefined}
+          tabIndex={-1}
           id={`${id}-menu`}
           className={clsx(css.menu, (pane.kind === 'root' || pane.kind === 'detail') && css.settingsMenu)}
           style={anchorStyle}

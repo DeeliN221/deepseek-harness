@@ -84,6 +84,27 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('ModelSelect checkbox menu navigation', () => {
+  it('includes direct switches in Home/End and arrows but does not toggle them when Tab leaves', async () => {
+    const toggle = vi.fn()
+    render(<ModelSelect locked={false} available directory={createSnapshotStore(state())} load={vi.fn()}
+      resolveText={resolveText} select={vi.fn()} t={t}
+      renderSlot={(name, _owner, options) => name === 'conversation.input.model.options'
+        ? <button type="button" role="switch" aria-checked="true" onClick={toggle}>后台派发</button>
+        : options?.fallback ?? null} />)
+    const trigger = screen.getByRole('button', { name: /选择模型，当前/ })
+    fireEvent.click(trigger)
+    const control = screen.getByRole('switch', { name: '后台派发' })
+    fireEvent.keyDown(trigger, { key: 'End' })
+    expect(document.activeElement).toBe(control)
+    fireEvent.keyDown(control, { key: 'Home' })
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: /^模型/ }))
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowUp' })
+    expect(document.activeElement).toBe(control)
+    fireEvent.keyDown(control, { key: 'Tab' })
+    expect(toggle).not.toHaveBeenCalled()
+    expect(screen.queryByRole('switch')).toBeNull()
+    await waitFor(() => expect(document.activeElement).toBe(trigger))
+  })
   it('includes contributed checkbox rows in arrows, Home/End and Tab activation, with Escape returning focus', async () => {
     const toggle = vi.fn()
     render(<ModelSelect locked={false} available directory={createSnapshotStore(state())} load={vi.fn()}

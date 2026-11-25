@@ -1,6 +1,6 @@
 /** Session dispatch preference contributed to the existing model menu. */
 import { useId, useRef, useState } from 'react'
-import { IconCheckOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Switch, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '../contract/model-menu.ts'
 import type {} from '../../dispatch-types.ts'
@@ -11,7 +11,7 @@ export interface AsyncDispatchInjected {
   save: (enabled: boolean) => Promise<string | null>
 }
 
-/** A checked menu item uses the projected value, never an optimistic copy of the preference. */
+/** The direct menu switch uses the projected value, never an optimistic copy of the preference. */
 export function AsyncDispatchControl({ useSession, useProjection, useAccess, locked, reportFailure, t, save }:
   PropsRuntime<'conversation.input.model.options'> & PropsLocale<'conversation'> & AsyncDispatchInjected) {
   const checked = useProjection('asyncDispatch') === true
@@ -38,16 +38,13 @@ export function AsyncDispatchControl({ useSession, useProjection, useAccess, loc
     }
   }
   return (
-    <button type="button" role="menuitemcheckbox" className={css.control}
-      aria-label={t('dispatch.label')} aria-checked={checked} aria-disabled={disabled} aria-busy={saving}
-      aria-describedby={descriptionId} onClick={() => { void change() }}>
-      <span className={css.copy}>
-        <span>{t('dispatch.label')}</span>
-        <span id={descriptionId} className={css.description}>{t('dispatch.description')}</span>
-      </span>
-      <span className={css.state} aria-hidden="true">
-        {saving ? <StateDot state="ongoing" size={14} /> : checked ? <IconCheckOutlineRegular /> : null}
-      </span>
-    </button>
+    <Tooltip label={t('dispatch.hint')} side="top" portal delayMs={500} focusDelayMs={500}>
+      <div className={css.control} aria-busy={saving}>
+        <span className={css.label}>{t('dispatch.label')}</span>
+        <Switch className={css.toggle} checked={checked} disabled={disabled}
+          label={t('dispatch.label')} describedBy={descriptionId} onChange={() => { void change() }} />
+        <span id={descriptionId} className={css.description}>{t('dispatch.hint')}</span>
+      </div>
+    </Tooltip>
   )
 }
