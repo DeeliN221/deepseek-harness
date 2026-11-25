@@ -17,7 +17,7 @@ import type { ModelCatalogDirectory } from './catalog.ts'
 
 /** Directory snapshot both entries render from. */
 export interface ModelDirectoryState {
-  /** Saved selection, retained even when its provider or model leaves the catalog. */
+  /** Saved or default selection; confirmed changes do not wait for catalog availability. */
   current: ModelSelection | null
   /** Saved effort caption retained when the selected model is unavailable. */
   retainedEffort?: string
@@ -172,7 +172,9 @@ export class ModelDirectory {
       : reasoning?.efforts.find(level => level.id === effort)?.name ?? effort
     if (catalog.status !== 'ready' || catalog.value === null || projected === undefined) {
       this.store.set({
-        current: catalog.value === null ? null : this.store.getSnapshot().current,
+        current: projected === undefined
+          ? catalog.value === null ? null : this.store.getSnapshot().current
+          : intended ?? null,
         ...retainedEffort === undefined ? {} : { retainedEffort },
         routable: null,
         groups: catalog.value?.groups ?? [],
