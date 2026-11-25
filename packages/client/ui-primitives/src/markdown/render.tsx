@@ -691,7 +691,6 @@ function AvailableMarkdownFileLink({ file, glyph, children }: MarkdownFileLinkPr
       {...getTriggerProps?.({ kind: 'file', ...file })}
       onClick={() => { openFile(file.path, file.line === undefined ? undefined : { line: file.line }) }}
     >
-      {glyph && <LinkIconMedium kind={classifyLinkPath(file.path)} className={css.linkIcon} />}
       {children}
     </button>
   )

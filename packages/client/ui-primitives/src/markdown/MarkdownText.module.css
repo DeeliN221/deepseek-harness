@@ -330,7 +330,9 @@
 }
 
 .fileLink {
-  max-width: 100%;
+  display: inline;
+  white-space: normal;
+  overflow-wrap: anywhere;
   text-align: inherit;
 }
 
