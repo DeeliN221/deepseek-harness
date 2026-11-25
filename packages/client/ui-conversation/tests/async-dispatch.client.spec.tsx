@@ -20,7 +20,7 @@ describe('async dispatch menu item', () => {
   it('keeps the committed check while saving, blocks repeat activation and reports a rejected save', async () => {
     let finish!: (error: string | null) => void
     const p = props(true)
-    p.save = vi.fn(() => new Promise(resolve => { finish = resolve }))
+    p.save = vi.fn(() => new Promise<string | null>((resolve) => { finish = resolve }))
     const view = render(<AsyncDispatchControl {...p} />)
     const row = screen.getByRole('switch', { name: /后台派发/ })
     expect(row.getAttribute('aria-checked')).toBe('true')
@@ -44,7 +44,7 @@ describe('async dispatch menu item', () => {
     await waitFor(() => expect(p.reportFailure).toHaveBeenCalledWith('保存失败: Error: offline'))
     expect(screen.getByRole('switch').parentElement?.getAttribute('aria-busy')).toBe('false')
   })
-  it.each(['locked', 'removed', 'denied'] as const)('does not write when %s', reason => {
+  it.each(['locked', 'removed', 'denied'] as const)('does not write when %s', (reason) => {
     const p = props()
     if (reason === 'locked') p.locked = true
     if (reason === 'removed') p.useSession = (select => select({ subagent: null, removed: true } as never)) as typeof p.useSession

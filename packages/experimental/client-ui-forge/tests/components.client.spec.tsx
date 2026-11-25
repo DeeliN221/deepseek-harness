@@ -107,7 +107,7 @@ describe('ChangesTabTitle', () => {
         id: 'tab-1' as TabId, kind: 'forge-changes', contentId, title: 'Captured', visible: true,
         navigation: { address: contentId, params: undefined, revision: 1 },
         signal: new AbortController().signal,
-        actions: { bindCommands: () => () => {}, openResource: unused, openTab: unused, close: unused },
+        actions: { bindCommands: () => () => {}, setLeaveGuard: unused, openResource: unused, openTab: unused, close: unused },
       },
     }
     return render(<ChangesTabTitle useTabInfo={() => info} t={t} />)

@@ -7,6 +7,7 @@ import {
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { createSnapshotStore, type ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import { apply, inject, type ViewTab } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ConversationSettings, ViewTabSelection } from '../src/submission-settings.ts'
 
@@ -55,7 +56,9 @@ describe('target-neutral Conversation apply wiring', () => {
     const declare = () => b.runtime.slots.register({
       name: 'conversation.input.model',
       children: { 'conversation.input.model.options': { kind: 'list', scope: 'session' } },
-    }, () => null)
+    }, ({ renderSlot }: PropsRenderSlots<'conversation.input.model.options'>) => renderSlot('conversation.input.model.options', {
+      locked: false, dismiss: vi.fn(), reportFailure: vi.fn(), openPane: vi.fn(),
+    }))
     const dispose = declare()
     expect(b.runtime.slots.entries('conversation.input.model.options').map(row => row.options.id)).toEqual(['async-dispatch'])
     dispose()
