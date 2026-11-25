@@ -55,3 +55,58 @@ export async function readColdSessionLog(
     events: [...events, ...interruptedTurnClosers(events)],
   }
 }
+
+/** One bounded cold tail read of a stored session log. */
+export interface ColdSessionTail {
+  /** Aliasing state of the persisted events this read decoded. */
+  readonly eventState: SessionSeedEventState
+  /** Immutable Session identity metadata carried by the artifact. */
+  readonly header: SessionHeader
+  /** Exact fork-inherited event count paired with {@link header}. */
+  readonly inheritedEventCount: SessionLogOffset
+  /** The newest committed records, in seq order, ending at the last record. */
+  readonly events: SessionEvent[]
+  /** Every committed record in the stored log, including the skipped prefix. */
+  readonly totalEvents: number
+}
+
+/**
+ * Read only the newest records of one stored session log without taking
+ * ownership, mutating storage, or materializing the prefix they follow.
+ *
+ * A caller that needs nothing older than a bounded page (an opening window, a
+ * paged backward read at the log end) does not have to pay for the whole log.
+ * The returned records end at the same last record {@link readColdSessionLog}
+ * would return and carry their absolute seqs, so a page cut from this window is
+ * identical to the same page cut from a full read; `totalEvents` keeps absolute
+ * addressing intact.
+ * @param persistence - the mounted persistence service.
+ * @param sessionId - the stored session to read.
+ * @param maxEvents - requested tail size in records.
+ * @param signal - optional cancellation for the open and read work.
+ * @returns the tail read, or `undefined` when the provider cannot read a tail cheaply.
+ */
+export async function readColdSessionTail(
+  persistence: SessionPersistence,
+  sessionId: SessionId,
+  maxEvents: number,
+  signal?: AbortSignal,
+): Promise<ColdSessionTail | undefined> {
+  const options = signal === undefined ? undefined : { signal }
+  const handle = await persistence.open(sessionId, 'read', options)
+  try {
+    if (typeof handle.readTail !== 'function') return undefined
+    const read = await handle.readTail(maxEvents, options)
+    return {
+      eventState: read.eventState,
+      header: handle.header,
+      inheritedEventCount: handle.inheritedEventCount,
+      events: read.events as SessionEvent[],
+      totalEvents: read.totalEvents,
+    }
+  } finally {
+    await handle.close().catch(() => {
+      // The read result is the actionable outcome; a read-handle close failure adds nothing.
+    })
+  }
+}

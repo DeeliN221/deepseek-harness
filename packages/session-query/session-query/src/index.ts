@@ -68,7 +68,7 @@ export {
   SESSION_QUERY_READ_WINDOW_MAX,
   SessionQueryError,
 } from './config.ts'
-export { readColdSessionLog } from './cold-read.ts'
+export { readColdSessionLog, readColdSessionTail, type ColdSessionTail } from './cold-read.ts'
 export type { ColdSessionLog } from './cold-read.ts'
 export { extractSessionEventText } from './extraction.ts'
 export { buildSessionEventRecords, buildSessionEventSearchDocuments } from './documents.ts'

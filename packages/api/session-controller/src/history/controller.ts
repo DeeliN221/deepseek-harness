@@ -3,6 +3,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { SessionLogOffset, SessionSeq, isAppendSurfaceEvent } from '@deepseek-ai/dsh-session'
 import type { SessionId, SessionEvent } from '@deepseek-ai/dsh-session'
+import { readColdSessionTail } from '@deepseek-ai/dsh-session-query'
 import type { SessionObservation } from '@deepseek-ai/dsh-session-query'
 import { RemoteError, remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import {
@@ -38,6 +39,8 @@ export class HistoryController {
    */
   async events(request: SessionPageRequest, signal: AbortSignal): Promise<SessionEventsPage> {
     const spec = resolveHistoryRequest(request)
+    const tail = await this.coldTailPage(spec, signal)
+    if (tail !== undefined) return tail
     try {
       return await this.usingObservation({ sessionId: addressId(request.address), projection: request.address.kind === 'subagent' }, signal, (observation) => {
         validateObservationAddress(request.address, observation)
@@ -47,6 +50,49 @@ export class HistoryController {
       if (remoteErrorOf(error)?.code === 'session/not-found') rejectNotFound(request.address)
       throw error
     }
+  }
+
+  /**
+   * Serve one plain tail page from a bounded tail read when the Session is not
+   * live. A page that starts at the log end can only reach the newest
+   * `maxEvents` records, so decoding that window yields exactly the page a full
+   * read would cut; anything narrower (an explicit cut or cursor, a live
+   * Session, a subagent address, a provider without a tail read) falls back to
+   * the observation path.
+   * @param request - validated page request.
+   * @param spec - request window with resolved event and message budgets.
+   * @param signal - read cancellation.
+   * @returns the page, or `undefined` when the full read path must serve it.
+   */
+  private async coldTailPage(
+    request: SessionPageRequest & { readonly maxEvents: number; readonly maxMessages: number },
+    signal: AbortSignal,
+  ): Promise<SessionEventsPage | undefined> {
+    const address = request.address
+    if (address.kind !== 'session') return undefined
+    if (request.throughSeq !== undefined || request.beforeSeq !== undefined) return undefined
+    if (this.ctx.sessions.get(address.sessionId) !== undefined) return undefined
+    const persistence = this.ctx.get('sessionPersistence')
+    if (persistence === undefined) return undefined
+    let tail
+    try {
+      tail = await readColdSessionTail(persistence, address.sessionId, request.maxEvents, signal)
+    } catch {
+      // Absence, corruption, and provider refusals keep the observation path's own taxonomy.
+      return undefined
+    }
+    if (tail === undefined) return undefined
+    if (tail.header.cwd === undefined) return undefined
+    validateAddress(address, tail.header, tail.inheritedEventCount, undefined)
+    if (tail.totalEvents <= 0) return { cursor: SessionSeq(-1), records: [], hasMore: false }
+    const cursor = SessionSeq(tail.totalEvents - 1)
+    const baseSeq = tail.totalEvents - tail.events.length
+    // paginate addresses events by absolute seq; the window keeps its absolute
+    // positions so the cut, hasMore, and returned rows match a full read exactly.
+    const log: SessionEvent[] = new Array<SessionEvent>(tail.totalEvents)
+    for (let index = 0; index < tail.events.length; index++) log[baseSeq + index] = tail.events[index] as SessionEvent
+    const page = paginate(log, undefined, request.maxMessages, cursor, request.turnWindow, request.maxEvents)
+    return { cursor, records: pageRecords(page.events), hasMore: page.hasMore }
   }
 
   /**

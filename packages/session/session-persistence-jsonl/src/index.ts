@@ -26,7 +26,7 @@ import {
   SessionAlreadyExistsError, SessionPersistenceNotFoundError,
   assertStoredId, materializeCreateHeader, sessionFormatVersionRefusal, validateStoredEvents,
   type SessionAccess, type SessionHandle,
-  type SessionHandleReadResult,
+  type SessionHandleReadResult, type SessionHandleTailReadResult,
   type SessionLocation, type SessionPersistenceCreateOptions,
   type SessionPersistenceListOptions, type SessionPersistenceOpenOptions,
   type SessionPersistenceSnapshot, type SessionPersistenceStatOptions,
@@ -39,7 +39,7 @@ import { SESSION_FORMAT_VERSION, SessionLogOffset } from '@deepseek-ai/dsh-sessi
 import type { SessionEvent, SessionId, SessionHeader, SessionLogOffset as SessionLogOffsetType } from '@deepseek-ai/dsh-session'
 import {
   assertNoRetiredHeaderFields, encodeSegment, eventLines, generationLogFilename, generationLogPath, logPath, logSuffix,
-  parseGenerationLogFilename, projectDir, scanLog, sessionDir, SessionLogScanner, toHeaderLine,
+  parseGenerationLogFilename, projectDir, scanLog, scanLogTail, sessionDir, SessionLogScanner, toHeaderLine,
   type JsonlCompression,
 } from './format.ts'
 import {
@@ -832,6 +832,36 @@ class JsonlSessionPersistence extends SessionPersistence {
     }
     const { bytes, identity } = await readStableJsonlFile(path, signal)
     return this.decodeStoredLog(path, expectedId, bytes, fileRevision(identity), signal)
+  }
+
+  /**
+   * Read the trailing records of one stored log without decoding the prefix
+   * they follow. This is the bounded counterpart of {@link readStoredLog}: it
+   * validates the header and the served window, never the whole prefix, and it
+   * reports the complete record count so a caller can still address absolute
+   * seqs.
+   * @param path - the artifact file to read.
+   * @param expectedId - the session identity the artifact must carry.
+   * @param maxEvents - requested tail size in records.
+   * @param signal - optional cancellation for the stat/read/decode work.
+   * @returns the tail records and the total committed record count.
+   */
+  async readTailLog(
+    path: string,
+    expectedId: SessionId,
+    maxEvents: number,
+    signal?: AbortSignal,
+  ): Promise<SessionHandleTailReadResult> {
+    signal?.throwIfAborted()
+    const { bytes } = await readStableJsonlFile(path, signal)
+    signal?.throwIfAborted()
+    const plaintext = this.compression === 'zstd' ? await decompressZstdPrefix(bytes) : bytes
+    signal?.throwIfAborted()
+    const tail = scanLogTail(plaintext, maxEvents)
+    assertStoredId(expectedId, tail.meta)
+    signal?.throwIfAborted()
+    const frozen = freezeStoredEvents(tail.events)
+    return { eventState: frozen.eventState, events: frozen.events, totalEvents: tail.totalEvents }
   }
 
   /** Decode and memoize one already-stable current physical snapshot. */
