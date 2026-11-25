@@ -1013,3 +1013,30 @@ it('leaves unnamed history titles empty for locale-owned row labels', () => {
   const sessions = list(item)
   expect(deriveFlat(sessions, [item.id], noRows, noAttention)[0]?.title).toBe('')
 })
+
+describe('Workspace tuck-away visibility', () => {
+  const sessions = withMain(list(summary('a1', 10), summary('b1', 20)), sid('a1'))
+  const workspaces = [workspace('alpha', ['a1']), workspace('beta', ['b1'])]
+
+  it('filters tucked Workspaces from the daily tree without touching their Sessions', () => {
+    const groups = deriveGroups(sessions, workspaces, noRows, noAttention, {
+      ...view(['alpha', 'beta']), hiddenWorkspaceIds: ['beta'],
+    })
+    expect(groups.map(group => group.key)).toEqual(['alpha'])
+    expect(workspaces[1]!.sessionIds).toEqual([sid('b1')])
+  })
+
+  it('keeps the Workspace hosting the current Session visible', () => {
+    const groups = deriveGroups(sessions, workspaces, noRows, noAttention, {
+      ...view(['alpha']), hiddenWorkspaceIds: ['alpha'],
+    })
+    expect(groups.map(group => group.key)).toContain('alpha')
+  })
+
+  it('reveals tucked Workspaces through the restore view', () => {
+    const groups = deriveGroups(sessions, workspaces, noRows, noAttention, {
+      ...view(['alpha', 'beta']), hiddenWorkspaceIds: ['alpha'], showHiddenWorkspaces: true,
+    })
+    expect(groups.map(group => group.key)).toEqual(['alpha', 'beta'])
+  })
+})

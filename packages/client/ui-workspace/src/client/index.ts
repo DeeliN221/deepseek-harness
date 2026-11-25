@@ -342,6 +342,17 @@ export function apply(ctx: Context): void {
       ? [{ id: 'delete', label: ctx.locale.bind(NS)('delete.workspace'), icon: { key: 'workspace.delete' }, danger: true, separatorBefore: true,
         run: () => { requestWorkspaceAction(workspaceId, displayTitle, 'delete') } }] : [],
   }), 'workspace: delete menu action')
+  // Presentation-only tuck: the Workspace record, its Sessions and logs stay.
+  ctx.effect(() => ctx.contextMenus.register({
+    id: 'workspace.tuck', target: 'workspace', order: 350,
+    resolve: ({ workspaceId }) => {
+      const hidden = viewInstance.getSnapshot().hiddenWorkspaceIds?.[String(workspaceId)] === true
+      const label = ctx.locale.bind(NS)(hidden ? 'menu.untuckWorkspace' : 'menu.tuckWorkspace')
+      return [{ id: hidden ? 'untuck' : 'tuck', label,
+        icon: { key: hidden ? 'workspace.archive' : 'workspace.unarchive' },
+        run: () => { viewInstance.actions.setWorkspaceHidden(String(workspaceId), !hidden) } }]
+    },
+  }), 'workspace: tuck menu action')
   const browserInjected = (): WorkspaceBrowserInjected => ({
     settleWorkspaceAction: () => { workspaceActionRequest.set(null) },
     // Explicit group actions keep their target; unscoped New Session inherits

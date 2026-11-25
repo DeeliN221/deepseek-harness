@@ -1058,7 +1058,7 @@ it('captures Workspace menu requests, rechecks mutable access, and withdraws reg
   const target = { kind: 'workspace' as const, value: { workspaceId: 'alpha' as WorkspaceId, path: '/projects/alpha', displayTitle: 'Alpha' } }
   const menu = b.ctx.contextMenus.resolve(target)
   await menu.ready
-  expect(menu.source.getSnapshot().map(item => item.id)).toEqual(['workspace.rename/rename', 'workspace.delete/delete'])
+  expect(menu.source.getSnapshot().map(item => item.id)).toEqual(['workspace.rename/rename', 'workspace.delete/delete', 'workspace.tuck/tuck'])
   menu.select('workspace.rename/rename')
   expect(browser.hooks.workspaceActionRequest.getSnapshot()).toEqual({ action: 'rename', workspaceId: 'alpha', displayTitle: 'Alpha', storedTitle: 'alpha' })
   browser.settleWorkspaceAction()
