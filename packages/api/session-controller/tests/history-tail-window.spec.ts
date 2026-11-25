@@ -5,13 +5,14 @@ import { DEFAULT_MAX_MESSAGES, paginate } from '../src/history.ts'
 
 /** One append-surface message event at its absolute seq. */
 function message(seq: number, role: 'user' | 'assistant'): SessionEvent {
-  return {
+  const row = {
     type: role === 'user' ? 'user/message' : 'assistant/message',
     seq: SessionSeq(seq),
     time: seq,
     data: { turn: 1, step: 1 },
     surfaceOp: 'append',
-  } as unknown as SessionEvent
+  }
+  return row as SessionEvent
 }
 
 /** A contiguous log of alternating user/assistant messages. */

@@ -50,7 +50,7 @@ describe('bounded tail scan', () => {
   })
 
   it('still refuses a log written by a foreign format version', () => {
-    const header = { ...toHeaderLine(meta('tail-read-fixture', '/workspace/one')), version: 99 } as unknown as string
+    const header = { ...toHeaderLine(meta('tail-read-fixture', '/workspace/one')), version: 99 }
     const buffer = Buffer.from(`${JSON.stringify(header)}\n${eventLines(events)}\n`)
     expect(() => scanLogTail(buffer, 1)).toThrow(/format/)
   })

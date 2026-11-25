@@ -583,9 +583,12 @@ export function scanLogTail(plaintext: Buffer, maxEvents: number): SessionLogTai
     const newline = plaintext.indexOf(0x0A, position)
     if (newline === -1) break
     if (row >= firstServed) {
-      const decoded: unknown = JSON.parse(plaintext.subarray(position, newline).toString('utf8')) as unknown
+      const decoded: unknown = JSON.parse(plaintext.subarray(position, newline).toString('utf8'))
+      if (typeof decoded !== 'object' || decoded === null || Array.isArray(decoded)) {
+        throw new Error(`corrupt session log: committed record ${String(row)} is not a JSON object`)
+      }
       assertV4RowAdmission(decoded, KNOWN_SESSION_EVENT_TYPES)
-      const seq = (decoded as { readonly seq?: unknown }).seq
+      const { seq } = decoded as { readonly seq?: unknown }
       if (seq !== row) {
         throw new Error(`corrupt session log: committed record ${String(row)} carries seq ${String(seq)}`)
       }
