@@ -33,6 +33,20 @@ exports[`sidebar shell snapshots > renders Windows caption controls in expanded 
         />
       </button>
     </div>
+    <nav
+      aria-label="Global panels"
+      class="dshsn-tools"
+      data-wide="false"
+    >
+      <div
+        class="dshsn-settings"
+      >
+        <div
+          data-slot="sidebar.settings"
+          style="display: contents;"
+        />
+      </div>
+    </nav>
     <div
       class="newSessionRow"
     >
@@ -94,14 +108,6 @@ exports[`sidebar shell snapshots > renders Windows caption controls in expanded 
           style="display: contents;"
         />
       </div>
-      <div
-        class="settingsArea"
-      >
-        <div
-          data-slot="sidebar.settings"
-          style="display: contents;"
-        />
-      </div>
     </div>
   </div>
 </div>
@@ -151,32 +157,22 @@ exports[`sidebar shell snapshots > renders Windows caption controls in expanded 
               </span>
             </div>
           </span>
-          <span
-            class="brandName"
-          >
-            <div
-              data-slot="sidebar.brand.name"
-              style="display: contents;"
-            >
-              <span
-                class="localBuildBrand copyVersion"
-                data-copy-version="true"
-              >
-                <span
-                  class="localBuildTitle"
-                >
-                  DSH Local Build
-                </span>
-                <span
-                  class="buildVersion"
-                >
-                  1.2.3-rc.4-abc1234-dirty
-                </span>
-              </span>
-            </div>
-          </span>
         </span>
       </button>
+      <nav
+        aria-label="Global panels"
+        class="dshsn-tools"
+        data-wide="true"
+      >
+        <div
+          class="dshsn-settings"
+        >
+          <div
+            data-slot="sidebar.settings"
+            style="display: contents;"
+          />
+        </div>
+      </nav>
       <button
         aria-label="Collapse sidebar"
         class="iconButton toggle"
@@ -191,6 +187,20 @@ exports[`sidebar shell snapshots > renders Windows caption controls in expanded 
           height="16"
           width="16"
         />
+      </button>
+    </div>
+    <div
+      aria-label="Navigation views"
+      class="dshsn-tabs"
+      role="tablist"
+    >
+      <button
+        aria-selected="true"
+        class="dshsn-tab dshsn-tabOn"
+        role="tab"
+        type="button"
+      >
+        Workspace
       </button>
     </div>
     <div
@@ -213,16 +223,11 @@ exports[`sidebar shell snapshots > renders Windows caption controls in expanded 
             >
               <svg
                 aria-hidden="true"
-                data-content="532cf99a"
-                data-icon="dsw-icon-new-chat-outline-medium"
-                height="14"
-                width="14"
+                data-content="6e5e38f3"
+                data-icon="dsw-icon-new-chat-outline-regular"
+                height="16"
+                width="16"
               />
-              <span
-                class="newSessionLabel wide"
-              >
-                New Session
-              </span>
             </span>
           </span>
         </button>
@@ -257,14 +262,6 @@ exports[`sidebar shell snapshots > renders Windows caption controls in expanded 
       >
         <div
           data-slot="sidebar.footer.action"
-          style="display: contents;"
-        />
-      </div>
-      <div
-        class="settingsArea"
-      >
-        <div
-          data-slot="sidebar.settings"
           style="display: contents;"
         />
       </div>
@@ -324,6 +321,20 @@ exports[`sidebar shell snapshots > renders the collapsed rail after the crossfad
         />
       </button>
     </div>
+    <nav
+      aria-label="Global panels"
+      class="dshsn-tools"
+      data-wide="false"
+    >
+      <div
+        class="dshsn-settings"
+      >
+        <div
+          data-slot="sidebar.settings"
+          style="display: contents;"
+        />
+      </div>
+    </nav>
     <div
       class="newSessionRow"
     >
@@ -385,14 +396,6 @@ exports[`sidebar shell snapshots > renders the collapsed rail after the crossfad
           style="display: contents;"
         />
       </div>
-      <div
-        class="settingsArea"
-      >
-        <div
-          data-slot="sidebar.settings"
-          style="display: contents;"
-        />
-      </div>
     </div>
   </div>
 </div>
@@ -442,32 +445,22 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
               </span>
             </div>
           </span>
-          <span
-            class="brandName"
-          >
-            <div
-              data-slot="sidebar.brand.name"
-              style="display: contents;"
-            >
-              <span
-                class="localBuildBrand copyVersion"
-                data-copy-version="true"
-              >
-                <span
-                  class="localBuildTitle"
-                >
-                  DSH Local Build
-                </span>
-                <span
-                  class="buildVersion"
-                >
-                  1.2.3-rc.4-abc1234-dirty
-                </span>
-              </span>
-            </div>
-          </span>
         </span>
       </button>
+      <nav
+        aria-label="Global panels"
+        class="dshsn-tools"
+        data-wide="true"
+      >
+        <div
+          class="dshsn-settings"
+        >
+          <div
+            data-slot="sidebar.settings"
+            style="display: contents;"
+          />
+        </div>
+      </nav>
       <button
         aria-label="Collapse sidebar"
         class="iconButton toggle"
@@ -482,6 +475,20 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
           height="16"
           width="16"
         />
+      </button>
+    </div>
+    <div
+      aria-label="Navigation views"
+      class="dshsn-tabs"
+      role="tablist"
+    >
+      <button
+        aria-selected="true"
+        class="dshsn-tab dshsn-tabOn"
+        role="tab"
+        type="button"
+      >
+        Workspace
       </button>
     </div>
     <div
@@ -504,16 +511,11 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
             >
               <svg
                 aria-hidden="true"
-                data-content="532cf99a"
-                data-icon="dsw-icon-new-chat-outline-medium"
-                height="14"
-                width="14"
+                data-content="6e5e38f3"
+                data-icon="dsw-icon-new-chat-outline-regular"
+                height="18"
+                width="18"
               />
-              <span
-                class="newSessionLabel wide"
-              >
-                New Session
-              </span>
             </span>
           </span>
         </button>
@@ -548,14 +550,6 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
       >
         <div
           data-slot="sidebar.footer.action"
-          style="display: contents;"
-        />
-      </div>
-      <div
-        class="settingsArea"
-      >
-        <div
-          data-slot="sidebar.settings"
           style="display: contents;"
         />
       </div>
@@ -608,32 +602,22 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
               </span>
             </div>
           </span>
-          <span
-            class="brandName"
-          >
-            <div
-              data-slot="sidebar.brand.name"
-              style="display: contents;"
-            >
-              <span
-                class="localBuildBrand copyVersion"
-                data-copy-version="true"
-              >
-                <span
-                  class="localBuildTitle"
-                >
-                  DSH 本地构建
-                </span>
-                <span
-                  class="buildVersion"
-                >
-                  1.2.3-rc.4-abc1234-dirty
-                </span>
-              </span>
-            </div>
-          </span>
         </span>
       </button>
+      <nav
+        aria-label="全局面板"
+        class="dshsn-tools"
+        data-wide="true"
+      >
+        <div
+          class="dshsn-settings"
+        >
+          <div
+            data-slot="sidebar.settings"
+            style="display: contents;"
+          />
+        </div>
+      </nav>
       <button
         aria-label="收起侧边栏"
         class="iconButton toggle"
@@ -648,6 +632,20 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
           height="16"
           width="16"
         />
+      </button>
+    </div>
+    <div
+      aria-label="导航视图"
+      class="dshsn-tabs"
+      role="tablist"
+    >
+      <button
+        aria-selected="true"
+        class="dshsn-tab dshsn-tabOn"
+        role="tab"
+        type="button"
+      >
+        工作区
       </button>
     </div>
     <div
@@ -670,16 +668,11 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
             >
               <svg
                 aria-hidden="true"
-                data-content="532cf99a"
-                data-icon="dsw-icon-new-chat-outline-medium"
-                height="14"
-                width="14"
+                data-content="6e5e38f3"
+                data-icon="dsw-icon-new-chat-outline-regular"
+                height="18"
+                width="18"
               />
-              <span
-                class="newSessionLabel wide"
-              >
-                新会话
-              </span>
             </span>
           </span>
         </button>
@@ -714,14 +707,6 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
       >
         <div
           data-slot="sidebar.footer.action"
-          style="display: contents;"
-        />
-      </div>
-      <div
-        class="settingsArea"
-      >
-        <div
-          data-slot="sidebar.settings"
           style="display: contents;"
         />
       </div>
