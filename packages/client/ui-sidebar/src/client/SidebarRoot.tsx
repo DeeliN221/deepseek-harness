@@ -375,7 +375,7 @@ export function SidebarRoot({
       {canStartSession && (
         <div className={css.newSessionRow}>
           {renderSlot('sidebar.session.action', { wide }, {
-            children: !wide && (
+            children: (
               <Tooltip label={t('session.new.label')} shortcutKeys={newShortcut?.keys} delayMs={500} side={captionTooltipSide} disabled={wide}>
                 <button
                   type="button"
