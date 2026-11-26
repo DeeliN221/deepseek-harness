@@ -271,6 +271,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the current turn and step positions; do not mutate the returned value.',
       },
       {
+        signature: 'executionOf(session: Session): AgentExecution | undefined',
+        description: 'Read durable execution ownership without loading history or choosing a default.',
+        parameters: [{ name: 'session', description: 'prepared Session to inspect.' }],
+        returns: 'the bound engine, or undefined for unbound native and legacy Sessions.',
+      },
+      {
+        signature: 'registerDriver(execution: \'acp\', provider: AgentDriverProvider): () => void',
+        description: 'Register an external driver for the calling fiber\'s lifetime.',
+        parameters: [{ name: 'execution', description: 'external execution engine.' }, { name: 'provider', description: 'synchronous idle-driver constructor.' }],
+        returns: 'the Cordis effect disposer; fiber disposal awaits all leased lifecycles.',
+      },
+      {
+        signature: 'acquireDriver(execution: \'acp\'): AgentDriverLease',
+        description: 'Capture one active provider without exposing its registry slot.',
+        parameters: [{ name: 'execution', description: 'external execution engine to acquire.' }],
+        returns: 'a lease whose listeners are drained on provider unload.',
+      },
+      {
         signature: 'currentInitiator(): Agent | undefined',
         description: 'Read the Agent that initiated the inherited asynchronous driver chain. Use this optional form for logging, tracing, metrics, or host attribution that also supports agentless calls. When a parent creates a child, setup reports the causal parent while the setup callback\'s Agent parameter identifies the child.',
         parameters: [],
@@ -4911,6 +4929,36 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Host Remote file reads and workspace directory observations over the composed filesystem.',
     methods: [
       {
+        signature: '@Remote async ownerList(path: string, signal: AbortSignal): Promise<OwnerDirectoryListing>',
+        description: 'List any directory for the authenticated human owner, independently of Sessions.',
+        parameters: [{ name: 'path', description: 'absolute directory path in the filesystem\'s execution world.' }, { name: 'signal', description: 'caller cancellation.' }],
+        returns: 'canonical directory and parent paths, with bounded direct children.',
+      },
+      {
+        signature: '@Remote async ownerStat(path: string, signal: AbortSignal): Promise<WorkspaceFileStat>',
+        description: 'Inspect a regular file for the authenticated human owner.',
+        parameters: [{ name: 'path', description: 'absolute file path.' }, { name: 'signal', description: 'caller cancellation.' }],
+        returns: 'canonical identity, version and size.',
+      },
+      {
+        signature: '@Remote async ownerRead(path: string, signal: AbortSignal): Promise<OwnerFileText>',
+        description: 'Load complete text for explicit editing; refuse a file changed during the read.',
+        parameters: [{ name: 'path', description: 'absolute regular file path; final symlinks are refused.' }, { name: 'signal', description: 'caller cancellation.' }],
+        returns: 'exact UTF-8 text and its version, bounded by maxFileBytes.',
+      },
+      {
+        signature: '@Remote async saveText(path: string, request: WorkspaceFileSaveRequest, signal: AbortSignal): Promise<WorkspaceFileStat>',
+        description: 'Replace an existing text file after an authenticated owner\'s explicit save.',
+        parameters: [{ name: 'path', description: 'absolute regular file path; final symlinks are refused.' }, { name: 'request', description: 'complete replacement text and required loaded version.' }, { name: 'signal', description: 'caller cancellation before publication.' }],
+        returns: 'the committed version and replacement byte size.',
+      },
+      {
+        signature: '@Remote({ mode: \'stream\' }) ownerChanges(path: string, signal: AbortSignal): AsyncIterable<WorkspaceFileWatchFrame>',
+        description: 'Observe a file or directory chosen by the authenticated human owner.',
+        parameters: [{ name: 'path', description: 'absolute target path, independently of any Session workspace.' }, { name: 'signal', description: 'generation cancellation.' }],
+        returns: 'readiness then current metadata for target invalidations.',
+      },
+      {
         signature: '@Remote async read( workspaceFileScope: WorkspaceFileScope, path: string, range: WorkspaceFileRange, signal: AbortSignal, ): Promise<WorkspaceFileText>',
         description: 'Read one page of lines from a UTF-8 file readable by the filesystem backend.',
         parameters: [{ name: 'workspaceFileScope', description: 'header-derived workspace root for the Session identity on the wire.' }, { name: 'path', description: 'absolute path or path relative to the workspace root; files outside it are allowed.' }, { name: 'range', description: 'the line window; omitted fields take the page defaults.' }, { name: 'signal', description: 'caller cancellation.' }],
@@ -5967,6 +6015,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type AgentCancelCause = {\n    readonly kind: \'user\';\n} | {\n    readonly kind: \'parent\';\n} | {\n    readonly kind: \'hook\';\n    readonly reason: string;\n} | {\n    readonly kind: \'disposed\';\n};',
   },
   {
+    name: 'AgentDriver',
+    declaration: 'export interface AgentDriver extends Agent {\n    readonly scope: Scope;\n}',
+  },
+  {
+    name: 'AgentDriverInput',
+    declaration: 'export interface AgentDriverInput {\n    readonly ctx: Context;\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly projections: {\n        readonly modelSelection: () => ModelSelectionProjectionState;\n        readonly inbox: () => InboxState;\n    };\n    readonly lastTurn: number;\n}',
+  },
+  {
+    name: 'AgentDriverLease',
+    declaration: 'export interface AgentDriverLease extends AgentDriverProvider {\n    onDispose(listener: () => Promise<void>): () => void;\n}',
+  },
+  {
+    name: 'AgentDriverProvider',
+    declaration: 'export interface AgentDriverProvider {\n    create(input: AgentDriverInput): AgentDriver;\n}',
+  },
+  {
+    name: 'AgentExecution',
+    declaration: 'export type AgentExecution = \'llm\' | \'acp\';',
+  },
+  {
     name: 'AgentFactory',
     declaration: 'export interface AgentFactory {\n    createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>;\n    resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>;\n}',
   },
@@ -5976,7 +6044,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AgentOptions',
-    declaration: 'export interface AgentOptions {\n    provider?: string;\n    model?: string;\n    reasoningEffort?: ReasoningEffortId | undefined;\n    maxTokens?: number;\n}',
+    declaration: 'export interface AgentOptions {\n    execution?: AgentExecution;\n    provider?: string;\n    model?: string;\n    reasoningEffort?: ReasoningEffortId | undefined;\n    maxTokens?: number;\n}',
   },
   {
     name: 'AgentPresetComposition',
@@ -7343,6 +7411,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ImageVariantId = Branded<\'ImageVariantId\'>;',
   },
   {
+    name: 'InboxState',
+    declaration: 'export interface InboxState {\n    readonly \'next-turn\': readonly UserMessage[];\n    readonly \'next-step\': readonly UserMessage[];\n}',
+  },
+  {
     name: 'IncompatiblePlugin',
     declaration: 'export interface IncompatiblePlugin {\n    name: string;\n    version: string;\n    runtimeVersion: string;\n    requirements: Record<string, string>;\n}',
   },
@@ -7975,6 +8047,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ModelReasoningEffort {\n    readonly id: string;\n    readonly name: string;\n    readonly description?: string;\n}',
   },
   {
+    name: 'ModelSelectionProjectionState',
+    declaration: 'export interface ModelSelectionProjectionState {\n    readonly lastUsed: ModelSelection | null;\n    readonly pending: ModelSelection | null;\n}',
+  },
+  {
     name: 'ModEvents',
     declaration: 'export interface ModEvents {\n    \'session.start\': {\n        input: SessionStartInput;\n        result: SessionStartResult;\n    };\n    \'session.end\': {\n        input: SessionEndInput;\n        result: SessionEndResult;\n    };\n    \'prompt.submit\': {\n        input: PromptSubmitInput;\n        result: PromptSubmitResult;\n    };\n    \'turn.start\': {\n        input: TurnStartInput;\n        result: TurnStartResult;\n    };\n    \'turn.complete\': {\n        input: TurnCompleteInput;\n        result: TurnCompleteResult;\n    };\n    \'tool.call\': {\n        input: ToolCallInput;\n        result: ToolCallResult;\n    };\n    \'command.run\': {\n        input: CommandRunInput;\n        result: CommandRunResult;\n    };\n    \'ui.render\': {\n        input: UiRenderInput;\n        result: UiRenderResult;\n    };\n}',
   },
@@ -8109,6 +8185,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'OTelEventScalar',
     declaration: 'export type OTelEventScalar = string | number | boolean;',
+  },
+  {
+    name: 'OwnerDirectoryListing',
+    declaration: 'export interface OwnerDirectoryListing {\n    readonly absolutePath: string;\n    readonly parentPath: string;\n    readonly entries: readonly WorkspaceDirectoryEntry[];\n    readonly truncated: boolean;\n}',
+  },
+  {
+    name: 'OwnerFileText',
+    declaration: 'export interface OwnerFileText extends WorkspaceFileStat {\n    readonly text: string;\n}',
   },
   {
     name: 'OwnerIdentityRequest',
@@ -8895,6 +8979,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ScheduleViewResult = ScheduleCatalogEntry | ScheduleNotFoundResult;',
   },
   {
+    name: 'Scope',
+    declaration: 'export interface Scope {\n    ctx: Context;\n    rawDispose: () => Promise<void> | void;\n    dispose(): Promise<void>;\n}',
+  },
+  {
     name: 'Scoped',
     declaration: 'export type Scoped<T extends object> = object & {\n    readonly [ScopedBrand]: T;\n};',
   },
@@ -8992,7 +9080,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionCancelRequest',
-    declaration: 'export interface SessionCancelRequest {\n    readonly sessionId: SessionId;\n}',
+    declaration: 'export interface SessionCancelRequest {\n    readonly sessionId: SessionId;\n    readonly cascade?: boolean;\n}',
   },
   {
     name: 'SessionCancelValue',
@@ -9148,7 +9236,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionHandle',
-    declaration: 'export interface SessionHandle extends AsyncDisposable {\n    readonly id: SessionId;\n    readonly header: SessionHeader;\n    readonly inheritedEventCount: SessionLogOffset;\n    readonly access: SessionAccess;\n    read(offset?: number, length?: number, options?: SessionHandleReadOptions): Promise<SessionHandleReadResult>;\n    append(events: readonly SessionEvent[], options?: SessionHandleAppendOptions): Promise<void>;\n    flush(options?: SessionHandleFlushOptions): Promise<void>;\n    close(): Promise<void>;\n}',
+    declaration: 'export interface SessionHandle extends AsyncDisposable {\n    readonly id: SessionId;\n    readonly header: SessionHeader;\n    readonly inheritedEventCount: SessionLogOffset;\n    readonly access: SessionAccess;\n    read(offset?: number, length?: number, options?: SessionHandleReadOptions): Promise<SessionHandleReadResult>;\n    readTail?(maxEvents: number, options?: SessionHandleReadOptions): Promise<SessionHandleTailReadResult>;\n    append(events: readonly SessionEvent[], options?: SessionHandleAppendOptions): Promise<void>;\n    flush(options?: SessionHandleFlushOptions): Promise<void>;\n    close(): Promise<void>;\n}',
   },
   {
     name: 'SessionHandleAppendOptions',
@@ -9165,6 +9253,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionHandleReadResult',
     declaration: 'export interface SessionHandleReadResult {\n    readonly eventState: SessionSeedEventState;\n    readonly events: readonly SessionEvent[];\n}',
+  },
+  {
+    name: 'SessionHandleTailReadResult',
+    declaration: 'export interface SessionHandleTailReadResult {\n    readonly eventState: SessionSeedEventState;\n    readonly events: readonly SessionEvent[];\n    readonly totalEvents: number;\n}',
   },
   {
     name: 'SessionHeader',
@@ -9456,7 +9548,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionSelectModelValue',
-    declaration: 'export interface SessionSelectModelValue {\n    readonly selected: ModelSelection;\n}',
+    declaration: 'export interface SessionSelectModelValue {\n    readonly sessionId?: SessionId;\n    readonly selected: ModelSelection;\n}',
   },
   {
     name: 'SessionSeq',
@@ -10977,6 +11069,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkspaceFileRange',
     declaration: 'export interface WorkspaceFileRange {\n    readonly offset?: number;\n    readonly limit?: number;\n}',
+  },
+  {
+    name: 'WorkspaceFileSaveRequest',
+    declaration: 'export interface WorkspaceFileSaveRequest {\n    readonly text: string;\n    readonly version: string;\n}',
   },
   {
     name: 'WorkspaceFileScope',

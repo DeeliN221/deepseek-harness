@@ -18,6 +18,11 @@ Web 插件表：[dsh-client-modules](../../packages/client/modules) 中 client �
  * factories must arrive before this row materializes, while Cordis separately
  * uses the same package edges to compose entries. `external` carries exact
  * non-inject module requests (see {@link WebBootGraph.entries}).
+ *
+ * `lazy` marks a deferred row: it belongs to no initial-load batch, so its
+ * bytes are absent from the first-paint graph and the shell creates no Loader
+ * entry for it until {@link ClientModuleLoader.activateDeferred} materializes
+ * it. A lazy row is never implicit — the host roster names it.
  */
 interface WebBootEntry {
   /** Entry name == package name. */
@@ -35,6 +40,12 @@ interface WebBootEntry {
   immediately?: boolean
   /** Non-baseline module specifiers this row requests; omitted when it requests none. */
   external?: string[]
+  /** Deferred row: no initial batch and no boot-time Loader entry (see {@link DeferredEntryInfo}). */
+  lazy?: true
+  /** Human-readable description of what materializes the row (`slot:settings.plugins`, `command:/plugins`, …). */
+  trigger?: string
+  /** Slot keys the deferred row's registration fills, when it owns slots (drives the loading skeleton). */
+  slots?: string[]
 }
 ```
 

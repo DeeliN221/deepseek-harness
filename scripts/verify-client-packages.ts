@@ -2,7 +2,7 @@
  * Verify client package modes, the synchronous browser module-request graph, and package-asset publication.
  */
 
-import { globSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, globSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, posix, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { transform } from 'lightningcss'
@@ -14,6 +14,7 @@ import {
   packageAssetMediaType,
 } from '../packages/client/modules/src/assets.ts'
 import { TypeScriptProject } from './ts-project.ts'
+import { isPatchOnlyBundleManifest } from './patch-only-bundle.ts'
 
 export {
   collectLocalSourceSpecifiers,
@@ -689,9 +690,10 @@ async function readFacts(root: string): Promise<ClientPackageFacts> {
     if (declaration === undefined) throw new Error(GATE + ': no declaration facts for ' + manifestPath)
     const manifest = JSON.parse(readFileSync(resolve(root, manifestPath), 'utf8')) as Manifest
     if (typeof manifest.name !== 'string') throw new Error(GATE + ': ' + manifestPath + ' has no package name')
+    const packageDirectory = dirname(manifestPath)
+    if (isPatchOnlyBundleManifest(manifest, existsSync(resolve(root, packageDirectory, 'src/index.ts')))) continue
     const sourceUses = new Map<string, Set<string>>()
     const runtimeSourceUses = new Map<string, Set<string>>()
-    const packageDirectory = dirname(manifestPath)
     const sourcePrefix = packageDirectory + '/src/'
     for (const sourceFile of sourceFiles) {
       if (sourceFile.isDeclarationFile) continue

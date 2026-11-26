@@ -231,6 +231,7 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
   sidebarRightTabs: 'client-side right-Sidebar tab-type registry — packages/client/ui-sidebar-right/README.md owns the API',
   forgeChanges: 'client-side changes view face for other plugins — docs/subsystems/forge.md#extension-api owns the API',
   documentPreviews: 'client-side document renderer registry — docs/subsystems/sidebar-right.md owns the API',
+  externalAgents: 'optional ACP full-Agent directory and confirmed-selection service — packages/api/session-controller/README.md owns the API',
 }
 
 /**
@@ -303,6 +304,7 @@ export const EVENT_WALK_EXEMPTIONS: Record<string, string> = {
   'agent/request': 'deprecated compatibility hook — packages/core/agent/README.md documents migration',
   'command/executed': 'client-face local command acknowledgment — packages/client/ui-commands/README.md owns the API',
   'connection/reset': 'client-face transport signal — packages/api/session-controller/README.md owns the API',
+  'external-agents/catalog-updated': 'client-face catalog refresh through the Remote event carrier — packages/api/session-controller/README.md owns the API',
   'locale/change': 'client-face locale switch signal — packages/client/locale/README.md owns the API',
   'slash/input-begin-command': 'client-face slash-input protocol — packages/client/ui-input-trigger/README.md owns the API',
   'slash/input-consume-token': 'client-face slash-input protocol — packages/client/ui-input-trigger/README.md owns the API',
@@ -1057,6 +1059,9 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   ActionCardKind: 'packages/experimental/action-cards/README.md',
   ActionCardResult: 'packages/experimental/action-cards/README.md',
   ActionCardView: 'packages/experimental/action-cards/README.md',
+  AgentExecution: 'Agent execution handoff contract is owned by packages/core/agent/README.md',
+  AgentDriverProvider: 'Agent driver provider contract is owned by packages/core/agent/README.md',
+  AgentDriverLease: 'Agent driver lease contract is owned by packages/core/agent/README.md',
   RecommendationDetails: 'packages/experimental/plugin-recommendations/README.md',
   DeepseekChatImportLimits: 'upload limits returned to the browser are owned by packages/experimental/deepseek-chat-import/src/types.ts',
   ProductEvent: 'Desktop event fields are owned by packages/client/product-analytics/README.md and src/events.ts',
@@ -1166,6 +1171,9 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   WorkspaceFileRange: 'Host workspace file endpoint contract is owned by packages/api/workspace-files/README.md',
   WorkspaceFileStat: 'Host workspace file endpoint contract is owned by packages/api/workspace-files/README.md',
   WorkspaceFileText: 'Host workspace file endpoint contract is owned by packages/api/workspace-files/README.md',
+  OwnerDirectoryListing: 'Owner browsing contract is owned by packages/api/workspace-files/README.md',
+  OwnerFileText: 'Owner browsing contract is owned by packages/api/workspace-files/README.md',
+  WorkspaceFileSaveRequest: 'Owner file edit contract is owned by packages/api/workspace-files/README.md',
   WorkspaceFileSearchRequest: 'Host workspace file endpoint contract is owned by packages/api/workspace-files/README.md',
   WorkspaceFileSearchResult: 'Host workspace file endpoint contract is owned by packages/api/workspace-files/README.md',
   TerminalShell: 'Browser terminal shell profiles are owned by packages/api/terminal-controller/README.md',

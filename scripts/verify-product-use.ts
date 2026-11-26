@@ -12,6 +12,7 @@ import type { DshBundleManifest } from '../packages/util/package-manifest/src/ty
 import { assertNever } from '../packages/util/values/src/index.ts'
 import { isAgentPresetEntry, isCordisGroupEntry, loadCordisYaml } from './cordis-yaml.ts'
 import { PRODUCT_PACKAGE_POLICY, type ProductPackagePolicy } from './product-package-policy.ts'
+import { isPatchOnlyBundleManifest } from './patch-only-bundle.ts'
 import { collectRuntimeLocalSourceSpecifiers, collectRuntimeSourceSpecifiers } from './verify-client-packages.ts'
 
 const PROFILE_SOURCE = 'packages/util/official-bundles/src/bundles.ts'
@@ -27,6 +28,7 @@ interface Package {
   bundle?: DshBundleManifest
   client: boolean
   generatedRemote: boolean
+  patchOnlyBundle: boolean
 }
 
 interface Reachability {
@@ -83,9 +85,11 @@ export function verifyProductUse(
     if (typeof manifest.name !== 'string' || manifest.name === '') throw new Error(`${path}: missing package name`)
     if (packages.has(manifest.name)) throw new Error(`${path}: duplicate package name ${manifest.name}`)
     const remote = manifest.exports?.['./remote']
-    const pkg: Package = { directory: dirname(path), name: manifest.name, client: manifest.dsh?.client !== undefined,
+    const directory = dirname(path)
+    const pkg: Package = { directory, name: manifest.name, client: manifest.dsh?.client !== undefined,
       generatedRemote: isRecord(remote) && remote.default === './lib/typert.remote-client.js'
         && remote.types === './lib/typert.remote-client.d.ts',
+      patchOnlyBundle: isPatchOnlyBundleManifest(manifest, existsSync(resolve(root, directory, 'src/index.ts'))),
       ...(manifest.dsh?.bundle === undefined ? {} : { bundle: manifest.dsh.bundle }) }
     packages.set(pkg.name, pkg)
     directories.set(resolve(root, pkg.directory), pkg)
@@ -244,7 +248,7 @@ export function verifyProductUse(
     }
   }
   for (const pkg of packages.values()) {
-    if (!pkg.directory.startsWith('packages/') || pkg.directory.startsWith('packages/experimental/')) continue
+    if (pkg.patchOnlyBundle || !pkg.directory.startsWith('packages/') || pkg.directory.startsWith('packages/experimental/')) continue
     if (!defaults.packages.has(pkg.directory) && !optional.packages.has(pkg.directory) && policy[pkg.directory] === undefined) {
       failures.push(`${pkg.directory} (${pkg.name}): no product runtime use; mount it, declare its maintained role, or move it to experimental`)
     }

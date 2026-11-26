@@ -210,6 +210,11 @@ type AssistantStreamFrame =
  * Persona belongs to system-prompt sections.
  */
 interface AgentOptions {
+  /**
+   * Execution engine for creation; resume must agree with durable ownership.
+   * Omission uses the recorded engine, or LLM for legacy sessions.
+   */
+  execution?: AgentExecution
   /** Provider route (must have a registered adapter at call time). */
   provider?: string
   /** Model id interpreted by the selected provider adapter. */
@@ -252,6 +257,10 @@ interface Model {
 ```ts type-equiv
 /** Complete provider, model, and optional reasoning effort chosen for one Session's model steps. */
 interface ModelSelection {
+  /** Execution engine; omission denotes the native LLM driver. */
+  execution?: AgentExecution
+  /** Provider-confirmed user-facing model name; not part of route identity. */
+  displayName?: string
   /** Registered provider route. */
   provider: string
   /** Provider-owned model id. */
@@ -268,9 +277,9 @@ interface ModelSelection {
  * default again instead of pinning it as a choice.
  */
 interface ModelSelectionProjectionState {
-  /** Selection used by the latest recorded model request. */
+  /** Selection used by the latest native request or confirmed by the external driver. */
   readonly lastUsed: ModelSelection | null
-  /** Later recorded selection not yet used by a matching model request. */
+  /** Later selection not yet used by a matching request or external confirmation. */
   readonly pending: ModelSelection | null
 }
 ```
@@ -278,7 +287,7 @@ interface ModelSelectionProjectionState {
 ```ts type-equiv
 /** Client view of the durable model-selection fold. */
 interface ModelSelectionProjection {
-  /** Selection used by the latest recorded model request. */
+  /** Selection used by the latest native request or confirmed by the external driver. */
   readonly lastUsed: ModelSelection | null
   /** Selection the next model step uses; null while the Agent's initial options supply the route. */
   readonly next: ModelSelection | null
@@ -702,6 +711,28 @@ Initiator methods provide same-process causal attribution only. Ambient presence
  * @returns the current turn and step positions; do not mutate the returned value.
  */
 turnBoundaryOf(session: Session): TurnBoundaryProjection
+
+/**
+ * Read durable execution ownership without loading history or choosing a default.
+ * @param session - prepared Session to inspect.
+ * @returns the bound engine, or undefined for unbound native and legacy Sessions.
+ */
+executionOf(session: Session): AgentExecution | undefined
+
+/**
+ * Register an external driver for the calling fiber's lifetime.
+ * @param execution - external execution engine.
+ * @param provider - synchronous idle-driver constructor.
+ * @returns the Cordis effect disposer; fiber disposal awaits all leased lifecycles.
+ */
+registerDriver(execution: 'acp', provider: AgentDriverProvider): () => void
+
+/**
+ * Capture one active provider without exposing its registry slot.
+ * @param execution - external execution engine to acquire.
+ * @returns a lease whose listeners are drained on provider unload.
+ */
+acquireDriver(execution: 'acp'): AgentDriverLease
 
 /**
  * Read the Agent that initiated the inherited asynchronous driver chain.

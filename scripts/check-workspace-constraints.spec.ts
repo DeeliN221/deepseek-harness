@@ -495,6 +495,15 @@ describe('package payload constraints', () => {
   })
 
   it.each([
+    'packages/client/sidebar-files',
+    'packages/client/sidebar-terminal',
+  ])('accepts %s as a patch-only published package', (dir) => {
+    const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+    expect(expectedDshPackageFiles(manifest)).toEqual(['cordis.patch.yml'])
+    expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+  })
+
+  it.each([
     'packages/client/ui-sidebar-documentpreview',
     'packages/client/ui-sidebar-terminal',
   ])('accepts package-local Client chunks from %s', (dir) => {
