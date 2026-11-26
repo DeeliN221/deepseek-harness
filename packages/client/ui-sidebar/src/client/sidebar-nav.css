@@ -1,0 +1,239 @@
+/* dsh-sidebar-nav (single-row) — 顶部工具并入原有 logo 行，第二行只放
+ * 「工作区 / Bot Team」页签。
+ *
+ * 设置座位继续渲染官方 `sidebar.settings`（AccountMenu 保持挂载，登录状态
+ * 提示、打开设置时刷新账号、登录/退出对话框的生命周期不变），按钮形态由
+ * settings-account 侧补丁改为设置齿轮：`[data-dshsn-settings]`。
+ * 全部使用不带哈希的 .dshsn-* 类名与 data 属性，避免依赖上游 CSS Module 哈希。 */
+
+/* ── 顶部工具组（位于 logo 行内） ─────────────────────────────────────── */
+.dshsn-tools {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+  /* logo 行是桌面客户端的窗口拖拽区，按钮必须显式退出拖拽区才可点击。 */
+  -webkit-app-region: no-drag;
+}
+
+.dshsn-tools::-webkit-scrollbar {
+  display: none;
+}
+
+/* 折叠成 56px rail 时作为 logo 行下方的纵向列（与改造前一致）。 */
+.dshsn-tools[data-wide="false"] {
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 0 0 8px;
+  overflow: visible;
+}
+
+.dshsn-icon {
+  display: inline-flex;
+  flex: none;
+  -webkit-app-region: no-drag;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--dsw-radius-sm, 6px);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.dshsn-icon:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.dshsn-icon[aria-current="page"] {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.dshsn-icon:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-focus, currentColor);
+  outline-offset: 2px;
+}
+
+.dshsn-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 设置固定在工具组末端，用一条细线与面板入口分隔。 */
+.dshsn-settings {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  min-width: 0;
+  margin-left: 2px;
+  padding-left: 4px;
+  border-left: 1px solid var(--dsw-alias-border-l3);
+}
+
+.dshsn-tools[data-wide="false"] .dshsn-settings {
+  margin-left: 0;
+  padding-left: 0;
+  border-left: none;
+}
+
+.dshsn-settings > * {
+  flex: none;
+  min-width: 0;
+}
+
+/* settings-account 补丁后，座位内的触发器是设置齿轮按钮：
+ * 点击直接打开设置对话框，不再弹出「设置/意见反馈/登录」菜单。 */
+.dshsn-tools .dshsn-settings [data-dshsn-settings] {
+  display: inline-flex;
+  -webkit-app-region: no-drag;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--dsw-radius-sm, 6px);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.dshsn-tools .dshsn-settings [data-dshsn-settings]:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.dshsn-tools .dshsn-settings [data-dshsn-settings][aria-expanded="true"] {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.dshsn-tools .dshsn-settings [data-dshsn-settings]:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-focus, currentColor);
+  outline-offset: 2px;
+}
+
+.dshsn-tools[data-wide="false"] .dshsn-icon,
+.dshsn-tools[data-wide="false"] .dshsn-settings [data-dshsn-settings] {
+  width: 36px;
+  height: 36px;
+}
+
+/* 触摸设备：30px 目标 + 紧凑间距，保证 280px 抽屉里 6 个入口与折叠按钮同排。 */
+@media (pointer: coarse) {
+  .dshsn-tools {
+    gap: 2px;
+  }
+
+  .dshsn-icon,
+  .dshsn-tools .dshsn-settings [data-dshsn-settings] {
+    width: 28px;
+    height: 28px;
+  }
+
+  .dshsn-settings {
+    padding-left: 1px;
+  }
+}
+
+/* ── 第二行：只有 工作区 / Bot Team 两枚页签 ─────────────────────────── */
+.dshsn-tabs {
+  display: flex;
+  flex: none;
+  -webkit-app-region: no-drag;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  margin: 0 0 8px;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.dshsn-tab {
+  display: inline-flex;
+  flex: 1 1 0;
+  -webkit-app-region: no-drag;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  overflow: hidden;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.dshsn-tab:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.dshsn-tabOn {
+  background: var(--dsw-alias-bg-base, Canvas);
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
+}
+
+.dshsn-tab:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-focus, currentColor);
+  outline-offset: 1px;
+}
+
+@media (pointer: coarse) {
+  .dshsn-tab {
+    height: 32px;
+    font-size: 12.5px;
+  }
+}
+
+@media (max-width: 400px) {
+  .dshsn-tab {
+    padding: 0 6px;
+    font-size: 11.5px;
+  }
+}
+
+/* 仅当 logo 行直接承载本任务工具组时，才抬高品牌按钮的最小命中区；
+ * 用 :has() 精确限定当前侧栏，避免影响其他 dockkit / 会话页签的拖拽行。 */
+[data-window-drag]:has(> nav.dshsn-tools) > :first-child {
+  min-width: 24px;
+}
+
+/* 320px 级窄屏：再收一档，避免品牌标记被挤压。 */
+@media (max-width: 340px) and (pointer: coarse) {
+  .dshsn-icon,
+  .dshsn-tools .dshsn-settings [data-dshsn-settings] {
+    width: 26px;
+    height: 26px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dshsn-icon,
+  .dshsn-settings [data-dshsn-settings],
+  .dshsn-tab {
+    transition: none;
+  }
+}
