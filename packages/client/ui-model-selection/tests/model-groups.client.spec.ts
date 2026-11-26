@@ -1,10 +1,10 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import type { ModelProviderGroup } from '@deepseek-ai/dsh-api-session-controller/types'
 import {
   MAGPIE_ROUTING_PROVIDER, MERGED_GROUP_ID, groupModelsForDisplay,
 } from '../src/client/model-groups.ts'
 import { orderModelProviders } from '../src/client/provider-order.ts'
-import { movePersistedDraft } from '../src/client/draft-transfer.ts'
+import { draftBlocksSwitch } from '../src/client/draft-guard.ts'
 
 const group = (id: string, name: string, models: readonly { id: string; name: string }[]): ModelProviderGroup => ({
   id, name, models,
@@ -100,80 +100,25 @@ describe('provider display order', () => {
   })
 })
 
-describe('cross-engine draft hand-off', () => {
-  const storage = (): Storage => {
-    const values = new Map<string, string>()
-    return {
-      get length() { return values.size },
-      clear: () => values.clear(),
-      getItem: key => values.get(key) ?? null,
-      key: index => [...values.keys()][index] ?? null,
-      removeItem: (key) => { values.delete(key) },
-      setItem: (key, value) => { values.set(key, String(value)) },
-    }
-  }
-
-  it('copies the source draft into an empty target Session without touching the source', () => {
-    const local = storage()
-    vi.stubGlobal('localStorage', local)
-    local.setItem('dsh.conversation.from', JSON.stringify({ draft: { text: '保留草稿', references: [{ path: 'a' }] } }))
-    movePersistedDraft('from' as never, 'to' as never)
-    expect(JSON.parse(local.getItem('dsh.conversation.to') ?? '{}').draft)
-      .toEqual({ text: '保留草稿', references: [{ path: 'a' }] })
-    expect(JSON.parse(local.getItem('dsh.conversation.from') ?? '{}').draft.text).toBe('保留草稿')
-    vi.unstubAllGlobals()
+describe('draft switch guard', () => {
+  it('blocks a switch while text or runtime attachment ids remain', () => {
+    expect(draftBlocksSwitch({ draft: 'half typed', attachmentIds: [] })).toBe(true)
+    expect(draftBlocksSwitch({ draft: '', attachmentIds: ['img-1'] })).toBe(true)
+    expect(draftBlocksSwitch({ draft: '   ', attachmentIds: [] })).toBe(false)
+    expect(draftBlocksSwitch({ draft: '', attachments: [{ id: 'x' }] })).toBe(true)
+    expect(draftBlocksSwitch(null)).toBe(false)
   })
 
-  it('never overwrites a target that already holds its own draft', () => {
-    const local = storage()
-    vi.stubGlobal('localStorage', local)
-    local.setItem('dsh.conversation.from', JSON.stringify({ draft: { text: 'source' } }))
-    local.setItem('dsh.conversation.to', JSON.stringify({ draft: { text: 'target own' } }))
-    movePersistedDraft('from' as never, 'to' as never)
-    expect(JSON.parse(local.getItem('dsh.conversation.to') ?? '{}').draft.text).toBe('target own')
-    vi.unstubAllGlobals()
-  })
-
-  it('treats a pure-image draft as content and hands over its attachment ids', () => {
-    const local = storage()
-    vi.stubGlobal('localStorage', local)
-    local.setItem('dsh.conversation.from', JSON.stringify({ draft: { text: '', references: [], attachmentIds: ['img-1'] } }))
-    movePersistedDraft('from' as never, 'to' as never)
-    expect(JSON.parse(local.getItem('dsh.conversation.to') ?? '{}').draft)
-      .toEqual({ text: '', references: [], attachmentIds: ['img-1'] })
-    vi.unstubAllGlobals()
-  })
-
-  it('never overwrites a target that already holds attachments without any text', () => {
-    const local = storage()
-    vi.stubGlobal('localStorage', local)
-    local.setItem('dsh.conversation.from', JSON.stringify({ draft: { text: 'source', references: [] } }))
-    local.setItem('dsh.conversation.to', JSON.stringify({ draft: { text: '', references: [], attachmentIds: ['target-img'] } }))
-    movePersistedDraft('from' as never, 'to' as never)
-    expect(JSON.parse(local.getItem('dsh.conversation.to') ?? '{}').draft.attachmentIds).toEqual(['target-img'])
-    expect(JSON.parse(local.getItem('dsh.conversation.to') ?? '{}').draft.text).toBe('')
-    vi.unstubAllGlobals()
-  })
-
-  it('protects a target whose attachment ids sit beside the draft payload', () => {
-    const local = storage()
-    vi.stubGlobal('localStorage', local)
-    local.setItem('dsh.conversation.from', JSON.stringify({ draft: { text: 'source', references: [] } }))
-    local.setItem('dsh.conversation.to', JSON.stringify({ draft: '', attachmentIds: ['target-img'] }))
-    movePersistedDraft('from' as never, 'to' as never)
-    expect(JSON.parse(local.getItem('dsh.conversation.to') ?? '{}').draft).toBe('')
-    vi.unstubAllGlobals()
-  })
-
-  it('is a no-op for the same Session, an empty source, or unavailable storage', () => {
-    const local = storage()
-    vi.stubGlobal('localStorage', local)
-    movePersistedDraft('same' as never, 'same' as never)
-    movePersistedDraft('missing' as never, 'to' as never)
-    expect(local.getItem('dsh.conversation.to')).toBeNull()
-    local.setItem('dsh.conversation.from', JSON.stringify({ draft: { text: '   ' } }))
-    movePersistedDraft('from' as never, 'to' as never)
-    expect(local.getItem('dsh.conversation.to')).toBeNull()
-    vi.unstubAllGlobals()
+  it('recognizes route ownership for merged, routing and engine rows', () => {
+    const sections = groupModelsForDisplay([
+      group(MAGPIE_ROUTING_PROVIDER, 'Routing', [{ id: 'shared', name: 'Shared' }]),
+      group('codex', 'Codex', [{ id: 'shared', name: 'Shared' }]),
+      group('acp:agy', 'agy', [{ id: 'shared', name: 'Shared' }]),
+    ], { provider: 'codex', model: 'shared' })
+    expect(sections[0]!.hasRoute('shared', 'codex')).toBe(true)
+    expect(sections[0]!.hasRoute('shared', MAGPIE_ROUTING_PROVIDER)).toBe(false)
+    expect(sections[1]!.hasRoute('shared', MAGPIE_ROUTING_PROVIDER)).toBe(true)
+    expect(sections[1]!.hasRoute('shared', 'codex')).toBe(false)
+    expect(sections[2]!.hasRoute('shared', 'acp:agy')).toBe(true)
   })
 })

@@ -54,6 +54,15 @@ export interface DisplayGroup {
    */
   readonly routeOf: (modelId: string) => string | undefined
   /**
+   * Whether this section's row for a model id accepts one provider as its route.
+   * Distinct from {@link routeOf}: a merged row accepts every duplicate provider,
+   * while a routing/vendor row accepts only its own group.
+   * @param modelId - the row's model id.
+   * @param provider - candidate provider.
+   * @returns true when that provider owns a route for the row.
+   */
+  readonly hasRoute: (modelId: string, provider: string) => boolean
+  /**
    * Catalog entry one row's metadata is read from, preferring a given provider.
    * @param modelId - the row's model id.
    * @param provider - preferred provider, normally the Session's current one.
@@ -135,6 +144,7 @@ export function groupModelsForDisplay(
       models: [...rows.values()].map(pending => pending.model),
       merged: true,
       routeOf: modelId => byId.get(modelId)?.route,
+      hasRoute: (modelId, provider) => byId.get(modelId)?.providers.has(provider) ?? false,
       entryOf: (modelId, provider) => {
         const pending = byId.get(modelId)
         if (pending === undefined) return undefined
@@ -150,6 +160,7 @@ export function groupModelsForDisplay(
       models: group.models,
       merged: false,
       routeOf: () => group.id,
+      hasRoute: (modelId, provider) => provider === group.id && group.models.some(model => model.id === modelId),
       entryOf: modelId => group.models.find(model => model.id === modelId),
     })
   }

@@ -24,7 +24,7 @@ const data: ModelCatalog = {
   failures: [],
 }
 
-async function bench(known = true) {
+async function bench(known = true, options: { beforeSwitch?: () => string | null; openSession?: (id: SessionId) => void } = {}) {
   const ctx = new Context()
   const refresh = Promise.withResolvers<RemoteResult<ModelCatalog>>()
   const sessionRemote = {
@@ -40,7 +40,8 @@ async function bench(known = true) {
   const projections = new ProjectionValueStore()
   if (known) projections.seed({ asOfSeq: SessionSeq(0), values: { modelSelection: { lastUsed: null, next: null } } })
   const directory = new ModelDirectory(sessionRemote, 'projection-refresh' as SessionId,
-    () => true, catalog, projections.faceOf('modelSelection'), () => true)
+    () => true, catalog, projections.faceOf('modelSelection'), () => true, undefined,
+    options.openSession, options.beforeSwitch)
   let seq = 0
   const publish = async (next: ModelSelection | null) => {
     const value: ModelSelectionProjection = { lastUsed: null, next }
@@ -97,6 +98,26 @@ describe('model selection during catalog refresh', () => {
     b.catalog.refresh()
     await b.publish(null)
     expect(b.directory.store.getSnapshot()).toMatchObject({ current: original, routable: null, status: 'loading' })
+  })
+
+
+  it('refuses the Session-replacing selection when the draft guard blocks it', async () => {
+    const opened: string[] = []
+    const b = await bench(true, { beforeSwitch: () => 'draft present', openSession: (id) => { opened.push(String(id)) } })
+    b.sessionRemote.selectModel.mockResolvedValueOnce({ ok: true, value: { selected: { provider: 'provider', model: 'pro' }, sessionId: 'target' } } as never)
+    const result = await b.directory.select({ provider: 'provider', model: 'pro' })
+    expect(result.ok).toBe(false)
+    expect(opened).toEqual([])
+    expect(b.directory.store.getSnapshot().error).toBe('draft present')
+  })
+
+  it('opens the replacement Session when the draft guard allows it', async () => {
+    const opened: string[] = []
+    const b = await bench(true, { beforeSwitch: () => null, openSession: (id) => { opened.push(String(id)) } })
+    b.sessionRemote.selectModel.mockResolvedValueOnce({ ok: true, value: { selected: { provider: 'provider', model: 'pro' }, sessionId: 'target' } } as never)
+    const result = await b.directory.select({ provider: 'provider', model: 'pro' })
+    expect(result.ok).toBe(true)
+    expect(opened).toEqual(['target'])
   })
 
   it('waits for the projection after a successful selection RPC', async () => {

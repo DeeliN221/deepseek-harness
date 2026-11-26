@@ -1183,3 +1183,18 @@ it('dismisses contributed options with focus on the trigger before opening anoth
   })
   expect(screen.queryByRole('menu')).toBeNull()
 })
+it('marks only the row whose provider owns a shared model id (routing vs vendor)', async () => {
+  const groups = [
+    { id: 'dsh-magpie-connector-routing', name: 'Routing', models: [{ id: 'shared', name: 'Shared' }] },
+    { id: 'codex', name: 'Codex', models: [{ id: 'shared', name: 'Shared' }] },
+  ]
+  const directory = createSnapshotStore(state({ groups, current: { provider: 'codex', model: 'shared' } }))
+  render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={directory}
+    load={vi.fn()} resolveText={resolveText} select={vi.fn()} t={t} />)
+  fireEvent.click(screen.getByRole('button', { name: /选择模型|当前/ }))
+  fireEvent.click(screen.getByRole('menuitem', { name: /模型/ }))
+  const rows = () => screen.getAllByRole('menuitemradio', { name: 'Shared' }).map(row => row.getAttribute('aria-checked'))
+  expect(rows()).toEqual(['true', 'false'])
+  act(() => { directory.set(state({ groups, current: { provider: 'dsh-magpie-connector-routing', model: 'shared' } })) })
+  expect(rows()).toEqual(['false', 'true'])
+})

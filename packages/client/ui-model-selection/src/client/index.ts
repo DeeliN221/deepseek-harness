@@ -65,7 +65,7 @@ function optionsOf(directory: ModelDirectoryState, t: TranslateNS<'model'>): Sel
         group: section,
         ...(directory.current !== null
           && directory.current.model === model.id
-          && (group.merged || directory.current.provider === group.id)
+          && group.hasRoute(model.id, directory.current.provider)
           ? { active: true } : {}),
       })
     }

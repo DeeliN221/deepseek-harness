@@ -10,11 +10,10 @@ import type {
   ModelCatalogFailure, ModelProviderGroup, ModelSelection,
 } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
-import type { RemoteResult, TypertClientRemote } from '@deepseek-ai/dsh-typert-protocol'
+import { RemoteError, type RemoteResult, type TypertClientRemote } from '@deepseek-ai/dsh-typert-protocol'
 import type { ObservableSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ModelCatalogDirectory } from './catalog.ts'
-import { movePersistedDraft } from './draft-transfer.ts'
 
 /** Directory snapshot both entries render from. */
 export interface ModelDirectoryState {
@@ -67,6 +66,7 @@ export class ModelDirectory {
     private readonly isBlank: () => boolean,
     private readonly track?: TrackProductEvent,
     private readonly openSession?: (id: SessionId) => void,
+    private readonly beforeSwitch?: () => string | null,
   ) {
     this.unsubscribeCatalog = catalog.store.subscribe(() => { this.syncInputs() })
     this.unsubscribeSelection = projected.subscribe(() => { this.syncInputs() })
@@ -119,10 +119,14 @@ export class ModelDirectory {
     }
     if (result.value.sessionId !== undefined && result.value.sessionId !== this.sessionId) {
       this.store.update((state) => { state.pending = null; state.status = 'ready' })
-      // The switch replaces the Session. Hand the saved draft to the target
-      // BEFORE navigation publishes it: its Composer restores a Session draft
-      // from storage when the input shell is first created.
-      movePersistedDraft(this.sessionId, result.value.sessionId)
+      // The switch replaces the Session. A draft or runtime attachment cannot
+      // be faithfully re-bound by this plugin, so refuse instead of losing it.
+      const blocked = this.beforeSwitch?.()
+      if (blocked !== null && blocked !== undefined) {
+        this.store.update((state) => { state.pending = null; state.status = 'ready'; state.error = blocked })
+        return { ok: false, error: new RemoteError('gateway/bad-request', blocked, {}) }
+      }
+      this.store.update((state) => { state.status = 'ready'; state.pending = null; state.error = null })
       this.openSession?.(result.value.sessionId)
       return { ok: true, value: undefined }
     }

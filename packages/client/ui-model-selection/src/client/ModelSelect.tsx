@@ -136,11 +136,19 @@ export function ModelSelect(
     ...group, models: index.search(showSearch ? query : ''),
   })).filter(group => group.models.length > 0), [groupIndexes, query, showSearch])
   const visibleModels = useMemo(() => filteredGroups.flatMap(group => group.models.map(model => ({
-    provider: group.routeOf(model.id) ?? group.id, model: model.id,
+    group, model: model.id,
   }))), [filteredGroups])
-  // A row's identity is its model id, so a selection made through any one of
-  // the merged providers still resolves to the row the user sees.
-  const currentVisibleIndex = visibleModels.findIndex(model => model.model === state.current?.model)
+  // Row identity includes the route owner: a routing row and a vendor row can
+  // share a model id, and only the row whose provider owns the selection is current.
+  const exactVisibleIndex = visibleModels.findIndex(row =>
+    row.model === state.current?.model
+    && state.current.provider !== undefined
+    && row.group.hasRoute(row.model, state.current.provider))
+  // Fall back to the model id when the catalog no longer proves the saved
+  // provider (stale projection); the provider-aware hit still wins when present.
+  const currentVisibleIndex = exactVisibleIndex !== -1
+    ? exactVisibleIndex
+    : visibleModels.findIndex(row => row.model === state.current?.model)
   const activeModelIndex = Math.min(highlightedIndex ?? Math.max(0, currentVisibleIndex), visibleModels.length - 1)
   const exactIndex = choices.findIndex(choice =>
     choice.selection.provider === state.current?.provider && choice.selection.model === state.current?.model)
@@ -349,7 +357,12 @@ export function ModelSelect(
       if (event.key === 'Tab' && visibleModels.length === 0) return
       event.preventDefault()
       const highlighted = visibleModels[activeModelIndex]
-      if (!busy && highlighted !== undefined) choose(highlighted)
+      if (!busy && highlighted !== undefined) {
+        choose({
+          provider: highlighted.group.routeOf(highlighted.model) ?? highlighted.group.id,
+          model: highlighted.model,
+        })
+      }
       return
     }
     // Tab settles like Enter and Shift+Tab leaves like Escape, so the menu's
@@ -433,7 +446,9 @@ export function ModelSelect(
       seq: toastSeq.current,
       text: error.code === 'session/writer-held'
         ? t('error.sessionInUse')
-        : t('error.action', { message: `${error.code}: ${error.message}` }),
+        : error.code === 'gateway/bad-request'
+          ? error.message
+          : t('error.action', { message: `${error.code}: ${error.message}` }),
     })
   }
 
@@ -645,7 +660,7 @@ export function ModelSelect(
                     // A merged row is the selected one whichever duplicate provider carries the selection.
                     const selected = state.current !== null
                       && state.current.model === model.id
-                      && (group.merged || state.current.provider === group.id)
+                      && group.hasRoute(model.id, state.current.provider)
                     return (
                       <button
                         ref={itemRef()}
@@ -672,7 +687,7 @@ export function ModelSelect(
                           <span className={css.modelName}>{renderModelLabel(providerOf(route), model, 'option', selected)}</span>
                         </span>
                         <span className={css.check}>
-                          {pending?.model === model.id && (group.merged || pending.provider === group.id)
+                          {pending?.model === model.id && group.hasRoute(model.id, pending.provider)
                             ? <StateDot state="ongoing" />
                             : selected ? <IconCheckOutlineRegular /> : null}
                         </span>
