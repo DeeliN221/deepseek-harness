@@ -267,6 +267,60 @@ it('keeps the confirmation dialog open after a failed sign-out', async () => {
   expect(within(dialog).getByRole('alert').textContent).toBe(en.failed)
 })
 
+it('queries the task impact once for concurrent sign-out clicks', async () => {
+  const gate = Promise.withResolvers<boolean>()
+  const hasRunningAccountTasks = vi.fn(() => gate.promise)
+  const operations = { ...operationsOf({ status: 'credential-stored', attempt: null }), hasRunningAccountTasks }
+  render(<AccountSection {...({} as GlobalStandardProps)} {...operations}
+    useAccount={selector => selector(operations.hooks.account.getSnapshot())}
+    useTheme={selector => selector(operations.hooks.theme.getSnapshot())}
+    close={() => {}} t={key => en[key as AccountKey]} />)
+  const button = screen.getByRole('button', { name: en.signOut })
+  await act(async () => { fireEvent.click(button); fireEvent.click(button) })
+  expect(hasRunningAccountTasks).toHaveBeenCalledOnce()
+  gate.resolve(false)
+  await act(async () => { await gate.promise })
+  expect(screen.getByRole('dialog')).toBeTruthy()
+})
+
+it('discards an impact query that settles after the account signed out elsewhere', async () => {
+  const gate = Promise.withResolvers<boolean>()
+  const hasRunningAccountTasks = vi.fn(() => gate.promise)
+  const operations = { ...operationsOf({ status: 'credential-stored', attempt: null }), hasRunningAccountTasks }
+  let snapshot = operations.hooks.account.getSnapshot()
+  const props = { ...({} as GlobalStandardProps), ...operations,
+    useAccount: <T,>(select: (value: AccountSnapshot) => T) => select(snapshot),
+    useTheme: <T,>(select: (value: ThemeSnapshot) => T) => select(operations.hooks.theme.getSnapshot()),
+    close: () => {}, t: (key: string) => en[key as AccountKey],
+  }
+  const view = render(<AccountSection {...props} />)
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: en.signOut })) })
+  // Sign-out lands elsewhere while the impact query is still in flight.
+  snapshot = { ...snapshot, view: { status: 'signed-out', attempt: null, links: snapshot.view!.links } }
+  view.rerender(<AccountSection {...props} />)
+  gate.resolve(true)
+  await act(async () => { await gate.promise })
+  // The stale resolution must not resurrect a confirmation for a signed-out page.
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(screen.queryByRole('button', { name: en.signOut })).toBeNull()
+})
+
+it('re-reads the task impact after a completed sign-out instead of reusing it', async () => {
+  const hasRunningAccountTasks = vi.fn(async () => false)
+  const operations = { ...operationsOf({ status: 'credential-stored', attempt: null }), hasRunningAccountTasks }
+  render(<AccountSection {...({} as GlobalStandardProps)} {...operations}
+    useAccount={selector => selector(operations.hooks.account.getSnapshot())}
+    useTheme={selector => selector(operations.hooks.theme.getSnapshot())}
+    close={() => {}} t={key => en[key as AccountKey]} />)
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: en.signOut })) })
+  await act(async () => { fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: en.signOut })) })
+  expect(operations.signOut).toHaveBeenCalledOnce()
+  // A settled confirmation is cleared, so the next entry starts a fresh read.
+  expect(screen.queryByRole('dialog')).toBeNull()
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: en.signOut })) })
+  expect(hasRunningAccountTasks).toHaveBeenCalledTimes(2)
+})
+
 it.each([en, zh])('renders Platform profile and recharge wallet balances', async (copy) => {
   mount({ status: 'credential-stored', attempt: null }, copy, {
     profile: { status: 'ready', value: { id: null, name: 'Harness Mock (TEST ONLY)', contact: '138****0000' } },

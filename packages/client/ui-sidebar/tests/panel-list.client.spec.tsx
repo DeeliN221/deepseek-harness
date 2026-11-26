@@ -255,6 +255,63 @@ describe('sidebar fixed tool strip', () => {
   })
 })
 
+describe('sidebar view tabs', () => {
+  const CONTEXT = 'dsh-context' as MainPanelId
+  const BOT_TEAM = 'bot-team' as MainPanelId
+
+  it('keeps the second row to two view tabs and returns to the conversation from a tool', async () => {
+    const { runtime, locale, layout, view } = await bench()
+    await mountStrip(runtime, locale)
+    await mountPanel(runtime, { id: CONTEXT, heading: 'Context content', label: 'Context', order: 30 })
+    await mountPanel(runtime, { id: BOT_TEAM, heading: 'Bot Team content', label: 'Bot Team', order: 40 })
+
+    // Three fixed tools in the logo row; the Bot Team panel is a tab, never a tool.
+    expect([...strip(view).querySelectorAll('[data-dshsn-panel]')].map(node => node.getAttribute('data-dshsn-panel')))
+      .toEqual([TASK_BOARD, TASK_CENTER, CONTEXT])
+
+    const tabs = view.getAllByRole('tab')
+    expect(tabs.map(tab => tab.textContent)).toEqual(['Workspace', 'Bot Team'])
+    expect(tabs.map(tab => tab.getAttribute('aria-selected'))).toEqual(['true', 'false'])
+
+    // Selecting a tool clears the workspace tab's selection.
+    fireEvent.click(within(strip(view)).getByRole('button', { name: 'Alpha panel' }))
+    expect(layout.selectPanel).toHaveBeenLastCalledWith(TASK_CENTER)
+    expect(view.getAllByRole('tab').map(tab => tab.getAttribute('aria-selected'))).toEqual(['false', 'false'])
+
+    // The Workspace tab clears the panel and returns to the Conversation.
+    fireEvent.click(view.getByRole('tab', { name: 'Workspace' }))
+    expect(layout.selectPanel).toHaveBeenLastCalledWith(null)
+    expect(view.getAllByRole('tab').map(tab => tab.getAttribute('aria-selected'))).toEqual(['true', 'false'])
+    expect(view.getByText('Conversation content')).toBeTruthy()
+  })
+
+  it('selects the Bot Team panel from its tab and marks it active', async () => {
+    const { runtime, locale, layout, view } = await bench()
+    await mountStrip(runtime, locale)
+    await mountPanel(runtime, { id: BOT_TEAM, heading: 'Bot Team content', label: 'Bot Team', order: 40 })
+    fireEvent.click(view.getByRole('tab', { name: 'Bot Team' }))
+    expect(layout.selectPanel).toHaveBeenLastCalledWith(BOT_TEAM)
+    expect(view.getAllByRole('tab').map(tab => tab.getAttribute('aria-selected'))).toEqual(['false', 'true'])
+    expect(view.getByRole('heading', { name: 'Bot Team content' })).toBeTruthy()
+    // A repeated activation does not re-select.
+    const calls = layout.selectPanel.mock.calls.length
+    fireEvent.click(view.getByRole('tab', { name: 'Bot Team' }))
+    expect(layout.selectPanel.mock.calls).toHaveLength(calls)
+  })
+
+  it('renders the collapsed rail vertically below the logo row with no tabs', async () => {
+    const { runtime, locale, view } = await bench(true)
+    await mountStrip(runtime, locale)
+    const nav = strip(view)
+    // The rail keeps the tools but drops the view tabs and the row drag surface.
+    expect(view.queryAllByRole('tab')).toHaveLength(0)
+    expect(nav.closest('[data-window-drag]')).toBeNull()
+    expect(nav.parentElement?.hasAttribute('data-window-drag')).not.toBe(true)
+    expect(nav.querySelector('[data-dshsn-panel]')).not.toBeNull()
+    expect(nav.querySelector('.dshsn-settings')).not.toBeNull()
+  })
+})
+
 describe('sidebar entry click analytics', () => {
   it('reports the Plugins launcher and leaves strip icons unreported', async () => {
     const track = vi.fn<TrackProductEvent>()
