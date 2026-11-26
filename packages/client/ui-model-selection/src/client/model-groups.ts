@@ -81,41 +81,31 @@ export function isEngineGroup(id: string): boolean {
 /**
  * Fold provider groups into the selector's display sections.
  *
- * Ordinary providers are ordered first, then folded by model id: the first
+ * Ordinary providers are ordered first, then folded by exact model id: the first
  * provider in that order wins the request, unless the Session already uses one
  * of the duplicates, which keeps a working route instead of silently moving it.
+ * A different model id is never folded, even when two models share a display
+ * name; version punctuation (V4.1 vs V41) therefore cannot collide. Magpie
+ * routing entries are not folded at all: they keep their own section so a
+ * routing id and a vendor id can never overwrite each other's route.
  * Duplicate entries keep every provider's own metadata so reasoning levels stay
  * exact for the provider that is actually in use.
  * @param groups - provider groups of the loaded Host catalog.
  * @param current - the Session's saved selection, or null while unresolved.
  * @returns the merged section (when it holds rows) followed by engine groups.
  */
-/**
- * Display-name key that ignores vendor prefixes and "(latest)" aliases while
- * keeping every version token. Stripping `v4.1`/`4.1` would silently merge a
- * newer model into an unrelated older family, so version digits stay in the key.
- */
-function familyKeyOf(model: { readonly id: string; readonly name?: string }): string {
-  const name = typeof model.name === 'string' && model.name.length > 0 ? model.name : model.id
-  const stripped = name
-    .replace(/^\[[^\]]*\]\s*/, '')
-    .replace(/\(\s*latest\s*\)/gi, '')
-    .replace(/\s*-\s*/g, ' ')
-  const key = stripped.replace(/[^a-z0-9]/gi, '').toLowerCase()
-  return key.length > 0 ? key : model.id
-}
-
 export function groupModelsForDisplay(
   groups: readonly ModelProviderGroup[],
   current: ModelSelection | null,
 ): readonly DisplayGroup[] {
   const rows = new Map<string, PendingRow>()
   const byId = new Map<string, PendingRow>()
-  for (const group of orderModelProviders(groups.filter(group => !isEngineGroup(group.id)))) {
+  for (const group of orderModelProviders(groups.filter(group => !isEngineGroup(group.id) && group.id !== MAGPIE_ROUTING_PROVIDER))) {
     for (const model of group.models) {
-      // A Magpie routing entry is its own selectable failover route; folding it
-      // into a vendor row would hide the route the user actually picks.
-      const key = group.id === MAGPIE_ROUTING_PROVIDER ? `routing:${model.id}` : familyKeyOf(model)
+      // Key by the exact model id. Folding by display name merged unrelated ids
+      // and lost the duplicate's route; routing groups are handled in their own
+      // section below and never enter this map.
+      const key = `id:${model.id}`
       const pending = rows.get(key)
       if (pending === undefined) {
         const row: PendingRow = { model, route: group.id, providers: new Map([[group.id, model]]) }
@@ -152,8 +142,8 @@ export function groupModelsForDisplay(
       },
     })
   }
-  for (const group of groups) {
-    if (!isEngineGroup(group.id)) continue
+  for (const group of orderModelProviders(groups)) {
+    if (!isEngineGroup(group.id) && group.id !== MAGPIE_ROUTING_PROVIDER) continue
     sections.push({
       id: group.id,
       name: group.name,

@@ -23,30 +23,44 @@ describe('model family folding', () => {
     expect(sections[0]!.entryOf('same', 'external')?.name).toBe('Same model')
   })
 
-  it('never merges different versions that a version-stripping key would collide', () => {
+  it('never merges different model ids that share a display name', () => {
     const sections = groupModelsForDisplay([
-      group('opencode-go', 'opencode', [
-        { id: 'opencode-go/deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash' },
-        { id: 'opencode-go/deepseek-v3.2-flash', name: 'DeepSeek V3.2 Flash' },
+      group('vendor', 'Vendor', [
+        { id: 'vendor/gpt-6-luna', name: 'GPT-6 Luna' },
+        { id: 'other/gpt-6-luna', name: 'GPT-6 Luna' },
       ]),
     ], null)
     expect(sections[0]!.models.map(model => model.id))
-      .toEqual(['opencode-go/deepseek-v4.1-flash', 'opencode-go/deepseek-v3.2-flash'])
+      .toEqual(['vendor/gpt-6-luna', 'other/gpt-6-luna'])
   })
 
-  it('keeps a Magpie routing entry as its own selectable failover route', () => {
+  it('never merges versions whose punctuation differs (V4.1 vs V41)', () => {
+    const sections = groupModelsForDisplay([
+      group('vendor', 'Vendor', [
+        { id: 'vendor/deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash' },
+        { id: 'vendor/deepseek-v41-flash', name: 'DeepSeek V41 Flash' },
+      ]),
+    ], null)
+    expect(sections[0]!.models.map(model => model.id))
+      .toEqual(['vendor/deepseek-v4.1-flash', 'vendor/deepseek-v41-flash'])
+  })
+
+  it('keeps a Magpie routing entry in its own section so ids and routes never overwrite', () => {
     const sections = groupModelsForDisplay([
       group(MAGPIE_ROUTING_PROVIDER, 'Magpie (Routing)', [
         { id: 'auto/gpt-6-luna', name: '[路由组] GPT-6 Luna' },
+        { id: 'shared', name: '[路由组] Shared' },
       ]),
       group('codex', 'Codex', [
         { id: 'codex/gpt-6-luna', name: '[Codex] GPT-6 Luna' },
+        { id: 'shared', name: 'Shared' },
       ]),
     ], null)
-    expect(sections[0]!.models.map(model => model.id))
-      .toEqual(['auto/gpt-6-luna', 'codex/gpt-6-luna'])
-    expect(sections[0]!.routeOf('auto/gpt-6-luna')).toBe(MAGPIE_ROUTING_PROVIDER)
-    expect(sections[0]!.routeOf('codex/gpt-6-luna')).toBe('codex')
+    expect(sections.map(section => section.id)).toEqual([MERGED_GROUP_ID, MAGPIE_ROUTING_PROVIDER])
+    expect(sections[0]!.models.map(model => model.id)).toEqual(['codex/gpt-6-luna', 'shared'])
+    expect(sections[1]!.models.map(model => model.id)).toEqual(['auto/gpt-6-luna', 'shared'])
+    expect(sections[0]!.routeOf('shared')).toBe('codex')
+    expect(sections[1]!.routeOf('shared')).toBe(MAGPIE_ROUTING_PROVIDER)
   })
 
   it('keeps the Session existing route instead of moving it to the display-first provider', () => {
@@ -117,6 +131,37 @@ describe('cross-engine draft hand-off', () => {
     local.setItem('dsh.conversation.to', JSON.stringify({ draft: { text: 'target own' } }))
     movePersistedDraft('from' as never, 'to' as never)
     expect(JSON.parse(local.getItem('dsh.conversation.to') ?? '{}').draft.text).toBe('target own')
+    vi.unstubAllGlobals()
+  })
+
+  it('treats a pure-image draft as content and hands over its attachment ids', () => {
+    const local = storage()
+    vi.stubGlobal('localStorage', local)
+    local.setItem('dsh.conversation.from', JSON.stringify({ draft: { text: '', references: [], attachmentIds: ['img-1'] } }))
+    movePersistedDraft('from' as never, 'to' as never)
+    expect(JSON.parse(local.getItem('dsh.conversation.to') ?? '{}').draft)
+      .toEqual({ text: '', references: [], attachmentIds: ['img-1'] })
+    vi.unstubAllGlobals()
+  })
+
+  it('never overwrites a target that already holds attachments without any text', () => {
+    const local = storage()
+    vi.stubGlobal('localStorage', local)
+    local.setItem('dsh.conversation.from', JSON.stringify({ draft: { text: 'source', references: [] } }))
+    local.setItem('dsh.conversation.to', JSON.stringify({ draft: { text: '', references: [], attachmentIds: ['target-img'] } }))
+    movePersistedDraft('from' as never, 'to' as never)
+    expect(JSON.parse(local.getItem('dsh.conversation.to') ?? '{}').draft.attachmentIds).toEqual(['target-img'])
+    expect(JSON.parse(local.getItem('dsh.conversation.to') ?? '{}').draft.text).toBe('')
+    vi.unstubAllGlobals()
+  })
+
+  it('protects a target whose attachment ids sit beside the draft payload', () => {
+    const local = storage()
+    vi.stubGlobal('localStorage', local)
+    local.setItem('dsh.conversation.from', JSON.stringify({ draft: { text: 'source', references: [] } }))
+    local.setItem('dsh.conversation.to', JSON.stringify({ draft: '', attachmentIds: ['target-img'] }))
+    movePersistedDraft('from' as never, 'to' as never)
+    expect(JSON.parse(local.getItem('dsh.conversation.to') ?? '{}').draft).toBe('')
     vi.unstubAllGlobals()
   })
 

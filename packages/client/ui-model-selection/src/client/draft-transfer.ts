@@ -7,8 +7,12 @@
  * so writing the current draft under the target Session's key BEFORE navigation
  * is what makes it reappear there — no Composer plugin API and no event wiring.
  *
- * The payload is copied verbatim (references and quotes included), which keeps
- * the semantic document intact for the same parser the Composer uses on mount.
+ * The payload is copied verbatim (references, quotes and any forward-compatible
+ * attachment ids included), which keeps the semantic document intact for the
+ * same parser the Composer uses on mount. Attachment ids are opaque runtime
+ * identities owned by the Composer: this hand-off preserves the payload and
+ * never overwrites a target that already holds text or attachments, but it does
+ * not claim to re-create the runtime attachments themselves.
  * Every failure is swallowed: a missing draft must never block the switch.
  */
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -35,9 +39,11 @@ export function movePersistedDraft(from: SessionId, to: SessionId): void {
   if (typeof localStorage === 'undefined') return
   try {
     const source = readPersisted(sourceId)
-    if (source === undefined || !carriesDraft(source.draft)) return
+    if (source === undefined || (!carriesDraft(source.draft) && !hasAttachments(source))) return
     const target = readPersisted(targetId) ?? {}
-    if (carriesDraft(target.draft)) return
+    // A target that already holds text or attachments (including pure-image
+    // drafts) must never be overwritten by the hand-off.
+    if (carriesDraft(target.draft) || hasAttachments(target)) return
     localStorage.setItem(`${DRAFT_STORE_KEY}.${targetId}`, JSON.stringify({ ...target, draft: source.draft }))
   } catch (_error: unknown) {
     // Unavailable storage (quota, private mode, malformed JSON) leaves the target draft empty.
@@ -70,5 +76,17 @@ function carriesDraft(draft: unknown): boolean {
   if (typeof snapshot.text === 'string' && snapshot.text.trim() !== '') return true
   if (Array.isArray(snapshot.references) && snapshot.references.length > 0) return true
   if (Array.isArray(snapshot.quotes) && snapshot.quotes.length > 0) return true
-  return typeof snapshot.command === 'object' && snapshot.command !== null
+  if (typeof snapshot.command === 'object' && snapshot.command !== null) return true
+  return hasAttachments(snapshot)
+}
+
+/** Attachment-bearing drafts (pure-image included) count as content worth preserving. */
+function hasAttachments(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false
+  const record = value as Record<string, unknown>
+  for (const key of ['attachmentIds', 'attachments', 'images', 'files']) {
+    const list = record[key]
+    if (Array.isArray(list) && list.length > 0) return true
+  }
+  return false
 }

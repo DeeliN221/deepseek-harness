@@ -268,9 +268,9 @@ describe('ui-model-selection dual entry', () => {
     b.mint('s1')
     const options = await b.popup().options(projection('s1'), new AbortController().signal)
     expect(options.map((o: SelectOption) => o.label)).toEqual([
-      'DeepSeek-V4-Flash', 'DeepSeek-V4-Pro', 'External Flash',
+      'DeepSeek-V4-Flash', 'DeepSeek-V4-Pro',
     ])
-    expect(options.map(option => option.group?.label)).toEqual(Array(3).fill(locale === 'zh' ? '模型' : 'Model'))
+    expect(options.map(option => option.group?.label)).toEqual(Array(2).fill(locale === 'zh' ? '模型' : 'Model'))
     expect(options.every(option => option.detail === undefined)).toBe(true)
     expect(options[0]?.active).toBe(true)
     expect(options[1]?.active).toBeUndefined()
@@ -290,7 +290,7 @@ describe('ui-model-selection dual entry', () => {
       b.mint('s1')
       const options = await b.popup().options(projection('s1'), new AbortController().signal)
       expect([...new Set(options.map(option => option.group?.name))]).toEqual(['merged'])
-      expect(options.map(option => option.label)).toEqual(['DeepSeek-V4-Flash', 'DeepSeek-V4-Pro', 'External Flash'])
+      expect(options.map(option => option.label)).toEqual(['DeepSeek-V4-Flash', 'DeepSeek-V4-Pro'])
     } finally {
       await b.ctx.fiber.dispose()
     }
