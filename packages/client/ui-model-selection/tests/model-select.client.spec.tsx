@@ -132,15 +132,22 @@ describe('ModelSelect checkbox menu navigation', () => {
 })
 
 describe('ModelSelect label slot', () => {
-  it('distinguishes identical model names and ids by provider across all placements and restores labels on unload', async () => {
+  it('merges an identical model id across providers into one routed row', async () => {
     const runtime = await SlotTestRuntime.create()
     onTestFinished(() => runtime.dispose())
     const sessionId = brandString<SessionId>('model-label')
     await runtime.sessions.add({ id: sessionId })
     const session = runtime.sessions.retainFor(runtime.ctx, sessionId)
-    const groups = ['trusted', 'external'].map(id => ({
-      id, name: `${id} gateway`, models: [{ id: 'same-model', name: 'Same model' }],
-    }))
+    const groups = [
+      { id: 'trusted', name: 'trusted gateway', models: [
+        { id: 'same-model', name: 'Same model' },
+        { id: 'trusted-only', name: 'Trusted only' },
+      ] },
+      { id: 'external', name: 'external gateway', models: [
+        { id: 'same-model', name: 'Same model' },
+        { id: 'external-only', name: 'External only' },
+      ] },
+    ]
     const directory = createSnapshotStore(state({ groups, current: { provider: 'trusted', model: 'same-model' } }))
     const select = vi.fn(async (selection: ModelSelection) => {
       directory.update((snapshot) => { snapshot.current = selection })
@@ -165,30 +172,20 @@ describe('ModelSelect label slot', () => {
         title={provider.name}
       >{provider.id}: {model.name}</span>))
     } })
+    // The saved route labels the merged row, so the duplicate provider is never shown.
     expect(screen.getByTestId('trigger-trusted').textContent).toBe('trusted: Same model')
     expect(screen.getByTestId('trigger-trusted').title).toBe('trusted gateway')
-    expect(trigger.querySelector('div')).toBeNull()
     fireEvent.click(trigger)
     expect(screen.getByTestId('menu-trusted').textContent).toBe('trusted: Same model')
     fireEvent.click(screen.getByRole('menuitem', { name: /^模型/ }))
-    expect(screen.getByTestId('option-trusted').getAttribute('data-selected')).toBe('true')
-    expect(screen.getByTestId('option-external').getAttribute('data-selected')).toBe('false')
-    const external = screen.getByRole('menuitemradio', { name: 'external: Same model' })
-    expect(external.querySelector('[data-provider-id="external"][data-model-id="same-model"]')).toBeTruthy()
-    expect(external.querySelector('div')).toBeNull()
-    fireEvent.keyDown(screen.getByRole('menuitemradio', { name: 'trusted: Same model' }), { key: 'ArrowDown' })
-    expect(document.activeElement).toBe(external)
-    fireEvent.keyDown(external, { key: 'Tab' })
-    await waitFor(() => { expect(screen.getByTestId('trigger-external')).toBeTruthy() })
-    expect(select).toHaveBeenCalledWith({ provider: 'external', model: 'same-model' })
-    await waitFor(() => { expect(document.activeElement).toBe(trigger) })
+    expect(screen.getAllByRole('menuitemradio').map(row => row.textContent))
+      .toEqual(['trusted: Same model', 'trusted: Trusted only', 'external: External only'])
+    expect(screen.getAllByRole('menuitemradio').filter(row => row.textContent === 'external: Same model')).toHaveLength(0)
+    const external = screen.getByRole('menuitemradio', { name: 'external: External only' })
+    fireEvent.click(external)
+    await waitFor(() => { expect(select).toHaveBeenCalledWith({ provider: 'external', model: 'external-only' }) })
     await act(async () => { await plugin.dispose() })
     expect(runtime.slots.entries('conversation.input.model.label')).toHaveLength(0)
-    expect(trigger.textContent).toBe('Same model')
-    expect(trigger.querySelector('[data-provider-id="external"][data-model-id="same-model"]')).toBeTruthy()
-    fireEvent.click(trigger)
-    fireEvent.click(screen.getByRole('menuitem', { name: /^模型/ }))
-    expect(screen.getAllByRole('menuitemradio').map(row => row.textContent)).toEqual(['Same model', 'Same model'])
   })
 
   it('does not decorate loading or missing selections with a stale provider', () => {
@@ -1139,17 +1136,19 @@ it('places account and official models before third-party models', async () => {
   await expect(`${names.join('\n')}\n`).toMatchFileSnapshot('./expected/account-first.txt')
 })
 
-it.each([en, zh])('localizes the account group while preserving external names', (copy) => {
+it.each([en, zh])('hides every provider heading while one section holds the merged rows', (copy) => {
   const groups = ['deepseek-account', 'custom'].map(id => ({
     id, name: id === 'deepseek-account' ? 'DeepSeek Account' : 'My Gateway',
-    models: [{ id: 'model', name: 'Model' }],
+    models: [{ id: 'model', name: 'Model' }, { id: `${id}-only`, name: `${id}-only` }],
   }))
   render(<ModelSelect renderSlot={renderLabel} locked={false} available
     directory={createSnapshotStore(state({ current: null, groups }))}
     load={vi.fn()} resolveText={resolveText} select={vi.fn()} t={key => key in copy ? copy[key as keyof typeof copy] : key} />)
   fireEvent.click(screen.getByRole('button', { name: copy['trigger.selectAria'] }))
-  expect(screen.getByRole('group', { name: copy['provider.account'] })).toBeTruthy()
-  expect(screen.getByRole('group', { name: 'My Gateway' })).toBeTruthy()
+  expect(screen.queryByRole('group', { name: copy['provider.account'] })).toBeNull()
+  expect(screen.queryByRole('group', { name: 'My Gateway' })).toBeNull()
+  expect(screen.getAllByRole('menuitemradio').map(row => row.textContent))
+    .toEqual(['Model', 'deepseek-account-only', 'custom-only'])
 })
 
 it('restores the account model name after login without changing the saved route', () => {

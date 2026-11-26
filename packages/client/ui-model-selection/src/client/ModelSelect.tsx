@@ -29,7 +29,7 @@
  */
 import { MenuGroup, MenuSurface, observeStickyMenuGroups } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore,
+  Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore,
   type CSSProperties, type KeyboardEvent, type FocusEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
@@ -43,7 +43,7 @@ import type { PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/d
 import type { ModelLabelOwner, ModelMenuControls, ModelMenuPaneRef, ModelSelectInjected } from './slots.ts'
 import css from './ModelSelect.module.css'
 import { TextSearchIndex } from '@deepseek-ai/dsh-util-text-search'
-import { orderModelProviders } from './provider-order.ts'
+import { groupModelsForDisplay, type DisplayGroup } from './model-groups.ts'
 
 /** Which pane the dropdown shows: the root menu, one drilled-in list, or a plugin-owned detail pane. */
 type Pane =
@@ -105,19 +105,23 @@ export function ModelSelect(
   }
 
   const accountProviderName = t('provider.account')
-  const groups = useMemo(() => orderModelProviders(state.groups).map(group => ({
-    ...group,
-    provider: {
-      id: group.id,
-      name: group.id === 'deepseek-account' ? accountProviderName : group.name,
-    },
-  })), [state.groups, accountProviderName])
+  // One section per model id: the same model through several providers is one
+  // row, and that row remembers which provider receives its request.
+  const groups = useMemo(() => groupModelsForDisplay(state.groups, state.current), [state.groups, state.current])
+  /** Provider identity of one routed row, under its own display name. */
+  const providerOf = (providerId: string): ModelLabelOwner['provider'] => ({
+    id: providerId,
+    name: providerId === 'deepseek-account'
+      ? accountProviderName
+      : state.groups.find(group => group.id === providerId)?.name ?? providerId,
+  })
+  const routeOf = (group: DisplayGroup, modelId: string): string => group.routeOf(modelId) ?? group.id
   const choices = useMemo(() => groups.flatMap(group =>
     group.models.map(model => ({
       group,
       model,
       selection: {
-        provider: group.id,
+        provider: group.routeOf(model.id) ?? group.id,
         model: model.id,
         ...model.reasoning?.defaultEffort === undefined
           ? {}
@@ -132,16 +136,23 @@ export function ModelSelect(
     ...group, models: index.search(showSearch ? query : ''),
   })).filter(group => group.models.length > 0), [groupIndexes, query, showSearch])
   const visibleModels = useMemo(() => filteredGroups.flatMap(group => group.models.map(model => ({
-    provider: group.id, model: model.id,
+    provider: group.routeOf(model.id) ?? group.id, model: model.id,
   }))), [filteredGroups])
-  const currentVisibleIndex = visibleModels.findIndex(model =>
-    model.provider === state.current?.provider && model.model === state.current.model)
+  // A row's identity is its model id, so a selection made through any one of
+  // the merged providers still resolves to the row the user sees.
+  const currentVisibleIndex = visibleModels.findIndex(model => model.model === state.current?.model)
   const activeModelIndex = Math.min(highlightedIndex ?? Math.max(0, currentVisibleIndex), visibleModels.length - 1)
-  const selectedIndex = state.current === null
-    ? -1
-    : choices.findIndex(c => c.selection.provider === state.current?.provider && c.selection.model === state.current.model)
-  const currentChoice = choices[selectedIndex]
-  const reasoning = currentChoice?.model.reasoning
+  const exactIndex = choices.findIndex(choice =>
+    choice.selection.provider === state.current?.provider && choice.selection.model === state.current?.model)
+  const currentChoice = exactIndex !== -1
+    ? choices[exactIndex]
+    : choices.find(choice => choice.selection.model === state.current?.model)
+  // Exact-model reasoning metadata comes from the provider actually in use, so
+  // the effort list never describes a different route than the one submitted.
+  const reasoningEntry = currentChoice === undefined
+    ? undefined
+    : currentChoice.group.entryOf(currentChoice.model.id, state.current?.provider)
+  const reasoning = reasoningEntry?.reasoning ?? currentChoice?.model.reasoning
   const effectiveEffort = state.current?.reasoningEffort ?? reasoning?.defaultEffort
   const effortLabel = currentChoice === undefined
     ? undefined
@@ -529,7 +540,7 @@ export function ModelSelect(
       >
         <IconDataOutlineRegular className={css.triggerIcon} size={16} />
         <span className={css.triggerLabel}>
-          {currentChoice === undefined ? modelLabel : renderModelLabel(currentChoice.group.provider, currentChoice.model, 'trigger', true)}
+          {currentChoice === undefined ? modelLabel : renderModelLabel(providerOf(currentChoice.selection.provider), currentChoice.model, 'trigger', true)}
         </span>
         {effortLabel !== undefined && <span className={css.triggerEffort}>{effortLabel}</span>}
         {busy
@@ -558,7 +569,7 @@ export function ModelSelect(
               <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { drill(MODEL_PANE) }}>
                 <span className={css.cellLabel}>{t('menu.model')}</span>
                 <span className={css.cellValue}>
-                  {currentChoice === undefined ? modelLabel : renderModelLabel(currentChoice.group.provider, currentChoice.model, 'menu', true)}
+                  {currentChoice === undefined ? modelLabel : renderModelLabel(providerOf(currentChoice.selection.provider), currentChoice.model, 'menu', true)}
                 </span>
                 <IconChevronRightOutlineRegular className={css.cellChevron} />
               </button>
@@ -628,46 +639,50 @@ export function ModelSelect(
                 hidden={filteredGroups.length === 0}
               >
                 {filteredGroups.map((group) => {
-                  return (
-                    <MenuGroup key={group.id} label={group.provider.name}>
-                      {group.models.map((model) => {
-                        const index = modelIndex++
-                        const selected = state.current?.provider === group.id && state.current.model === model.id
-                        return (
-                          <button
-                            ref={itemRef()}
-                            type="button"
-                            role="menuitemradio"
-                            aria-checked={selected}
-                            id={`${id}-model-${index}`}
-                            tabIndex={showSearch ? -1 : 0}
-                            onFocus={() => { setHighlightedIndex(index) }}
-                            data-highlighted={index === activeModelIndex ? '' : undefined}
-                            className={clsx(
-                              css.option, css.modelOption, selected && css.selected, index === activeModelIndex && css.optionActive,
-                            )}
-                            onMouseMove={busy || index === activeModelIndex ? undefined : () => {
-                              if (showSearch) setHighlightedIndex(index)
-                              else itemRefs.current[index]?.focus()
-                            }}
-                            key={model.id}
-                            title={model.name}
-                            disabled={busy}
-                            onClick={() => { choose({ provider: group.id, model: model.id }) }}
-                          >
-                            <span className={css.optionCopy}>
-                              <span className={css.modelName}>{renderModelLabel(group.provider, model, 'option', selected)}</span>
-                            </span>
-                            <span className={css.check}>
-                              {pending?.provider === group.id && pending.model === model.id
-                                ? <StateDot state="ongoing" />
-                                : selected ? <IconCheckOutlineRegular /> : null}
-                            </span>
-                          </button>
-                        )
-                      })}
-                    </MenuGroup>
-                  )
+                  const rows = group.models.map((model) => {
+                    const index = modelIndex++
+                    const route = routeOf(group, model.id)
+                    // A merged row is the selected one whichever duplicate provider carries the selection.
+                    const selected = state.current !== null
+                      && state.current.model === model.id
+                      && (group.merged || state.current.provider === group.id)
+                    return (
+                      <button
+                        ref={itemRef()}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={selected}
+                        id={`${id}-model-${index}`}
+                        tabIndex={showSearch ? -1 : 0}
+                        onFocus={() => { setHighlightedIndex(index) }}
+                        data-highlighted={index === activeModelIndex ? '' : undefined}
+                        className={clsx(
+                          css.option, css.modelOption, selected && css.selected, index === activeModelIndex && css.optionActive,
+                        )}
+                        onMouseMove={busy || index === activeModelIndex ? undefined : () => {
+                          if (showSearch) setHighlightedIndex(index)
+                          else itemRefs.current[index]?.focus()
+                        }}
+                        key={model.id}
+                        title={model.name}
+                        disabled={busy}
+                        onClick={() => { choose({ provider: route, model: model.id }) }}
+                      >
+                        <span className={css.optionCopy}>
+                          <span className={css.modelName}>{renderModelLabel(providerOf(route), model, 'option', selected)}</span>
+                        </span>
+                        <span className={css.check}>
+                          {pending?.model === model.id && (group.merged || pending.provider === group.id)
+                            ? <StateDot state="ongoing" />
+                            : selected ? <IconCheckOutlineRegular /> : null}
+                        </span>
+                      </button>
+                    )
+                  })
+                  // Merged rows show no provider identity; engine groups keep their heading.
+                  return group.merged
+                    ? <Fragment key={group.id}>{rows}</Fragment>
+                    : <MenuGroup key={group.id} label={providerOf(group.id).name}>{rows}</MenuGroup>
                 })}
               </div>
               {state.status === 'ready' && filteredGroups.length === 0 && (

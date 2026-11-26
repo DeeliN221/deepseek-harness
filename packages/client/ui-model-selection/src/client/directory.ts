@@ -14,6 +14,7 @@ import type { RemoteResult, TypertClientRemote } from '@deepseek-ai/dsh-typert-p
 import type { ObservableSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ModelCatalogDirectory } from './catalog.ts'
+import { movePersistedDraft } from './draft-transfer.ts'
 
 /** Directory snapshot both entries render from. */
 export interface ModelDirectoryState {
@@ -118,6 +119,10 @@ export class ModelDirectory {
     }
     if (result.value.sessionId !== undefined && result.value.sessionId !== this.sessionId) {
       this.store.update((state) => { state.pending = null; state.status = 'ready' })
+      // The switch replaces the Session. Hand the saved draft to the target
+      // BEFORE navigation publishes it: its Composer restores a Session draft
+      // from storage when the input shell is first created.
+      movePersistedDraft(this.sessionId, result.value.sessionId)
       this.openSession?.(result.value.sessionId)
       return { ok: true, value: undefined }
     }
