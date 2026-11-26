@@ -69,6 +69,20 @@ describe('product package use', () => {
     expect(verifyProductUse(fixture(), {})).toMatchObject({ failures: [], optionalPackages: [], configCount: 1 })
   })
 
+  it('does not require runtime use for a patch-only compatibility bundle', () => {
+    const root = fixture()
+    const name = '@deepseek-ai/dsh-client-sidebar-files'
+    write(root, 'packages/client/sidebar-files/package.json', {
+      name,
+      exports: { './cordis.patch.yml': './cordis.patch.yml', './package.json': './package.json' },
+      files: ['cordis.patch.yml'],
+      dsh: { bundle: { patch: './cordis.patch.yml' } },
+      dependencies: { '@deepseek-ai/dsh-client-ui-sidebar-files': 'workspace:*' },
+    })
+    write(root, 'packages/client/sidebar-files/cordis.patch.yml', [{ insert: [{ id: 'ui-sidebar-files', name: '@deepseek-ai/dsh-client-ui-sidebar-files' }] }])
+    expect(failures(root)).toBe('')
+  })
+
   it('rejects an orphan even when an app manifest installs it', () => {
     const root = fixture()
     pkg(root, candidateDir, candidate)

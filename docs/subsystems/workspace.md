@@ -448,6 +448,47 @@ Host Remote file reads and workspace directory observations over the composed fi
 
 ```ts cordis-catalog
 /**
+ * List any directory for the authenticated human owner, independently of Sessions.
+ * @param path - absolute directory path in the filesystem's execution world.
+ * @param signal - caller cancellation.
+ * @returns canonical directory and parent paths, with bounded direct children.
+ */
+@Remote async ownerList(path: string, signal: AbortSignal): Promise<OwnerDirectoryListing>
+
+/**
+ * Inspect a regular file for the authenticated human owner.
+ * @param path - absolute file path.
+ * @param signal - caller cancellation.
+ * @returns canonical identity, version and size.
+ */
+@Remote async ownerStat(path: string, signal: AbortSignal): Promise<WorkspaceFileStat>
+
+/**
+ * Load complete text for explicit editing; refuse a file changed during the read.
+ * @param path - absolute regular file path; final symlinks are refused.
+ * @param signal - caller cancellation.
+ * @returns exact UTF-8 text and its version, bounded by maxFileBytes.
+ */
+@Remote async ownerRead(path: string, signal: AbortSignal): Promise<OwnerFileText>
+
+/**
+ * Replace an existing text file after an authenticated owner's explicit save.
+ * @param path - absolute regular file path; final symlinks are refused.
+ * @param request - complete replacement text and required loaded version.
+ * @param signal - caller cancellation before publication.
+ * @returns the committed version and replacement byte size.
+ */
+@Remote async saveText(path: string, request: WorkspaceFileSaveRequest, signal: AbortSignal): Promise<WorkspaceFileStat>
+
+/**
+ * Observe a file or directory chosen by the authenticated human owner.
+ * @param path - absolute target path, independently of any Session workspace.
+ * @param signal - generation cancellation.
+ * @returns readiness then current metadata for target invalidations.
+ */
+@Remote({ mode: 'stream' }) ownerChanges(path: string, signal: AbortSignal): AsyncIterable<WorkspaceFileWatchFrame>
+
+/**
  * Read one page of lines from a UTF-8 file readable by the filesystem backend.
  * @param workspaceFileScope - header-derived workspace root for the Session identity on the wire.
  * @param path - absolute path or path relative to the workspace root; files outside it are allowed.

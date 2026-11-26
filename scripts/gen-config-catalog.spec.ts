@@ -62,6 +62,18 @@ afterEach(() => {
 })
 
 describe('shared config schema catalog', () => {
+  it('omits patch-only bundle carriers without source entry points', () => {
+    const { root, write } = fixture()
+    write('packages/test/patch-only/package.json', JSON.stringify({
+      name: '@test/patch-only',
+      exports: { './cordis.patch.yml': './cordis.patch.yml', './package.json': './package.json' },
+      files: ['cordis.patch.yml'],
+      dsh: { bundle: { patch: './cordis.patch.yml' } },
+    }))
+    write('packages/test/patch-only/cordis.patch.yml', '- insert: []\n')
+    expect(collectConfigCatalog(root).some(entry => entry.dir === 'packages/test/patch-only')).toBe(false)
+  })
+
   it.each([false, true])('checks imported object fields and spread overrides (invalid=%s)', (invalid) => {
     const { root, write } = fixture(`
 import Schema from '@deepseek-ai/schemastery'

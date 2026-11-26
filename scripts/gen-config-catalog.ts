@@ -25,6 +25,7 @@ import {
   translationPairSourcePredicate,
 } from './translation-pairing.ts'
 import { githubSlug } from './verify-md-links.ts'
+import { isPatchOnlyBundleManifest } from './patch-only-bundle.ts'
 
 const root = resolve(import.meta.dirname, '..')
 const PATHS = translationPairPaths('docs/config-catalog.md')
@@ -744,12 +745,24 @@ export function collectConfigCatalog(scanRoot: string = root): CatalogEntry[] {
   const manifests: { dir: string; pkg: string }[] = []
   for (const manifestRel of globSync('packages/*/*/package.json', { cwd: scanRoot }).map(path => path.split(sep).join('/')).sort()) {
     const dir = manifestRel.slice(0, -'/package.json'.length)
-    const manifest = JSON.parse(readFileSync(resolve(scanRoot, manifestRel), 'utf8')) as { name?: string; os?: string[]; cpu?: string[]; exports?: unknown }
+    const manifest = JSON.parse(readFileSync(resolve(scanRoot, manifestRel), 'utf8')) as {
+      name?: string
+      os?: string[]
+      cpu?: string[]
+      exports?: unknown
+      main?: string
+      module?: string
+      types?: string
+      typings?: string
+      files?: string[]
+      dsh?: { bundle?: { patch?: string | string[] } }
+    }
     const pkg = manifest.name
     if (!pkg) {
       violations.push(`${manifestRel} has no "name".`)
       continue
     }
+    if (isPatchOnlyBundleManifest(manifest, existsSync(resolve(scanRoot, dir, 'src/index.ts')))) continue
     if (manifest.os !== undefined && manifest.cpu !== undefined) {
       // A per-platform native-binary package (npm os/cpu selection) ships no
       // JavaScript at all — nothing to classify, no Config to catalog.

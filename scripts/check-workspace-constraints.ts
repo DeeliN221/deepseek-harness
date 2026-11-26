@@ -29,6 +29,7 @@ import {
   PACKAGE_ASSET_FILES_ENTRY,
 } from '../packages/client/modules/src/assets.ts'
 import { collectProjectReferenceFaceViolations } from './project-reference-faces.ts'
+import { isPatchOnlyBundleManifest } from './patch-only-bundle.ts'
 
 const root = resolve(import.meta.dirname, '..')
 // Publication rules cover these package trees; dependency rules read all pnpm members.
@@ -311,7 +312,9 @@ export function detailDocumentFiles(packageDir: string): readonly string[] {
  * @param detailFiles - entries from {@link detailDocumentFiles}.
  * @returns the icon, deduplicated locale targets, and detail documents followed by runtime, package-asset, and declaration payloads.
  */
-export function expectedDshPackageFiles(manifest: PackageManifest, detailFiles: readonly string[] = []): readonly string[] {
+export function expectedDshPackageFiles(
+  manifest: PackageManifest, detailFiles: readonly string[] = [], patchOnlyBundle = isPatchOnlyBundleManifest(manifest),
+): readonly string[] {
   const localeFiles = new Set<string>()
   for (const resource of Object.keys(manifest.exports ?? {})) {
     if (!/^\.\/(?:.+\/)?locale\/[^/]+\.json$/u.test(resource)) continue
@@ -332,6 +335,9 @@ export function expectedDshPackageFiles(manifest: PackageManifest, detailFiles: 
     ...Object.entries(manifest.exports ?? {}).filter(([key]) => /^\.\/(?:.+\/)?icon$/u.test(key))
       .flatMap(([, target]) => targets(target)).filter(icon => icon.startsWith('./')).map(icon => icon.slice(2)),
   ]
+  if (patchOnlyBundle) {
+    return [...new Set([...icons, ...[...localeFiles].sort(), ...detailFiles, ...bundleFiles])]
+  }
   return [
     ...new Set(icons),
     ...[...localeFiles].sort(),
@@ -590,28 +596,31 @@ export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): st
     if (manifest.type !== 'module') {
       errors.push(`${label}: package.json must set "type": "module"`)
     }
-    if (manifest.main !== 'lib/index.js') {
-      errors.push(`${label}: package.json must set "main": "lib/index.js"`)
+    const patchOnlyBundle = isPatchOnlyBundleManifest(manifest, existsSync(join(root, dir, 'src/index.ts')))
+    if (!patchOnlyBundle) {
+      if (manifest.main !== 'lib/index.js') {
+        errors.push(`${label}: package.json must set "main": "lib/index.js"`)
+      }
+      if (manifest.types !== 'lib/types/index.d.ts') {
+        errors.push(`${label}: package.json must set "types": "lib/types/index.d.ts"`)
+      }
+      const rootEntry = exportFields(manifest.exports?.['.'])
+      if (rootEntry?.types !== './lib/types/index.d.ts') {
+        errors.push(`${label}: package.json exports["."].types must be "./lib/types/index.d.ts"`)
+      }
+      if (rootEntry?.default !== './lib/index.js') {
+        errors.push(`${label}: package.json exports["."].default must be "./lib/index.js"`)
+      }
+      if (manifest.name === '@deepseek-ai/dsh-tools'
+        && !hasExportPair(manifest, './pipeline', './lib/types/pipeline.d.ts', './lib/pipeline.js')) {
+        errors.push(`${label}: exports["./pipeline"] must expose lib/types/pipeline.d.ts and lib/pipeline.js`)
+      }
+      if (manifest.name === '@deepseek-ai/dsh-tool-executor-ptc'
+        && !hasExportPair(manifest, './run-code', './lib/types/run-code.d.ts', './lib/run-code.js')) {
+        errors.push(`${label}: exports["./run-code"] must expose lib/types/run-code.d.ts and lib/run-code.js`)
+      }
     }
-    if (manifest.types !== 'lib/types/index.d.ts') {
-      errors.push(`${label}: package.json must set "types": "lib/types/index.d.ts"`)
-    }
-    const rootEntry = exportFields(manifest.exports?.['.'])
-    if (rootEntry?.types !== './lib/types/index.d.ts') {
-      errors.push(`${label}: package.json exports["."].types must be "./lib/types/index.d.ts"`)
-    }
-    if (rootEntry?.default !== './lib/index.js') {
-      errors.push(`${label}: package.json exports["."].default must be "./lib/index.js"`)
-    }
-    if (manifest.name === '@deepseek-ai/dsh-tools'
-      && !hasExportPair(manifest, './pipeline', './lib/types/pipeline.d.ts', './lib/pipeline.js')) {
-      errors.push(`${label}: exports["./pipeline"] must expose lib/types/pipeline.d.ts and lib/pipeline.js`)
-    }
-    if (manifest.name === '@deepseek-ai/dsh-tool-executor-ptc'
-      && !hasExportPair(manifest, './run-code', './lib/types/run-code.d.ts', './lib/run-code.js')) {
-      errors.push(`${label}: exports["./run-code"] must expose lib/types/run-code.d.ts and lib/run-code.js`)
-    }
-    const expectedFiles = expectedDshPackageFiles(manifest, detailDocumentFiles(join(root, dir)))
+    const expectedFiles = expectedDshPackageFiles(manifest, detailDocumentFiles(join(root, dir)), patchOnlyBundle)
     if (!sameStringList(manifest.files, expectedFiles)) {
       errors.push(`${label}: package.json files must be ${JSON.stringify(expectedFiles)}`)
     }
