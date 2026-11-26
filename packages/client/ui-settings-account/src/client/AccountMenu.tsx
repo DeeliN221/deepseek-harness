@@ -1,14 +1,9 @@
-/** Sidebar account launcher and locally authoritative sign-out action. */
+/** Sidebar settings entry that keeps the account notification lifecycle mounted. */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  Toast, Menu, IconEllipsisOutlineMedium, IconPaperPlaneOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { Toast, IconSettingsOutlineMedium } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { AccountSectionInjected } from './AccountSection.tsx'
-import { SignOutDialog } from './SignOutDialog.tsx'
 import { SignInDialog } from './SignInDialog.tsx'
-import { LogoutIcon } from './LogoutIcon.tsx'
-import { AccountAvatar } from './AccountAvatar.tsx'
 import type {} from './account-ui.ts'
 import css from './AccountMenu.module.css'
 
@@ -21,8 +16,8 @@ export type AccountMenuProps = PropsRuntime<'settings.launcher'> & PropsRenderSl
  */
 export function AccountMenu({
   subscribeSessionExpired, subscribeModelSignInRequired, wide, settingsShortcut, openSettings, openOnboarding, settingsOpen,
-  useAccount, useTheme, signOut, hasRunningAccountTasks, refreshAccount, renderSlot,
-  contactUs, showLogin, start, cancel, avatarFailed, t,
+  useAccount, useTheme, refreshAccount, renderSlot,
+  showLogin, start, cancel, t,
 }: AccountMenuProps) {
   // The launcher outlives the panel, so a false-to-true edge is one Settings entry:
   // re-renders, section switches and tab switches inside one open must not read again.
@@ -38,21 +33,6 @@ export function AccountMenu({
   useEffect(() => subscribeModelSignInRequired?.(() => { setSignInNotice(value => value + 1) }), [subscribeModelSignInRequired])
   const [expiryNotice, setExpiryNotice] = useState(false)
   useEffect(() => subscribeSessionExpired?.(() => { setExpiryNotice(true) }), [subscribeSessionExpired])
-  const profile = account.details?.profile
-  const label = profile === undefined ? null : profile.status === 'ready'
-    ? profile.value.name ?? profile.value.contact ?? t('signedIn') : t('signedIn')
-  const [open, setOpen] = useState(false)
-  const trigger = useRef<HTMLButtonElement>(null)
-  const [busy, setBusy] = useState(false)
-  const [signOutImpact, setSignOutImpact] = useState<boolean | 'unknown'>()
-  const requestSignOut = async () => {
-    setBusy(true)
-    try { setSignOutImpact(await hasRunningAccountTasks()); setOpen(false) }
-    catch (_error) { setSignOutImpact('unknown'); setOpen(false) }
-    finally { setBusy(false) }
-  }
-  // The plugin's start publishes `loginFailed` before it rejects, so the dialog owns the report.
-  const beginSignIn = (): void => { setOpen(false); void start().catch(() => undefined) }
   const openAccount = useCallback(() => { openSettings('account') }, [openSettings])
   return <div className={css.root} data-inset={signedIn && wide}>
     {signInNotice > 0 && <Toast key={signInNotice} text={t('modelSignInRequired')} onDone={() => { setSignInNotice(0) }} />}
@@ -60,34 +40,22 @@ export function AccountMenu({
     <div className={css.notifications} hidden={!wide}>{renderSlot('settings.launcher.notifications', {
       active: signedIn && !account.desktopOnboardingVisible && !account.onboarding, openAccount,
     })}</div>
-    <Menu open={open} side="top" portal autoFocus className={css.anchor} listClassName={signedIn ? undefined : css.signedOutMenu}
-      anchor={<button ref={trigger} type="button" className={css.trigger} data-collapsed={!wide} data-signed-out={!signedIn} aria-label={t('menu')}
-        aria-haspopup="menu" aria-expanded={open} onClick={() => { setOpen(value => !value) }}>
-        {signedIn
-          ? <span className={css.avatar} data-avatar-status={account.avatar?.status}>
-            <AccountAvatar avatar={account.avatar} avatarFailed={avatarFailed} />
-          </span>
-          : <IconEllipsisOutlineMedium size={14} />}
-        {wide && <span className={css.label}>{signedIn ? label : t('more')}</span>}
-      </button>}
-      items={[
-        { id: 'settings', label: t('settings'), icon: <IconSettingsOutlineMedium size={16} />,
-          ...(settingsShortcut === undefined ? {} : { shortcut: settingsShortcut }) },
-        { id: 'contact', label: t('contactUs'), icon: <IconPaperPlaneOutlineMedium size={16} /> },
-        ...(signedIn ? [{ id: 'signout', label: t('signOut'), icon: <LogoutIcon />, disabled: busy }]
-          : [{ id: 'signin', label: t('signIn'), icon: <IconUserOutlineMedium size={16} /> }]),
-      ]}
-      onClose={() => { setOpen(false) }}
-      onSelect={(id) => {
-        if (id === 'settings') { setOpen(false); trigger.current?.focus(); openSettings() }
-        else if (id === 'contact') { setOpen(false); contactUs() }
-        else if (id === 'signin') beginSignIn()
-        else void requestSignOut()
-      }} />
+    {/* The trigger is a Settings entry: one click opens the dialog, no menu. */}
+    <button
+      type="button"
+      className={css.trigger}
+      data-collapsed={!wide}
+      data-dshsn-settings
+      aria-label={t('settings')}
+      aria-haspopup="dialog"
+      aria-expanded={settingsOpen}
+      aria-keyshortcuts={settingsShortcut?.aria}
+      onClick={() => { openSettings() }}
+    >
+      <IconSettingsOutlineMedium size={wide ? 16 : 18} />
+    </button>
     {account.loginVisible && !account.onboarding && <SignInDialog account={account} colorScheme={colorScheme}
       start={start} cancel={cancel} t={t}
       close={() => { showLogin(false) }} useApiKey={() => { showLogin(false); openOnboarding('deepseek-official') }} />}
-    {signedIn && signOutImpact !== undefined && <SignOutDialog running={signOutImpact} signOut={signOut}
-      close={() => { setSignOutImpact(undefined) }} t={t} />}
   </div>
 }

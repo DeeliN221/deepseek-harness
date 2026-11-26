@@ -10,6 +10,7 @@ import { formatBalance } from './formatBalance.ts'
 import { AccountAvatar } from './AccountAvatar.tsx'
 import type { AccountAvatarSnapshot } from './account-avatar.ts'
 import { authorizeUrlWithTheme } from './authorize-url.ts'
+import { SignOutDialog } from './SignOutDialog.tsx'
 import css from './AccountSection.module.css'
 
 /** Safe account snapshot shared by the settings page and launcher. */
@@ -82,7 +83,9 @@ export interface AccountSectionInjected {
 export type AccountSectionProps =
   PropsRuntime<'settings.section'> & PropsLocale<'settings.account'> & InjectFace<AccountSectionInjected>
 /** @param props - localized actions, account subscription, and the shared Platform page channel. @returns account settings UI. */
-export function AccountSection({ t, useAccount, useTheme, start, cancel, openPlatformPage, avatarFailed }: AccountSectionProps) {
+export function AccountSection({
+  t, useAccount, useTheme, start, cancel, openPlatformPage, avatarFailed, signOut, hasRunningAccountTasks,
+}: AccountSectionProps) {
   const { view: state, details, avatar, failed: streamFailed } = useAccount(value => value)
   const colorScheme = useTheme(snapshot => snapshot.active.colorScheme)
   // The shared host owns the native view; this page holds only its own request,
@@ -90,6 +93,14 @@ export function AccountSection({ t, useAccount, useTheme, start, cancel, openPla
   const releasePage = useRef<(() => void) | undefined>(undefined)
   const [failed, setFailed] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [signOutImpact, setSignOutImpact] = useState<boolean | 'unknown'>()
+  const [checkingSignOut, setCheckingSignOut] = useState(false)
+  // A sign-out elsewhere may pre-empt an in-flight impact query or an open
+  // confirmation: the request sequence invalidates stale resolutions, and the
+  // cleanup below drops the dialog so signing in again on this still-mounted
+  // section cannot resurrect it.
+  const signOutRequest = useRef(0)
+  const signOutChecking = useRef(false)
   const profile = details?.profile?.status === 'ready' ? details.profile.value : undefined
   const wallets = details?.balance?.status === 'ready' ? details.balance.value : undefined
   const bonusWallets = details?.balance?.status === 'ready'
@@ -99,6 +110,13 @@ export function AccountSection({ t, useAccount, useTheme, start, cancel, openPla
   const active = attempt !== null && attempt !== undefined
     && ['initializing', 'waiting-browser', 'exchanging', 'committing'].includes(attempt.phase)
   const signedIn = state?.status === 'credential-stored'
+  useEffect(() => {
+    if (signedIn) return
+    signOutRequest.current += 1
+    signOutChecking.current = false
+    setSignOutImpact(undefined)
+    setCheckingSignOut(false)
+  }, [signedIn])
   useEffect(() => () => { releasePage.current?.(); releasePage.current = undefined }, [])
   useEffect(() => {
     if (signedIn) return
@@ -213,6 +231,47 @@ export function AccountSection({ t, useAccount, useTheme, start, cancel, openPla
           </div>
         </div>
       </div>
+      {/* The sidebar account menu is no longer rendered: sign-out lives here. */}
+      {signedIn && (
+        <div className={css.card}>
+          <div className={css.row}>
+            <span>{t('signOut')}</span>
+            <Button
+              variant="outline"
+              disabled={busy || checkingSignOut}
+              data-dshsn-signout
+              onClick={() => {
+                if (signOutImpact !== undefined || signOutChecking.current) return
+                signOutRequest.current += 1
+                const request = signOutRequest.current
+                signOutChecking.current = true
+                setCheckingSignOut(true)
+                const settle = (impact: boolean | 'unknown'): void => {
+                  if (signOutRequest.current !== request) return
+                  signOutChecking.current = false
+                  setCheckingSignOut(false)
+                  setSignOutImpact(impact)
+                }
+                void hasRunningAccountTasks().then(settle, () => { settle('unknown') })
+              }}
+            >
+              {t('signOut')}
+            </Button>
+          </div>
+        </div>
+      )}
+      {signedIn && signOutImpact !== undefined && (
+        <SignOutDialog
+          running={signOutImpact}
+          signOut={signOut}
+          close={() => {
+            signOutRequest.current += 1
+            signOutChecking.current = false
+            setSignOutImpact(undefined)
+          }}
+          t={t}
+        />
+      )}
     </section>
   )
 }
