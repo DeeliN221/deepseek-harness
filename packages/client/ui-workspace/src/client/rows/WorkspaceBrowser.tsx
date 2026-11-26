@@ -286,6 +286,10 @@ type SessionTreeProps = Pick<
   animationResetKey: string
   /** Nest Workspaces under their nearest registered ancestors. */
   nestWorkspaces: boolean
+  /** Workspaces tucked away from the daily tree; records, Sessions and logs stay intact. */
+  hiddenWorkspaceIds?: Readonly<Record<string, true>> | undefined
+  /** Reveal tucked-away Workspaces so they can be restored from the row menu. */
+  showHiddenWorkspaces?: boolean
   /** Explicit persisted group expansion, including descendants in tree mode. */
   groupExpansion: Readonly<Record<string, boolean>>
   /** Persist one Workspace group's expansion. */
@@ -384,7 +388,7 @@ function SessionTree({
       expandedGroups,
       ungroupedOrder: ungroupedSessionIds,
       hiddenWorkspaceIds: Object.keys(hiddenWorkspaceIds ?? {}),
-      showHiddenWorkspaces,
+      showHiddenWorkspaces: showHiddenWorkspaces === true,
     }),
     [list, workspaces, rowState, statuses, expandedGroups, ungroupedSessionIds, hiddenWorkspaceIds, showHiddenWorkspaces],
   )
@@ -986,6 +990,7 @@ export function WorkspaceBrowser({
   // without the field; they read as the default hide-archived view.
   const archivedFilter = useStore(s => s.archivedFilter ?? 'default')
   const showHiddenWorkspaces = useStore(s => s.showHiddenWorkspaces === true)
+  const hiddenWorkspaceIds = useStore(s => s.hiddenWorkspaceIds)
   const groupExpansion = useStore(s => s.groupExpansion)
   const sessionOrderByAccount = useStore(s => s.sessionOrderByAccount)
   // Archived sessions are not openable: the row stays visible under the
@@ -1447,6 +1452,8 @@ export function WorkspaceBrowser({
                 ungroupedSessionIds={orderedUngroupedSessionIds}
                 workspaceReady={workspaceReady}
                 nestWorkspaces={groupBy === 'workspace-tree'}
+                hiddenWorkspaceIds={hiddenWorkspaceIds}
+                showHiddenWorkspaces={showHiddenWorkspaces}
                 animationResetKey={`${groupBy}/${orderBy}/${archivedFilter}`}
                 groupExpansion={groupExpansion}
                 setGroupExpanded={actions.setGroupExpanded}
