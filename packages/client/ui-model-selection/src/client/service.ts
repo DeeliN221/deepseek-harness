@@ -69,11 +69,20 @@ export class ModelDirectoryResolver extends Service {
    * @returns user-facing refusal, or null when the draft is empty and safe.
    */
   switchBlockReason(binding: SessionBinding): string | null {
-    const conversation = binding.ctx.get('conversation') as {
-      readonly input?: { for(ctx: unknown): { readonly state: { getSnapshot(): unknown } } }
-    } | undefined
-    const input = conversation?.input?.for?.(binding.ctx)
-    if (!draftBlocksSwitch(input?.state.getSnapshot())) return null
+    try {
+      const conversation = binding.ctx.get('conversation') as {
+        readonly input?: { for(ctx: unknown): { readonly state: { getSnapshot(): unknown } } }
+      } | undefined
+      const input = conversation?.input?.for?.(binding.ctx)
+      if (!draftBlocksSwitch(input?.state.getSnapshot())) return null
+    } catch {
+      // The guard must fail closed: an unreadable draft state cannot prove the
+      // switch is safe, so keep the source Session and tell the user why.
+      return this.ctx.locale.resolveText({
+        zh: '无法确认当前草稿状态，已阻止切换以免丢失草稿或附件。',
+        en: 'Could not verify the current draft, so the switch was blocked to avoid losing a draft or attachment.',
+      })
+    }
     return this.ctx.locale.resolveText({
       zh: '当前会话仍有草稿或附件；切换引擎会丢失它们。请先发送或清空后再切换。',
       en: 'This session still has a draft or attachment; switching engines would lose it. Send or clear it first.',
