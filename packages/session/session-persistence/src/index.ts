@@ -22,6 +22,7 @@ export type {
   SessionHandleFlushOptions,
   SessionHandleReadOptions,
   SessionHandleReadResult,
+  SessionHandleTailReadResult,
 } from './handle.ts'
 export {
   SessionAlreadyExistsError,

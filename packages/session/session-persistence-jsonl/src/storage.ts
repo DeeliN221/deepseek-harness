@@ -30,6 +30,7 @@ import type {
   SessionHandleFlushOptions,
   SessionHandleReadOptions,
   SessionHandleReadResult,
+  SessionHandleTailReadResult,
 } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionWriteLease } from './lease.ts'
 
@@ -53,6 +54,8 @@ export interface JsonlHandleStorage {
   resolveCurrentLog(id: SessionId, signal?: AbortSignal): Promise<string | undefined>
   /** Read and validate the stored log at `path`, including its established event aliasing state. */
   readStoredLog(path: string, expectedId: SessionId, signal?: AbortSignal): Promise<SessionHandleReadResult>
+  /** Read only the trailing records of the stored log at `path`, plus the complete record count. */
+  readTailLog(path: string, expectedId: SessionId, maxEvents: number, signal?: AbortSignal): Promise<SessionHandleTailReadResult>
   /** Whether the id is still a created-but-unmaterialized session here. */
   hasPendingSession(id: SessionId): boolean
   /** Acquire the session's cross-process write lock in its artifact directory. */
@@ -154,6 +157,45 @@ export class JsonlSessionHandle implements SessionHandle {
       }
     }
     return result
+  }
+
+  /**
+   * Read only the trailing records of this handle's log; see the seam contract.
+   * The completed record count comes back with the window so a caller can still
+   * address absolute seqs without materializing the prefix.
+   * @param maxEvents - requested tail size in records (positive safe integer).
+   * @param options - optional cancellation.
+   * @returns the tail records and the total committed record count.
+   */
+  async readTail(maxEvents: number, options?: SessionHandleReadOptions): Promise<SessionHandleTailReadResult> {
+    this.assertOpen('read')
+    if (!Number.isSafeInteger(maxEvents) || maxEvents <= 0) {
+      throw new TypeError(`readTail maxEvents must be a positive safe integer, got ${String(maxEvents)}`)
+    }
+    options?.signal?.throwIfAborted()
+    const primed = this.state.primed
+    if (primed !== undefined) {
+      const totalEvents = primed.events.length
+      this.observedLength = Math.max(this.observedLength, totalEvents)
+      return {
+        eventState: primed.eventState,
+        events: primed.events.slice(Math.max(0, totalEvents - maxEvents)),
+        totalEvents,
+      }
+    }
+    if (this.access === 'write' && !this.state.materialized) {
+      return { eventState: 'detached', events: [], totalEvents: 0 }
+    }
+    const currentPath = await this.storage.resolveCurrentLog(this.id, options?.signal)
+    if (currentPath === undefined) {
+      if (this.storage.hasPendingSession(this.id)) {
+        return { eventState: 'detached', events: [], totalEvents: 0 }
+      }
+      throw new SessionPersistenceNotFoundError(this.id)
+    }
+    const tail = await this.storage.readTailLog(currentPath, this.id, maxEvents, options?.signal)
+    this.observedLength = Math.max(this.observedLength, tail.totalEvents)
+    return tail
   }
 
   /** Read one slice from the prepared historical prefix retained by this handle. */

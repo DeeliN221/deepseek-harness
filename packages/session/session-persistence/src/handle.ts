@@ -83,6 +83,19 @@ export interface SessionHandle extends AsyncDisposable {
   read(offset?: number, length?: number, options?: SessionHandleReadOptions): Promise<SessionHandleReadResult>
 
   /**
+   * Read the trailing slice of the valid contiguous logical log without
+   * materializing the records it skips. A caller that only needs the newest
+   * records (an opening page, a paged history window) must not pay for the
+   * whole log: a provider able to locate the tail cheaply implements this and
+   * returns exactly the records a full {@link read} would return for the same
+   * slice, plus the complete record count.
+   * @param maxEvents - requested tail size in records; a positive safe integer.
+   * @param options - optional cancellation.
+   * @returns the tail records in seq order and the total committed record count.
+   */
+  readTail?(maxEvents: number, options?: SessionHandleReadOptions): Promise<SessionHandleTailReadResult>
+
+  /**
    * Append a contiguous batch continuing the current logical end. The first
    * event's `seq` MUST equal the stored next-seq; committed events are never
    * rewritten. Persistence is best-effort: on resolution the batch is
@@ -114,4 +127,14 @@ export interface SessionHandle extends AsyncDisposable {
    * asynchronous, and deliberately not cancellable.
    */
   close(): Promise<void>
+}
+
+/** One bounded tail read of a stored log; see {@link SessionHandle.readTail}. */
+export interface SessionHandleTailReadResult {
+  /** Aliasing state of the returned event values. */
+  readonly eventState: SessionSeedEventState
+  /** The requested tail records, in seq order, ending at the log's last record. */
+  readonly events: readonly SessionEvent[]
+  /** Every committed record in the stored log, including the ones this read skipped. */
+  readonly totalEvents: number
 }

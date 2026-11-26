@@ -536,3 +536,66 @@ export function scanLog(buffer: Buffer): SessionLogScan {
   scanner.write(buffer.subarray(headerEnd + 1))
   return scanner.finish()
 }
+
+/** One bounded tail scan of a stored log, plus the complete record count. */
+export interface SessionLogTailScan {
+  /** The stored header the artifact carried. */
+  readonly meta: SessionHeader
+  /** The requested tail records, in seq order, ending at the last complete record. */
+  readonly events: SessionEvent[]
+  /** Every complete record in the artifact, including the skipped ones. */
+  readonly totalEvents: number
+}
+
+/**
+ * Scan the tail of one complete plaintext JSONL log without decoding the
+ * records that precede the requested window. Skipped records are located by
+ * their newline boundary only, so the work is proportional to the window plus
+ * one byte scan, while every returned record is decoded and admitted exactly as
+ * a full scan would decode it.
+ *
+ * A record's persisted `seq` must equal its absolute row position; the check
+ * runs on the served window, which is what makes a windowed read safe to serve
+ * without decoding the prefix it follows. A torn final record without its
+ * newline is not part of the committed prefix and is ignored, as in a full scan.
+ * @param plaintext - the complete log plaintext, header record first.
+ * @param maxEvents - requested tail size in records; a positive safe integer.
+ * @returns the header, the requested tail, and the total complete record count.
+ */
+export function scanLogTail(plaintext: Buffer, maxEvents: number): SessionLogTailScan {
+  if (!Number.isSafeInteger(maxEvents) || maxEvents <= 0) {
+    throw new TypeError(`tail window must be a positive safe integer, got ${String(maxEvents)}`)
+  }
+  const headerEnd = plaintext.indexOf(0x0A)
+  if (headerEnd === -1) throw new Error('empty or header-less session log')
+  const { meta } = parseHeaderRecord(plaintext.subarray(0, headerEnd + 1))
+  let totalEvents = 0
+  for (let position = headerEnd + 1; position < plaintext.length;) {
+    const newline = plaintext.indexOf(0x0A, position)
+    if (newline === -1) break
+    totalEvents += 1
+    position = newline + 1
+  }
+  const firstServed = Math.max(0, totalEvents - maxEvents)
+  const events: SessionEvent[] = []
+  let row = 0
+  for (let position = headerEnd + 1; row < totalEvents;) {
+    const newline = plaintext.indexOf(0x0A, position)
+    if (newline === -1) break
+    if (row >= firstServed) {
+      const decoded: unknown = JSON.parse(plaintext.subarray(position, newline).toString('utf8'))
+      if (typeof decoded !== 'object' || decoded === null || Array.isArray(decoded)) {
+        throw new Error(`corrupt session log: committed record ${String(row)} is not a JSON object`)
+      }
+      assertV4RowAdmission(decoded, KNOWN_SESSION_EVENT_TYPES)
+      const { seq } = decoded as { readonly seq?: unknown }
+      if (seq !== row) {
+        throw new Error(`corrupt session log: committed record ${String(row)} carries seq ${String(seq)}`)
+      }
+      events.push(decoded as SessionEvent)
+    }
+    row += 1
+    position = newline + 1
+  }
+  return { meta, events, totalEvents }
+}
