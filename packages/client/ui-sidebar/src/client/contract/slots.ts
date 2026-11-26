@@ -219,8 +219,11 @@ export type SidebarRootInjected = {
   startSession: (workspaceId?: WorkspaceId) => void
   /** Toggle the sidebar column through the layout service. */
   toggleSidebar: () => void
-  /** Select the global panel addressed by a sidebar row. */
-  selectPanel: (id: MainPanelId) => void
+  /**
+   * Select the global panel addressed by a sidebar row, or `null` for the
+   * Conversation returned by the Workspace tab.
+   */
+  selectPanel: (id: MainPanelId | null) => void
   /**
    * Show or unpin one panel launcher; Plugins is ignored.
    * @param id - Panel id.

@@ -21,11 +21,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-  FishLogo, IconNewChatOutlineRegular, IconPanelLeftOutlineRegular,
+  FishLogo, focusWithoutRing, IconNewChatOutlineRegular, IconPanelLeftOutlineRegular,
   isBehindModal, isDarwinDesktop, Toast, Tooltip, useModalLayer, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
-  SidebarRootComponentProps, SidebarRootInjected, SidebarSectionHookContext,
+  SidebarRootComponentProps, SidebarSectionHookContext,
 } from './contract/slots.ts'
 import { FIXED_PANEL_ID } from './panel-pins.ts'
 import { createScrollHandoff } from './scroll-handoff.ts'
@@ -85,6 +85,9 @@ export function SidebarRoot({
   const panels = usePanels(snapshot => snapshot)
   const activePanelId = usePanelInfo(info => info.activePanelId)
   const pluginsPanel = panels.find(({ id }) => id === FIXED_PANEL_ID)
+  // The Bot Team tab addresses a panel the running profile registers; without
+  // one the second row keeps the Workspace tab alone.
+  const botTeamId = panels.find(({ id }) => id === BOT_TEAM_PANEL_ID)?.id
   const shortcut = useShortcuts(rows => rows.find(row => row.id === 'sidebar.left.toggle'))
   const newShortcut = useShortcuts(rows => rows.find(row => row.id === 'session.new'))
   // A page whose access snapshot excludes starting a Session offers no New Session affordance.
@@ -253,16 +256,18 @@ export function SidebarRoot({
       >
         {t('tabs.workspace')}
       </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={activePanelId === BOT_TEAM_PANEL_ID}
-        className={clsx('dshsn-tab', activePanelId === BOT_TEAM_PANEL_ID && 'dshsn-tabOn')}
-        data-dshsn-active={activePanelId === BOT_TEAM_PANEL_ID ? 'true' : 'false'}
-        onClick={() => { if (activePanelId !== BOT_TEAM_PANEL_ID) selectPanel(BOT_TEAM_PANEL_ID) }}
-      >
-        {t('tabs.botTeam')}
-      </button>
+      {botTeamId !== undefined && (
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activePanelId === botTeamId}
+          className={clsx('dshsn-tab', activePanelId === botTeamId && 'dshsn-tabOn')}
+          data-dshsn-active={activePanelId === botTeamId ? 'true' : 'false'}
+          onClick={() => { if (activePanelId !== botTeamId) selectPanel(botTeamId) }}
+        >
+          {t('tabs.botTeam')}
+        </button>
+      )}
     </div>
   )
 
