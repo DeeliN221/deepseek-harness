@@ -882,7 +882,10 @@ export class ChatViewport {
    */
   get preserving(): boolean { return this.paging !== null }
 
-  /** Return the anchor already captured by the selected history consumption mode. */
+  /**
+   * Read the anchor captured by the selected history consumption mode.
+   * @returns the retained position, or null when no anchor is captured.
+   */
   historyPosition(): ChatScrollPosition | null {
     return this.historyPrepend?.position ?? this.paging?.position ?? null
   }

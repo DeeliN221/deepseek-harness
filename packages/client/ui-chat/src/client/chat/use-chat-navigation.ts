@@ -252,7 +252,7 @@ export class ChatNavigation {
 
   /**
    * Preserve reader ownership across pending history work.
-   * @param sample - settled reader movement that can update or interrupt an anchor.
+   * @param movedByReader - whether a user caused the movement.
    */
   readerMoved(movedByReader: boolean): void {
     if (movedByReader && (this.input.loadingOlder || this.input.historyLoadStatus === 'pendingConsumption')
@@ -261,6 +261,10 @@ export class ChatNavigation {
     }
   }
 
+  /**
+   * Track reader movement and refresh any active paging anchor.
+   * @param sample - settled reader position and follow state.
+   */
   readerSampled(sample: ReadingSample): void {
     if (sample.movedByReader && this.jump?.landing === 'landed') this.jump.landing = 'interrupted'
     if (sample.followingTail) {

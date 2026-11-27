@@ -1615,6 +1615,184 @@ describe('ChatView', () => {
     expect(h.loadOlder).toHaveBeenCalledTimes(1)
   }, 20_000)
 
+  it('renders each mixed live message once when a pending page is consumed', async () => {
+    const older: ConversationNode[] = [userInTurn(1, 'older user', 1), assistant(2, 'older assistant', 1), toolResult(3, 'older-tool')]
+    const current: ConversationNode[] = [userInTurn(10, 'current user', 2), assistant(11, 'current assistant', 2), toolResult(12, 'current-tool')]
+    const live = [userInTurn(20, 'live user', 3), assistant(21, 'live assistant', 3), toolResult(22, 'live-tool')]
+    let visible = [...current]
+    const h = makeHarness({ nodes: visible }, { hasMore: true })
+    h.setTranscriptView('verbose')
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    installScrollMetrics(scroller, 2000, 200)
+    const rows = () => [...view.container.querySelectorAll<HTMLElement>('[data-chat-node-key]')]
+      .map(row => row.dataset.chatNodeKey!).filter(key => /^fixture:(user|assistant|tool):/.test(key))
+    const initial = ['fixture:user:10', 'fixture:assistant:11', 'fixture:tool:current-tool']
+    const appended = ['fixture:user:20', 'fixture:assistant:21', 'fixture:tool:live-tool']
+    const page = ['fixture:user:1', 'fixture:assistant:2', 'fixture:tool:older-tool']
+    expect(rows()).toEqual(initial)
+    readerScroll(scroller, 100)
+    fireEvent.click(view.getByText('加载更早'))
+    await historyFrame()
+    expect(h.loadOlder).toHaveBeenCalledTimes(1)
+    expect(h.sessionSnapshot().historyLoadStatus).toBe('loading')
+    for (const node of live) {
+      visible = [...visible, node]
+      act(() => { h.setChat({ nodes: visible }) })
+    }
+    expect(h.consumeOlder).not.toHaveBeenCalled()
+    expect(rows()).toEqual([...initial, ...appended])
+    expect(view.getByText('live user')).toBeTruthy()
+    expect(view.getByText('live assistant')).toBeTruthy()
+    expect(view.getByTestId('tool-seat-live-tool')).toBeTruthy()
+    act(() => { h.prepareOlder(() => { visible = [...older, ...visible]; h.setChat({ nodes: visible }) }) })
+    expect(h.sessionSnapshot().historyLoadStatus).toBe('pendingConsumption')
+    // A live user append can move the reader to the tail during the request.
+    fireEvent.click(view.container.querySelector('[data-chat-history] button')!)
+    await historyFrame()
+    expect(h.consumeOlder).toHaveBeenCalledTimes(1)
+    expect(rows()).toEqual([...page, ...initial, ...appended])
+    expect(new Set(rows()).size).toBe(rows().length)
+    expect(view.getByText('older user')).toBeTruthy()
+    expect(view.getByText('older assistant')).toBeTruthy()
+    expect(view.getByTestId('tool-seat-older-tool')).toBeTruthy()
+    await historyFrame()
+    expect(rows()).toEqual([...page, ...initial, ...appended])
+    expect(h.consumeOlder).toHaveBeenCalledTimes(1)
+  })
+
+  it('reaches the first mixed node after multiple remote pages and repeated local earlier loads', async () => {
+    const RailObserver = ResizeObserver
+    const observers = new Map<Element, { observer: ResizeObserver; callback: ResizeObserverCallback }>()
+    class ResizeObserverStub extends RailObserver {
+      constructor(private readonly notifyCallback: ResizeObserverCallback) { super(notifyCallback) }
+      override observe(element: Element): void {
+        super.observe(element)
+        observers.set(element, { observer: this, callback: this.notifyCallback })
+      }
+      override unobserve(element: Element): void {
+        super.unobserve(element)
+        if (observers.get(element)?.observer === this) observers.delete(element)
+      }
+      override disconnect(): void {
+        super.disconnect()
+        for (const [element, observed] of observers) {
+          if (observed.observer === this) observers.delete(element)
+        }
+      }
+    }
+    vi.stubGlobal('ResizeObserver', ResizeObserverStub)
+    const mixed = (start: number, end: number): ConversationNode[] => Array.from(
+      { length: end - start + 1 }, (_, index) => {
+        const seq = start + index
+        if (seq % 3 === 1) return userInTurn(seq, `prompt ${seq}`, 1)
+        if (seq % 3 === 2) return assistant(seq, `answer ${seq}`, 1, seq)
+        return { ...toolResult(seq, `call-${seq}`), turn: 1 } as ConversationNode
+      },
+    )
+    const key = (node: ConversationNode): string => node.kind === 'tool-result'
+      ? `fixture:tool:${node.callId}` : `fixture:${node.kind}:${node.seq}`
+    let nodes = mixed(1001, 1120)
+    const h = makeHarness({ nodes }, { hasMore: true })
+    h.setNodeRenderer((_slot, owner) => <span>{owner.node.key}</span>)
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    installScrollMetrics(scroller, 960, 200)
+    let positions = new Map(nodes.map((node, index) => [key(node), index]))
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this === scroller) return new DOMRect(0, 0, 500, 200)
+      if (this.hasAttribute('data-chat-history')) return new DOMRect(0, -scroller.scrollTop, 500, 4)
+      const rows = [...view.container.querySelectorAll<HTMLElement>('[data-chat-node-key]')]
+      const first = rows.find(row => positions.has(row.dataset.chatNodeKey ?? ''))
+      const firstIndex = positions.get(first?.dataset.chatNodeKey ?? '') ?? 0
+      const index = positions.get(this.dataset.chatNodeKey ?? '')
+      return new DOMRect(0, index === undefined ? 0 : (index - firstIndex) * 4 - scroller.scrollTop, 500, 4)
+    })
+    const windows: string[][] = []
+    const record = () => {
+      const expected = nodes.map(key)
+      const rows = [...view.container.querySelectorAll<HTMLElement>('[data-chat-node-key]')]
+        .map(row => row.dataset.chatNodeKey!)
+        .filter(rowKey => positions.has(rowKey))
+      windows.push(rows)
+      expect(rows.length).toBeGreaterThan(0)
+      expect(rows.length).toBeLessThanOrEqual(240)
+      expect(new Set(rows).size).toBe(rows.length)
+      const start = expected.indexOf(rows[0]!)
+      expect(start).toBeGreaterThanOrEqual(0)
+      expect(rows).toEqual(expected.slice(start, start + rows.length))
+      return rows
+    }
+    readerScroll(scroller, 400)
+    record()
+    for (const [page, [start, end]] of [[801, 1000], [601, 800], [1, 600]].entries()) {
+      // Reach the currently loaded head before requesting the next Host page.
+      for (let clicks = 0; record()[0] !== key(nodes[0]!) && clicks < 10; clicks++) {
+        fireEvent.click(view.getByText('加载更早'))
+        record()
+      }
+      expect(record()[0]).toBe(key(nodes[0]!))
+      fireEvent.click(view.getByText('加载更早'))
+      await historyFrame()
+      expect(h.loadOlder).toHaveBeenCalledTimes(page + 1)
+      const appended = mixed(1121 + page * 3, 1123 + page * 3)
+      act(() => {
+        nodes = [...nodes, ...appended]
+        positions = new Map(nodes.map((node, index) => [key(node), index]))
+        h.setChat({ nodes })
+      })
+      record()
+      act(() => { h.prepareOlder(() => {
+        nodes = [...mixed(start!, end!), ...nodes]
+        positions = new Map(nodes.map((node, index) => [key(node), index]))
+        h.setChat({ nodes })
+        if (page === 2) h.setSession({ hasMore: false })
+      }) })
+      // A live user append can move the local slice; reveal it before consuming the ready page.
+      for (let clicks = 0; record()[0] !== key(nodes[0]!) && clicks < 10; clicks++) {
+        fireEvent.click(view.getByText('加载更早'))
+        record()
+      }
+      expect(record()[0]).toBe(key(nodes[0]!))
+      fireEvent.click(view.getByText('加载更早'))
+      await historyFrame()
+      expect(h.consumeOlder).toHaveBeenCalledTimes(page + 1)
+      record()
+    }
+    expect(nodes.length).toBeGreaterThan(600)
+    expect(nodes.some(node => node.kind === 'user')).toBe(true)
+    expect(nodes.some(node => node.kind === 'assistant')).toBe(true)
+    expect(nodes.some(node => node.kind === 'tool-result')).toBe(true)
+
+    // Exercise the top gate before continuing with explicit manual requests.
+    expect(scroller.scrollHeight - scroller.clientHeight).toBeGreaterThan(400)
+    readerScroll(scroller, 400)
+    expect(scroller.scrollTop).toBe(400)
+    const observed = observers.get(scroller)
+    expect(observed).toBeDefined()
+    const rect = scroller.getBoundingClientRect()
+    const size = { inlineSize: rect.width, blockSize: rect.height }
+    const entry: ResizeObserverEntry = { target: scroller, contentRect: rect,
+      borderBoxSize: [size], contentBoxSize: [size], devicePixelContentBoxSize: [size] }
+    act(() => { observed!.callback([entry], observed!.observer) })
+    const beforeTop = record()[0]!
+    readerScroll(scroller, 0)
+    expect(scroller.scrollTop).toBe(0)
+    await historyFrame()
+    const afterTop = record()[0]!
+    expect(positions.get(afterTop)!).toBeLessThan(positions.get(beforeTop)!)
+    let manualClicks = 0
+    while (record()[0] !== key(nodes[0]!) && manualClicks < 10) {
+      fireEvent.click(view.getByText('加载更早'))
+      manualClicks++
+      record()
+    }
+    expect(manualClicks).toBeGreaterThanOrEqual(2)
+    expect(record()[0]).toBe('fixture:user:1')
+    expect(windows.length).toBeGreaterThan(8)
+    expect(h.loadOlder).toHaveBeenCalledTimes(3)
+  }, 30_000)
+
   it('advances from a bounded slice floor while preserving the reader anchor without following the global tail', () => {
     const nodes = Array.from({ length: 1_000 }, (_, index) => user(index + 1, `prompt ${index + 1}`))
     const h = makeHarness({ nodes })

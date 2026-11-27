@@ -71,7 +71,7 @@ function createSession(id: 'A' | 'B', first: number, pageId: number, pending: bo
     historyPageConsumed: (candidate: number) => session.getSnapshot().historyPageResults?.get(candidate) === 'consumed',
     consumeOlder: () => false, loadThrough: async () => {}, loadImage: async () => '',
     inspectCall: () => {}, forkAt: () => {}, chatScroll: scroll, t: makeTranslate(zh, commonZh),
-  } as unknown as ChatViewSlotProps
+  } as ChatViewSlotProps
 
   return {
     id, first, props, loadOlder, scroll,
