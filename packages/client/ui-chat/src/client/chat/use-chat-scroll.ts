@@ -17,6 +17,7 @@ export interface ChatScrollInput extends ChatNavigationInput {
   readonly historyPagePosition?: ChatScrollPosition | null
   readonly historyPageCommitted?: boolean
   readonly historyPageInvalidated?: boolean
+  readonly historyPageReplacedInvalidated?: boolean
   readonly order: readonly string[]
   /** Rendered Chat suffix/slice; `order` remains the complete paging/navigation authority. */
   readonly renderOrder: readonly string[]
@@ -193,6 +194,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
       ...(historyPageCommitted === undefined ? {} : { historyPageCommitted }),
       ...(input.historyPagePosition === undefined ? {} : { historyPagePosition: input.historyPagePosition }),
       ...(input.historyPageInvalidated === undefined ? {} : { historyPageInvalidated: input.historyPageInvalidated }),
+      ...(input.historyPageReplacedInvalidated === undefined ? {} : { historyPageReplacedInvalidated: input.historyPageReplacedInvalidated }),
       ...navigationInput,
     }
     if (!deferCompletedTurns) {
@@ -206,6 +208,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
         viewport.beginPreserving(input.historyPagePosition)
       }
     }
+    if (input.historyPageReplacedInvalidated) viewport.cancelHistoryPrepend()
     protectHistoryPosition()
     const layoutChanged = previous.order !== order || previous.renderOrder !== renderOrder
       || previous.isOpen !== isOpen
@@ -227,6 +230,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
     renderedGlobalTail, advanceRenderWindow, lastKey, lastIsUser,
     steeringId, submissionId, submissionSteers, running, loadedTurns, chatScroll, deferCompletedTurns, transcriptView,
     cancelPendingFollow, historyPagePending, historyPageCommitted, input.historyPagePosition, input.historyPageInvalidated,
+    input.historyPageReplacedInvalidated,
   ])
 
   const previousView = useRef(transcriptView)

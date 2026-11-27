@@ -629,8 +629,9 @@ function makeHarness(
     session.set(sessionUpdate)
   }
   return {
-    set, setSession: session.set, setChat: chatSource.set,
+    set, setSession: session.set, sessionSnapshot: session.source.getSnapshot, setChat: chatSource.set,
     setConversation: (value: ConversationSnapshot) => { conversation.set(value) },
+    conversationSnapshot: conversation.getSnapshot,
     historyPageIds: () => conversation.getSnapshot().historyPageIds,
     ChatView, props,
     setConnection: (state: ConnectionState) => { connection.set(state) },
@@ -2485,6 +2486,82 @@ describe('ChatView', () => {
     expect(h.consumeOlder).toHaveBeenCalledOnce()
     expect(view.container.querySelectorAll('[data-chat-flow-key]').length).toBe(240)
   }, 20_000)
+
+  it('cancels an invalidated consumed prepend before a newer shared page lands', async () => {
+    const current = [user(1001, 'first reader row'), user(1002, 'second reader row'), assistant(1003, 'answer')]
+    const h = makeHarness({ nodes: current }, { hasMore: true })
+    const props = { ...h.props, historyPageState: () => {
+      const snapshot = h.sessionSnapshot()
+      return snapshot.historyPageId === undefined || snapshot.historyPageResult === undefined ? undefined
+        : { id: snapshot.historyPageId, result: snapshot.historyPageResult }
+    } }
+    vi.spyOn(ChatViewport.prototype, 'confirmHistoryStart').mockReturnValue(true)
+    const begin = vi.spyOn(ChatViewport.prototype, 'beginHistoryPrepend')
+    const cancel = vi.spyOn(ChatViewport.prototype, 'cancelHistoryPrepend')
+    const landings: (string | undefined)[] = []
+    const originalFinish = ChatViewport.prototype.finishHistoryPrepend
+    vi.spyOn(ChatViewport.prototype, 'finishHistoryPrepend').mockImplementation(function (this: ChatViewport) {
+      landings.push(this.historyPosition()?.anchorKey)
+      return originalFinish.call(this)
+    })
+    const view = render(<h.ChatView {...props} />)
+    const scroller = view.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    installScrollMetrics(scroller, 2_000, 200)
+    let shift = 0
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this === scroller) return new DOMRect(0, 0, 500, 200)
+      const offset = this.dataset.chatAnchorKey === 'fixture:user:1001' ? 20 : 120
+      return new DOMRect(0, offset + shift - scroller.scrollTop, 500, 40)
+    })
+    const first = view.container.querySelector<HTMLElement>('[data-chat-anchor-key="fixture:user:1001"]')!
+    const second = view.container.querySelector<HTMLElement>('[data-chat-anchor-key="fixture:user:1002"]')!
+    let hit = first
+    const originalHitTest = Object.getOwnPropertyDescriptor(document, 'elementsFromPoint')
+    Object.defineProperty(document, 'elementsFromPoint', { configurable: true, value: () => [hit] })
+    try {
+      readerScroll(scroller, 100)
+      await historyFrame()
+      readerScroll(scroller, 0)
+      await historyFrame()
+      expect(h.loadOlder).toHaveBeenCalledOnce()
+      const consume = h.consumeOlder.getMockImplementation()!
+      h.consumeOlder.mockImplementationOnce(() => {
+        expect(begin).toHaveReturnedWith(true)
+        expect((begin.mock.instances.at(-1) as ChatViewport | undefined)?.historyPosition()?.anchorKey).toBe('fixture:user:1001')
+        expect(consume()).toBe(true)
+        expect(props.historyPageState()).toEqual({ id: 1, result: 'consumed' })
+        expect(h.historyPageIds()).toEqual([1])
+        // Feed replacement removes page 1's acknowledgement before React commits.
+        h.setConversation({ ...h.conversationSnapshot(), historyPageIds: [] })
+        h.setSession({ historyPageResult: 'invalidated', historyPageResults: new Map([[1, 'invalidated']]) })
+        h.loadOlder()
+        h.setSession({ historyPageResults: new Map([[1, 'invalidated'], [2, 'pending']]) })
+        expect(props.historyPageState()).toEqual({ id: 2, result: 'pending' })
+        return true
+      })
+      cancel.mockClear()
+      act(() => { h.prepareOlder(() => {}) })
+      await historyFrame()
+      expect(h.consumeOlder).toHaveBeenCalledOnce()
+      expect(begin).toHaveReturnedWith(true)
+      expect(cancel).toHaveBeenCalled()
+
+      hit = second
+      readerScroll(scroller, 100)
+      expect(h.chatScroll.read()?.anchorKey).toBe('fixture:user:1002')
+      const before = second.getBoundingClientRect().top
+      act(() => {
+        h.prepareOlder(() => { shift = 500; h.setChat({ nodes: [user(1, 'older'), ...current] }) })
+        expect(h.consumeOlder()).toBe(true)
+      })
+      expect(second.getBoundingClientRect().top).toBe(before)
+      expect(h.chatScroll.read()?.anchorKey).toBe('fixture:user:1002')
+      expect(landings).not.toContain('fixture:user:1001')
+    } finally {
+      if (originalHitTest !== undefined) Object.defineProperty(document, 'elementsFromPoint', originalHitTest)
+      else Reflect.deleteProperty(document, 'elementsFromPoint')
+    }
+  })
 
   it('releases an invalidated page even when a newer request is already current', async () => {
     const current = Array.from({ length: 42 }, (_, index) => user(1001 + index, `current ${index}`))

@@ -165,6 +165,10 @@ export function ChatView({
   const pendingPageResult = pendingPage?.pageId === undefined ? undefined
     : historyPageResults?.get(pendingPage.pageId)
       ?? (pendingPage.pageId === currentHistoryPage ? historyPageResult : undefined)
+  // The next shared request can replace the pending page in this render before
+  // the viewport has observed the old page's terminal result.
+  const replacedPageResult = pendingAtRender?.sessionId === sessionId && pendingAtRender.pageId !== undefined
+    && pendingAtRender.pageId !== pendingPage?.pageId ? historyPageResults?.get(pendingAtRender.pageId) : undefined
   const historyPageCommitted = pendingPage !== null && pendingPage.sessionId === sessionId
     && pendingPage.pageId !== undefined && committedHistoryPages?.includes(pendingPage.pageId) === true
   const historyPageApplying = pendingPage !== null && pendingPage.sessionId === sessionId
@@ -440,6 +444,7 @@ export function ChatView({
     historyPagePosition: readerForRender.position,
     historyPageCommitted,
     historyPageInvalidated: pendingPageResult === 'invalidated' || pendingPageResult === 'error',
+    historyPageReplacedInvalidated: replacedPageResult === 'invalidated' || replacedPageResult === 'error',
     renderedGlobalTail: renderBounds.end === order.length,
     advanceRenderWindow,
     lastIsUser: lastKey !== null && nodeStore.get(lastKey)?.kind === 'user',
