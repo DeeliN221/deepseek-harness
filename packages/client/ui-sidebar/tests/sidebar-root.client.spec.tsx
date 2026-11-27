@@ -51,7 +51,7 @@ function makeHeaderProps(): HeaderLeadingControlsProps {
   }
 }
 
-function mountShell({ collapsed = false, width = 300, drawer = false, shortcuts = [], panels = [], content, brandName = <span data-testid="custom-brand-name">Custom Brand</span> }: {
+function mountShell({ collapsed = false, width = 360, drawer = false, shortcuts = [], panels = [], content, brandName = <span data-testid="custom-brand-name">Custom Brand</span> }: {
   brandName?: ReactNode
   collapsed?: boolean
   width?: number
@@ -148,7 +148,9 @@ describe('SidebarRoot shell', () => {
   it('puts navigation and workspaces in one viewport without scrolling primary controls or the footer', () => {
     mountShell({ panels: [{ id: 'notes' as SidebarPanelMetadata['id'], order: 1, label: 'Notes' }] })
     const viewport = document.querySelector('[data-sidebar-scrollport]')!
-    expect(viewport.contains(screen.getByRole('navigation'))).toBe(true)
+    // The tools nav now sits in the logo row, above the viewport, with the settings seat.
+    const tools = screen.getByRole('navigation', { name: 'Global panels' })
+    expect(tools.closest('[data-sidebar-scrollport]')).toBeNull()
     expect(viewport.contains(screen.getByTestId('region'))).toBe(true)
     for (const button of screen.getAllByRole('button', { name: 'New session' })) {
       expect(viewport.contains(button)).toBe(false)
@@ -187,14 +189,14 @@ describe('SidebarRoot shell', () => {
     const shortcut: ShortcutCatalogEntry = { id: 'session.new' as ShortcutCommandId, label: 'New', aliases: [],
       binding: null, modified: true, conflicts: [], issue: null, keys: ['Ctrl', 'N'], aria: 'Control+N' }
     mountShell({ shortcuts: [shortcut] })
-    for (const button of screen.getAllByRole('button', { name: 'New session' })) {
+    // Every wide New-session control advertises the binding; the logo-row tools
+    // keep the wide row free of tooltip seats.
+    const starters = screen.getAllByRole('button', { name: 'New session' })
+    expect(starters).toHaveLength(2)
+    for (const button of starters) {
       expect(button.getAttribute('aria-keyshortcuts')).toBe('Control+N')
+      expect(button.querySelector('kbd')).toBeNull()
     }
-    const expanded = screen.getAllByRole('button', { name: 'New session' }).find(button => button.querySelector('kbd') !== null)!
-    fireEvent.pointerEnter(expanded)
-    fireEvent.focus(expanded)
-    expect(screen.queryByRole('tooltip')).toBeNull()
-    expect(Array.from(expanded.querySelectorAll('kbd'), key => key.textContent)).toEqual(['Ctrl', 'N'])
     cleanup()
     document.documentElement.dataset.platform = 'darwin'
     render(<HeaderLeadingControls toggleSidebar={vi.fn()} startSession={vi.fn()} selectPanel={vi.fn()} trackEntryClick={vi.fn()} t={t}
@@ -242,7 +244,7 @@ describe('SidebarRoot shell', () => {
     const startSession = vi.fn()
     const useRemoteAccess = vi.fn((action: string) => action !== 'session/create')
     render(<SidebarRoot
-      collapsed={false} width={300} drawer={false}
+      collapsed={false} width={360} drawer={false}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
       usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])} useEntryPins={selector => selector([])}
       useEntryActions={selector => selector(false)} setPinned={vi.fn()}
@@ -275,7 +277,7 @@ describe('SidebarRoot shell', () => {
     vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3-rc.4')
     const { container } = render(<SidebarRoot
       drawer={false}
-      collapsed={false} width={300}
+      collapsed={false} width={360}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
       usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])} useEntryPins={selector => selector([])}
       useEntryActions={selector => selector(false)} setPinned={vi.fn()}
@@ -300,7 +302,7 @@ describe('SidebarRoot shell', () => {
     for (const [name, value] of Object.entries(environment)) vi.stubEnv(name, value)
     render(<SidebarRoot
       drawer={false}
-      collapsed={false} width={300}
+      collapsed={false} width={360}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
       usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])} useEntryPins={selector => selector([])}
       useEntryActions={selector => selector(false)} setPinned={vi.fn()}
@@ -329,7 +331,7 @@ describe('SidebarRoot shell', () => {
     const startSession = vi.fn()
     const trackEntryClick = vi.fn<SidebarRootComponentProps['trackEntryClick']>()
     render(<SidebarRoot
-      collapsed={false} width={300} drawer={false}
+      collapsed={false} width={360} drawer={false}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
       usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])} useEntryPins={selector => selector([])}
       useEntryActions={selector => selector(false)} setPinned={vi.fn()}
@@ -381,7 +383,7 @@ describe('SidebarRoot shell', () => {
   it('retains the local-build fallback without complete build metadata', () => {
     render(<SidebarRoot
       drawer={false}
-      collapsed={false} width={300}
+      collapsed={false} width={360}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
       usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])} useEntryPins={selector => selector([])}
       useEntryActions={selector => selector(false)} setPinned={vi.fn()}
@@ -400,8 +402,8 @@ describe('SidebarRoot shell', () => {
   it('hands the region its wide flag and clamps expandSidebar to the collapsed state', () => {
     const b = mountShell()
     expect(b.regionOwner().wide).toBe(true)
-    // The settings seat rides the same wide flag (ui-settings renders the row).
-    expect(b.settingsOwner().wide).toBe(true)
+    // The settings seat moved into the logo-row tools and renders compact there.
+    expect(b.settingsOwner().wide).toBe(false)
     expect(b.footerActionOwner().wide).toBe(true)
     expect(b.sessionActionOwner().wide).toBe(true)
     // The HOC layer receives the New-session row content as its children.

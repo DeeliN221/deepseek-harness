@@ -1,5 +1,5 @@
 /** Account sign-out confirmation with the current task impact. */
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Button, IconCloseOutlineRegular, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { AccountKey } from './locales.ts'
 import css from './SignInDialog.module.css'
@@ -13,13 +13,17 @@ export function SignOutDialog({ running, signOut, close, t }: {
 }) {
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
+  // Double activation (click plus Enter, or a double click) must not sign out twice.
+  const inFlight = useRef(false)
   const dismiss = () => { if (!busy) close() }
   const confirm = async () => {
+    if (inFlight.current) return
+    inFlight.current = true
     setBusy(true)
     setFailed(false)
     try { await signOut(); close() }
     catch { setFailed(true) }
-    finally { setBusy(false) }
+    finally { inFlight.current = false; setBusy(false) }
   }
   return <Modal open headless title={t('signOut')} onClose={dismiss} className={css.dialog as string}>
     <div className={css.content}>

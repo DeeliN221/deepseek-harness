@@ -101,7 +101,10 @@ describe('ui-sidebar apply', () => {
     const panelId = 'custom-panel' as MainPanelId
     injected.selectPanel(panelId)
     expect(b.layout.selectPanel).toHaveBeenCalledExactlyOnceWith(panelId)
-    expectTypeOf<Parameters<SidebarRootInjected['selectPanel']>[0]>().toEqualTypeOf<MainPanelId>()
+    expectTypeOf<Parameters<SidebarRootInjected['selectPanel']>[0]>().toEqualTypeOf<MainPanelId | null>()
+    // The Workspace tab clears the panel to return to the Conversation.
+    injected.selectPanel(null)
+    expect(b.layout.selectPanel).toHaveBeenLastCalledWith(null)
   })
 
   it('forwards entry clicks to the optional product analytics service without tracking panel selection', async () => {
