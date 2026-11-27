@@ -97,7 +97,7 @@ function windowSnapshot(
 /** Exact delta that produced the latest event-window revision. */
 export type SessionEventChange =
   | { readonly kind: 'replace'; readonly entries: readonly SessionEventLikeEntry[] }
-  | { readonly kind: 'prepend'; readonly entries: readonly SessionEventLikeEntry[] }
+  | { readonly kind: 'prepend'; readonly entries: readonly SessionEventLikeEntry[]; readonly pageId?: number }
   | { readonly kind: 'append'; readonly entries: readonly SessionEventLikeEntry[] }
   | {
     readonly kind: 'settle-assistant'
@@ -154,10 +154,11 @@ export class MutableSessionEventSource implements SessionEventSource {
    * Prepend one older contiguous page.
    * @param entries - newly loaded older entries.
    * @param hasMore - whether still older history remains.
+   * @param pageId - ordinary history request identity, when applicable.
    */
-  prepend(entries: readonly SessionEventLikeEntry[], hasMore: boolean): void {
+  prepend(entries: readonly SessionEventLikeEntry[], hasMore: boolean, pageId?: number): void {
     this.window = concat(leaf(entries), this.window)
-    this.publish(hasMore, { kind: 'prepend', entries })
+    this.publish(hasMore, { kind: 'prepend', entries, ...(pageId === undefined ? {} : { pageId }) })
   }
 
   /**

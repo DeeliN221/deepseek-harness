@@ -60,6 +60,8 @@ class BoundConversation implements ConversationBinding {
   private readonly targetSources = new Map<string, ObservableSnapshot<unknown>>()
   private revision = -1
   private historyRevision = 0
+  private historyPageIds: readonly number[] = []
+  private pendingHistoryPageIds: number[] = []
   private frame: number | undefined
   private disposeFeed: () => void = () => {}
 
@@ -111,6 +113,7 @@ class BoundConversation implements ConversationBinding {
   }
 
   activate(target: string): void {
+    if (this.pendingHistoryPageIds.length > 0) this.publish('immediate')
     this.publishing(() => this.assembler.activateTarget(target))
   }
 
@@ -121,22 +124,49 @@ class BoundConversation implements ConversationBinding {
     this.disposeFeed()
   }
 
-  private replace(window: SessionEventWindow): void {
+  private replace(window: SessionEventWindow, pageId?: number): void {
+    this.cancelFrame()
+    this.pendingHistoryPageIds = []
+    this.historyPageIds = []
+    this.revision = -1
+    const previous = this.snapshot.getSnapshot()
+    if ((previous.historyPageIds?.length ?? 0) > 0) {
+      this.snapshot.set({ ...previous, historyPageIds: this.historyPageIds })
+    }
+    const publication = this.assembler.replaceWindow(window.entries, window.hasMore)
     this.revision = window.revision
-    this.publish(this.assembler.replaceWindow(window.entries, window.hasMore))
+    if (pageId !== undefined) this.pendingHistoryPageIds.push(pageId)
+    this.publish(publication)
   }
 
   private accept(window: SessionEventWindow): void {
     if (window.revision === this.revision) return
     if (window.revision !== this.revision + 1 || window.change.kind === 'replace') {
-      this.replace(window)
+      this.replace(window, window.change.kind === 'prepend' ? window.change.pageId : undefined)
       return
     }
     this.revision = window.revision
     switch (window.change.kind) {
-      case 'prepend':
-        this.publish(this.assembler.prepend(window.change.entries, window.hasMore))
+      case 'prepend': {
+        let publication: ConversationPublication
+        try {
+          publication = this.assembler.prepend(window.change.entries, window.hasMore)
+        } catch (error: unknown) {
+          // A partially applied page must be rebuilt from the next complete window.
+          this.revision = -1
+          this.cancelFrame()
+          this.pendingHistoryPageIds = []
+          throw error
+        }
+        if (window.change.pageId !== undefined) {
+          this.pendingHistoryPageIds.push(window.change.pageId)
+          // Include pending animation-frame work before acknowledging even an empty page.
+          this.publish('immediate')
+        } else {
+          this.publish(publication)
+        }
         return
+      }
       case 'append': {
         let publication: ConversationPublication = 'none'
         for (const event of window.change.entries) {
@@ -182,7 +212,25 @@ class BoundConversation implements ConversationBinding {
   }
 
   private flush(): void {
-    this.publishing(() => this.assembler.flush())
+    let changed: boolean
+    try {
+      changed = this.assembler.flush()
+    } catch (error: unknown) {
+      if (error instanceof ConversationUpdateError && error.rebuilt) this.publishFlushed(true)
+      throw error
+    }
+    this.publishFlushed(changed)
+  }
+
+  /** Acknowledge only pages incorporated into a successfully published assembly. */
+  private publishFlushed(changed: boolean): void {
+    if (this.pendingHistoryPageIds.length === 0) {
+      this.publishSnapshot(changed)
+      return
+    }
+    this.historyPageIds = [...this.historyPageIds, ...this.pendingHistoryPageIds]
+    this.pendingHistoryPageIds = []
+    this.publishSnapshot(true)
   }
 
   /** Publish an assembler result, including a complete rebuild that the assembler finished before it reported a failure. */
@@ -199,7 +247,8 @@ class BoundConversation implements ConversationBinding {
 
   private publishSnapshot(changed: boolean): void {
     const historyRevision = this.assembler.windowRevision()
-    if (changed || historyRevision !== this.historyRevision) {
+    if (changed || historyRevision !== this.historyRevision
+      || this.snapshot.getSnapshot().historyPageIds !== this.historyPageIds) {
       this.historyRevision = historyRevision
       this.snapshot.set(this.currentSnapshot())
     }
@@ -211,6 +260,7 @@ class BoundConversation implements ConversationBinding {
       views: this.viewStore,
       activeTargets: this.assembler.activityTargets(),
       historyWindow: this.historyWindow,
+      historyPageIds: this.historyPageIds,
     }
   }
 }

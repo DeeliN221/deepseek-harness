@@ -19,6 +19,8 @@ export interface ConversationSnapshot {
   readonly views: ConversationViewSnapshotStore
   readonly activeTargets: ReadonlySet<string>
   readonly historyWindow?: ConversationHistoryWindow
+  /** History pages incorporated into the published target snapshots since the last replacement. */
+  readonly historyPageIds?: readonly number[]
 }
 
 const EMPTY_HISTORY_WINDOW: ConversationHistoryWindow = {
@@ -33,6 +35,7 @@ export const EMPTY_CONVERSATION_SNAPSHOT: ConversationSnapshot = {
   views: { get: () => undefined, grouped: () => undefined },
   activeTargets: new Set(),
   historyWindow: EMPTY_HISTORY_WINDOW,
+  historyPageIds: [],
 }
 
 /** Shell phase derived from Session lifecycle and registered target activity. */

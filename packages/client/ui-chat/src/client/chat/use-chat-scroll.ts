@@ -2,7 +2,7 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import type { TranscriptViewMode } from '../../chat-settings.ts'
 import type { ChatSnapshot } from '../contract/snapshot.ts'
-import type { ChatViewSlotProps } from '../contract/slots.ts'
+import type { ChatScrollPosition, ChatViewSlotProps } from '../contract/slots.ts'
 import { useChatNavigation, type ChatNavigation, type ChatNavigationInput } from './use-chat-navigation.ts'
 import { useChatReading, type ChatReadingState } from './use-chat-reading.ts'
 import { useChatViewport } from './use-chat-viewport.ts'
@@ -13,6 +13,10 @@ export interface ChatScrollInput extends ChatNavigationInput {
   /** Session whose saved reading position and navigation state this hook owns. */
   readonly sessionId: string
   readonly chatScroll: ChatViewSlotProps['chatScroll']
+  readonly historyPagePending?: boolean
+  readonly historyPagePosition?: ChatScrollPosition | null
+  readonly historyPageCommitted?: boolean
+  readonly historyPageInvalidated?: boolean
   readonly order: readonly string[]
   /** Rendered Chat suffix/slice; `order` remains the complete paging/navigation authority. */
   readonly renderOrder: readonly string[]
@@ -58,7 +62,8 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
     sessionId, isOpen, order, renderOrder, renderedGlobalTail, advanceRenderWindow,
     firstSeq, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running,
     deferCompletedTurns, loadedTurns, chatScroll, hasMore, loadingOlder, historyLoadStatus, historyRevision,
-    loadOlder, consumeOlder, loadThrough, beforeLoadOlder, revealEarlier, revealTurn, revealThrough, transcriptView,
+    loadOlder, consumeOlder, loadThrough, beforeLoadOlder, historyPageStarted, beforeConsumeOlder,
+    historyPagePending, historyPageCommitted, revealEarlier, revealTurn, revealThrough, transcriptView,
   } = input
   const { viewport, listRef, columnRef } = useChatViewport()
   const [historyInputHeld, setHistoryInputHeld] = useState(false)
@@ -69,18 +74,22 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
     firstSeq, loadingOlder, hasMore, historyLoadStatus, isOpen, loadOlder, consumeOlder, loadThrough,
     ...(historyRevision === undefined ? {} : { historyRevision }),
     ...(beforeLoadOlder === undefined ? {} : { beforeLoadOlder }),
+    ...(historyPageStarted === undefined ? {} : { historyPageStarted }),
+    ...(beforeConsumeOlder === undefined ? {} : { beforeConsumeOlder }),
     ...(revealEarlier === undefined ? {} : { revealEarlier }),
     ...(revealTurn === undefined ? {} : { revealTurn }),
     ...(revealThrough === undefined ? {} : { revealThrough }),
     ...(input.readerPositionChanged === undefined ? {} : { readerPositionChanged: input.readerPositionChanged }),
   }), [firstSeq, loadingOlder, hasMore, historyLoadStatus, isOpen, loadOlder, consumeOlder, loadThrough,
-    historyRevision, beforeLoadOlder, revealEarlier, revealTurn, revealThrough, input.readerPositionChanged])
+    historyRevision, beforeLoadOlder, historyPageStarted, beforeConsumeOlder, revealEarlier, revealTurn, revealThrough, input.readerPositionChanged])
   const { navigation, busyTurn, historyPending, historyProcessing } = useChatNavigation(viewport, reading, navigationInput)
   const navigationSession = useRef(sessionId)
   useLayoutEffect(() => {
     if (navigationSession.current === sessionId) return
     navigationSession.current = sessionId
     navigation.reset()
+    content.current.opened = false
+    content.current.applied = null
   }, [navigation, sessionId])
   const content = useRef<{ input: ChatScrollInput; applied: ChatScrollInput | null; opened: boolean }>({
     input, applied: null, opened: false,
@@ -179,31 +188,45 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
     content.current.input = {
       sessionId, order, renderOrder, renderedGlobalTail, advanceRenderWindow,
       lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running, loadedTurns,
-      chatScroll, deferCompletedTurns, transcriptView, ...navigationInput,
+      chatScroll, deferCompletedTurns, transcriptView,
+      ...(historyPagePending === undefined ? {} : { historyPagePending }),
+      ...(historyPageCommitted === undefined ? {} : { historyPageCommitted }),
+      ...(input.historyPagePosition === undefined ? {} : { historyPagePosition: input.historyPagePosition }),
+      ...(input.historyPageInvalidated === undefined ? {} : { historyPageInvalidated: input.historyPageInvalidated }),
+      ...navigationInput,
     }
     if (!deferCompletedTurns) {
       cancelPendingFollow()
       reading.interruptFollow()
     }
     viewport.updateTurns(loadedTurns)
+    const protectHistoryPosition = () => {
+      if (historyPagePending && !viewport.preserving && viewport.historyPosition() === null
+        && input.historyPagePosition !== undefined && input.historyPagePosition !== null) {
+        viewport.beginPreserving(input.historyPagePosition)
+      }
+    }
+    protectHistoryPosition()
     const layoutChanged = previous.order !== order || previous.renderOrder !== renderOrder
       || previous.isOpen !== isOpen
     const historyConsumed = previous.historyLoadStatus === 'pendingConsumption' && historyLoadStatus === 'idle'
-    if (!isOpen || historyLoadStatus === 'error') viewport.cancelHistoryPrepend()
-    else if (layoutChanged || historyConsumed) {
+    if (!isOpen || historyLoadStatus === 'error' || (input.historyPagePending && input.historyPageInvalidated)) viewport.cancelHistoryPrepend()
+    else if (historyPageCommitted || (!historyPagePending && (layoutChanged || historyConsumed))) {
       const landing = viewport.finishHistoryPrepend()
       if (landing !== null) reading.preservePosition(landing)
     }
     if (layoutChanged) viewport.invalidate()
     viewport.reclaimBelow()
+    const opening = !content.current.opened
     processContent()
+    if (opening) protectHistoryPosition()
     if (layoutChanged && content.current.opened) reading.refreshActiveTurn()
     if (content.current.opened) navigation.requestHistoryCheck()
   }, [
     viewport, reading, processContent, navigationInput, isOpen, order, renderOrder,
     renderedGlobalTail, advanceRenderWindow, lastKey, lastIsUser,
     steeringId, submissionId, submissionSteers, running, loadedTurns, chatScroll, deferCompletedTurns, transcriptView,
-    cancelPendingFollow,
+    cancelPendingFollow, historyPagePending, historyPageCommitted, input.historyPagePosition, input.historyPageInvalidated,
   ])
 
   const previousView = useRef(transcriptView)

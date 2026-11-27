@@ -40,8 +40,44 @@ describe('bounded Chat render window', () => {
     const order = ['node-a', 'node-b', 'node-c']
     expect(savedAnchorIndex(order, 'node-b')).toBe(1)
     expect(savedAnchorIndex(order, JSON.stringify(['node-b', 'assistant'] ))).toBe(1)
+    expect(savedAnchorIndex(order, `group:${JSON.stringify(['process', 'node-b', 'reasoning'])}`)).toBe(1)
     expect(savedAnchorIndex(order, 'missing')).toBe(-1)
     expect(savedAnchorIndex(order, '[invalid')).toBe(-1)
+  })
+
+  it('keeps a reader anchor at the same window offset while a page is in flight and turns append', () => {
+    const order = Array.from({ length: 700 }, (_, index) => `node-${index}`)
+    const anchorIndex = 300
+    const bounds = anchoredRenderWindow(order.length, anchorIndex, CHAT_RENDER_WINDOW_NODES,
+      Math.floor(CHAT_RENDER_WINDOW_NODES * 0.75))
+    const anchor = renderWindowAnchor(order, 'session-a', bounds)
+    const offset = anchorIndex - bounds.start
+
+    const appended = [...order, 'node-700', 'node-701']
+    const afterAppend = resolveRenderWindow(appended, 'session-a', anchor)
+    expect(afterAppend).toEqual(bounds)
+    expect(anchorIndex - afterAppend.start).toBe(offset)
+
+    const prepended = [...Array.from({ length: 120 }, (_, index) => `older-${index}`), ...appended]
+    const afterPrepend = resolveRenderWindow(prepended, 'session-a', anchor)
+    expect(prepended[afterPrepend.start]).toBe(anchor?.firstKey)
+    expect(prepended.indexOf('node-300') - afterPrepend.start).toBe(offset)
+    expect(afterPrepend.end - afterPrepend.start).toBeLessThanOrEqual(CHAT_RENDER_WINDOW_NODES)
+  })
+
+  it('resolves a long group anchor to a stable member and never to a prefix-similar node', () => {
+    const order = Array.from({ length: 700 }, (_, index) => `node-${index}`)
+    const group = `group:${JSON.stringify(['process', 'node-250', 'node-251', 'node-252'])}`
+    expect(savedAnchorIndex(order, group)).toBe(250)
+    expect(savedAnchorIndex(order, group)).toBe(savedAnchorIndex(
+      [...Array.from({ length: 80 }, (_, index) => `older-${index}`), ...order], group) - 80)
+    // The member is a group of many rows; its window must still mount it after the reader's slice moves.
+    const bounds = anchoredRenderWindow(order.length, 250, CHAT_RENDER_WINDOW_NODES,
+      Math.floor(CHAT_RENDER_WINDOW_NODES * 0.75))
+    expect(order.slice(bounds.start, bounds.end)).toEqual(expect.arrayContaining(['node-250', 'node-252']))
+    expect(savedAnchorIndex(['node-2500'], `group:${JSON.stringify(['process', 'node-250'])}`)).toBe(-1)
+    expect(savedAnchorIndex(order, `group:${JSON.stringify(['process', 'removed'])}`)).toBe(-1)
+    expect(savedAnchorIndex(order, 'group:[not-json')).toBe(-1)
   })
 
   it('renders empty and short sessions completely despite a stale anchor', () => {

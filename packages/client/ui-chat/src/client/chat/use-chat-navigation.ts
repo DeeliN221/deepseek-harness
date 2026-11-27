@@ -18,6 +18,10 @@ export interface ChatNavigationInput extends Pick<ChatViewSlotProps, 'loadOlder'
   /** Reattempt local turn reveal after a Conversation history page commits. */
   readonly historyRevision?: number
   readonly beforeLoadOlder?: () => void
+  /** Capture the Session-assigned identity after the request has started. */
+  readonly historyPageStarted?: () => void
+  /** Capture the reader and page when another view prepared the shared request. */
+  readonly beforeConsumeOlder?: (position: ChatScrollPosition | null) => void
   readonly revealEarlier?: () => boolean
   /** Key-based fallback when no durable outline sequence is available. */
   readonly revealTurn?: (turn: number) => boolean
@@ -41,6 +45,7 @@ type NavigationViewport = Pick<ChatViewport,
   'preserving' | 'beginPreserving' | 'beginPaging' | 'stopPreserving' | 'preserve' | 'capturePosition'
   | 'scrollToTurn' | 'scrollToTurnAtOrAfter' | 'beginManualPaging' | 'historyConsumption'
   | 'beginHistoryPrepend' | 'cancelHistoryPrepend' | 'confirmHistoryStart'>
+  & Partial<Pick<ChatViewport, 'historyPosition'>>
 type NavigationReading = Pick<ChatReading,
   'pending' | 'followingTail' | 'pauseFollowing' | 'acceptNavigation' | 'preservePosition'>
 
@@ -73,7 +78,9 @@ export class ChatNavigation {
 
   /** Cancel navigation when opening a Chat view. */
   reset(): void {
-    this.cancel()
+    this.setHistoryIntent('none')
+    this.clearTask()
+    this.onBusyTurn(null)
   }
 
   /** Cancel local callbacks; late history completions cannot revive a task. */
@@ -86,6 +93,7 @@ export class ChatNavigation {
   /** Release the jump, paging anchor, and busy indicator without cancelling shared history I/O. */
   cancel(): void {
     this.setHistoryIntent('none')
+    this.input.readerPositionChanged?.(null)
     this.clearTask()
     this.onBusyTurn(null)
   }
@@ -144,6 +152,7 @@ export class ChatNavigation {
       this.historyRequested = true
       this.input.beforeLoadOlder?.()
       this.input.loadOlder()
+      this.input.historyPageStarted?.()
     } else this.requestHistoryCheck()
   }
 
@@ -227,9 +236,11 @@ export class ChatNavigation {
     input.beforeLoadOlder?.()
     this.historyRequested = true
     input.loadOlder()
+    input.historyPageStarted?.()
   }
 
   private consumeHistory(mode: 'native' | 'preserve' | 'prepend'): void {
+    this.input.beforeConsumeOlder?.(this.viewport.historyPosition?.() ?? null)
     this.historyRequested = true
     if (this.input.consumeOlder()) this.setHistoryIntent('none')
     else {
@@ -244,7 +255,8 @@ export class ChatNavigation {
    * @param sample - settled reader movement that can update or interrupt an anchor.
    */
   readerMoved(movedByReader: boolean): void {
-    if (movedByReader && this.input.loadingOlder && this.viewport.preserving) {
+    if (movedByReader && (this.input.loadingOlder || this.input.historyLoadStatus === 'pendingConsumption')
+      && this.viewport.preserving) {
       this.input.readerPositionChanged?.(this.viewport.capturePosition())
     }
   }
@@ -258,7 +270,8 @@ export class ChatNavigation {
     }
     if (!sample.movedByReader) return
     this.input.readerPositionChanged?.(sample.position)
-    if (this.input.loadingOlder && this.jump === null && sample.position !== null) {
+    if ((this.input.loadingOlder || this.input.historyLoadStatus === 'pendingConsumption')
+      && this.jump === null && sample.position !== null) {
       this.viewport.beginPreserving(sample.position)
     } else this.viewport.stopPreserving()
   }

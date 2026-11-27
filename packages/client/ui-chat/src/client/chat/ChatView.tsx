@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type {
-  NodeKey, RenderEntry,
+  GroupKey, NodeKey, RenderEntry,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { InboxState } from '@deepseek-ai/dsh-agent/types'
 import type { PendingSubmission } from '@deepseek-ai/dsh-api-session-controller/client'
@@ -69,7 +69,8 @@ const MOTION_TAIL_MS = 800
 export function ChatView({
   useSession, useChat, useConversation, useSessions, renderSlot,
   sessionId, openFile, openExternalLink, resolveFilePath, useContextMenu, useResource,
-  loadOlder, consumeOlder, loadThrough, loadImage, inspectCall, chatScroll, forkAt,
+  loadOlder, historyPageId: readHistoryPageId, historyPageState: readHistoryPageState,
+  historyPageConsumed, consumeOlder, loadThrough, loadImage, inspectCall, chatScroll, forkAt,
   usePresentation, useProjection, useFilePathBase, useInteractionIds, dispatchInteraction, t, fileDrag,
 }: ChatViewSlotProps) {
   const { getTriggerProps } = useContextMenu()
@@ -85,19 +86,74 @@ export function ChatView({
     }
   }), [getTriggerProps, resolveFilePath, sessionId])
   const order = useChat(s => s.order)
+  const groupedView = useConversation(snapshot => snapshot.views.grouped('chat'))
   const groupedEntries = useConversation(snapshot => snapshot.views.grouped('chat')?.entries)
   const historyWindow = useConversation(snapshot => snapshot.historyWindow)
   const historyRevision = useConversation(snapshot => snapshot.historyWindow?.revision ?? 0)
+  const committedHistoryPages = useConversation(snapshot => snapshot.historyPageIds)
+  const historyPageResult = useSession(snapshot => snapshot.historyPageResult)
+  const historyPageResults = useSession(snapshot => snapshot.historyPageResults)
+  const currentHistoryPage = useSession(snapshot => snapshot.historyPageId)
+  const pendingRemoteAnchor = useRef<{ readonly sessionId: string; readonly key: string; readonly pageId?: number } | null>(null)
   const entries = useMemo<readonly RenderEntry[]>(() => groupedEntries
     ?? order.map(key => ({ kind: 'node', key: key as NodeKey })), [groupedEntries, order])
   const nodeStore = useChat(s => s.nodes)
   const [renderWindow, setRenderWindow] = useState<ChatRenderWindowAnchor | null>(null)
   const savedPosition = chatScroll.read()
-  const savedAnchor = useRef<{ readonly sessionId: string; readonly key: string | null } | null>(null)
-  if (savedAnchor.current?.sessionId !== sessionId) {
-    savedAnchor.current = { sessionId, key: savedPosition?.anchorKey ?? null }
+  const localReader = useRef<{ sessionId: string; position: ChatScrollPosition | null }>({ sessionId, position: savedPosition })
+  const sharedPage = readHistoryPageState?.()
+  const observedSharedPage = useRef({ sessionId, pageId: sharedPage?.result === 'pending' ? undefined : sharedPage?.id })
+  const [, retrySharedPage] = useState(0)
+  const localChatScroll = useMemo(() => ({
+    read: () => chatScroll.read(),
+    save: (position: ChatScrollPosition | null) => {
+      localReader.current = { sessionId, position }
+      chatScroll.save(position)
+      const page = readHistoryPageState?.()
+      if (position !== null && pendingRemoteAnchor.current === null && page?.result === 'pending') {
+        observedSharedPage.current = { sessionId, pageId: undefined }
+        retrySharedPage(value => value + 1)
+      }
+    },
+  }), [chatScroll, readHistoryPageState, sessionId])
+  const readerAtRender = localReader.current
+  const observedAtRender = observedSharedPage.current
+  const pendingAtRender = pendingRemoteAnchor.current
+  const readerForRender = readerAtRender.sessionId === sessionId
+    ? readerAtRender : { sessionId, position: savedPosition }
+  let observedForRender = observedAtRender.sessionId === sessionId
+    ? observedAtRender : { sessionId, pageId: sharedPage?.result === 'pending' ? undefined : sharedPage?.id }
+  let pendingPage = pendingAtRender?.sessionId === sessionId ? pendingAtRender : null
+  if (sharedPage !== undefined && sharedPage.id !== observedForRender.pageId) {
+    const position = readerForRender.position
+    const priorResult = pendingPage?.pageId === undefined ? undefined : historyPageResults?.get(pendingPage.pageId)
+    if (pendingPage?.pageId === sharedPage.id || sharedPage.result === 'invalidated' || sharedPage.result === 'error') {
+      observedForRender = { sessionId, pageId: sharedPage.id }
+    } else if ((pendingPage === null || priorResult === 'invalidated' || priorResult === 'error') && position !== null) {
+      const key = position.windowAnchorKey ?? (position.anchorKey.startsWith('group:')
+        ? renderWindow?.firstKey : position.anchorKey)
+      if (key !== undefined) {
+        pendingPage = { sessionId, key, pageId: sharedPage.id }
+        observedForRender = { sessionId, pageId: sharedPage.id }
+      }
+    }
   }
-  const savedAnchorKey = savedAnchor.current.key
+  const savedAnchor = useRef<{ readonly sessionId: string; readonly key: string | null } | null>(null)
+  const savedForRender = savedAnchor.current?.sessionId === sessionId ? savedAnchor.current
+    : { sessionId, key: savedPosition?.windowAnchorKey ?? savedPosition?.anchorKey ?? null }
+  useLayoutEffect(() => {
+    // A reader event may have landed while React was preparing this render.
+    if (readerAtRender.sessionId === sessionId && (localReader.current !== readerAtRender
+      || observedSharedPage.current !== observedAtRender || pendingRemoteAnchor.current !== pendingAtRender)) {
+      retrySharedPage(value => value + 1)
+      return
+    }
+    localReader.current = readerForRender
+    observedSharedPage.current = observedForRender
+    pendingRemoteAnchor.current = pendingPage
+    savedAnchor.current = savedForRender
+  })
+  const savedAnchorKey = savedForRender.key
   const savedWindow = useMemo(() => {
     if (order.length <= CHAT_RENDER_WINDOW_NODES || savedAnchorKey === null) return null
     const index = savedAnchorIndex(order, savedAnchorKey)
@@ -106,7 +162,19 @@ export function ChatView({
       Math.floor(CHAT_RENDER_WINDOW_NODES / 3))
     return renderWindowAnchor(order, sessionId, bounds)
   }, [order, savedAnchorKey, sessionId])
-  const activeRenderWindow = renderWindow?.sessionId === sessionId ? renderWindow : savedWindow ?? renderWindow
+  const pendingPageResult = pendingPage?.pageId === undefined ? undefined
+    : historyPageResults?.get(pendingPage.pageId)
+      ?? (pendingPage.pageId === currentHistoryPage ? historyPageResult : undefined)
+  const historyPageCommitted = pendingPage !== null && pendingPage.sessionId === sessionId
+    && pendingPage.pageId !== undefined && committedHistoryPages?.includes(pendingPage.pageId) === true
+  const historyPageApplying = pendingPage !== null && pendingPage.sessionId === sessionId
+    && pendingPage.pageId !== undefined && historyPageConsumed?.(pendingPage.pageId) === true
+  const committedAnchorIndex = historyPageCommitted || historyPageApplying ? savedAnchorIndex(order, pendingPage!.key) : -1
+  const committedWindow = committedAnchorIndex < 0 || order.length <= CHAT_RENDER_WINDOW_NODES ? null : renderWindowAnchor(order, sessionId,
+    anchoredRenderWindow(order.length, committedAnchorIndex, CHAT_RENDER_WINDOW_NODES,
+      Math.floor(CHAT_RENDER_WINDOW_NODES * 0.75)))
+  const activeRenderWindow = committedWindow
+    ?? (renderWindow?.sessionId === sessionId ? renderWindow : savedWindow ?? renderWindow)
   const renderBounds = useMemo(
     () => resolveRenderWindow(order, sessionId, activeRenderWindow), [activeRenderWindow, order, sessionId],
   )
@@ -117,7 +185,6 @@ export function ChatView({
     [order, renderBounds.end, renderBounds.start],
   )
   const visibleNodeKeys = useMemo(() => new Set(renderOrder), [renderOrder])
-  const pendingRemoteAnchor = useRef<{ readonly sessionId: string; readonly key: string } | null>(null)
   const deferCompletedTurns = usePresentation(policy => policy.collapseTiming === 'next-input')
   const transcriptView = usePresentation(policy => policy.mode)
   // The rail's items are accumulated in the Chat snapshot, so this selector is
@@ -251,11 +318,13 @@ export function ChatView({
   const firstKey = order[0]
   const firstSeq = firstKey === undefined ? null : nodeStore.get(firstKey)?.anchorSeq ?? null
   const renderControlState = useRef({
-    order, renderBounds, renderOrder, sessionId, turnNavigationItems, railItems, historyWindow, historyRevision,
+    order, renderBounds, renderOrder, groupedView, sessionId, turnNavigationItems, railItems, historyWindow, historyRevision,
   })
-  renderControlState.current = {
-    order, renderBounds, renderOrder, sessionId, turnNavigationItems, railItems, historyWindow, historyRevision,
-  }
+  useLayoutEffect(() => {
+    renderControlState.current = {
+      order, renderBounds, renderOrder, groupedView, sessionId, turnNavigationItems, railItems, historyWindow, historyRevision,
+    }
+  })
   const revealEarlier = useCallback((): boolean => {
     const { order: currentOrder, renderBounds: currentBounds, sessionId: currentSession,
       historyWindow: currentHistoryWindow } = renderControlState.current
@@ -309,14 +378,42 @@ export function ChatView({
     if (key !== undefined) pendingRemoteAnchor.current = { sessionId: currentSession, key }
   }, [])
   const readerPositionChanged = useCallback((position: ChatScrollPosition | null) => {
+    localReader.current = { sessionId, position }
     const pending = pendingRemoteAnchor.current
     if (pending === null) return
     if (pending.sessionId !== sessionId || position === null) {
       pendingRemoteAnchor.current = null
       return
     }
-    pendingRemoteAnchor.current = { sessionId, key: position.anchorKey }
+    let key = position.windowAnchorKey ?? position.anchorKey
+    if (key.startsWith('group:')) {
+      const { groupedView: view, renderOrder: mounted } = renderControlState.current
+      const members = view?.groupSource(key.slice('group:'.length) as GroupKey).getSnapshot()?.members
+      const memberKeys = new Set(members?.map(member => member.key) ?? [])
+      // The group identity can name a member far outside the mounted slice.
+      const mountedMember = mounted.find(nodeKey => memberKeys.has(nodeKey as NodeKey))
+      if (mountedMember === undefined) return
+      key = mountedMember
+    }
+    pendingRemoteAnchor.current = { ...pending, key }
   }, [sessionId])
+  const historyPageStarted = useCallback(() => {
+    const pending = pendingRemoteAnchor.current
+    const pageId = readHistoryPageId?.()
+    if (pending !== null && pending.sessionId === sessionId && pageId !== undefined) {
+      pendingRemoteAnchor.current = { ...pending, pageId }
+    }
+  }, [readHistoryPageId, sessionId])
+  const beforeConsumeOlder = useCallback((position: ChatScrollPosition | null) => {
+    const pageId = readHistoryPageId?.()
+    if (pageId === undefined) return
+    const pending = pendingRemoteAnchor.current
+    if (pending?.sessionId !== sessionId || pending.pageId !== pageId) {
+      beforeLoadOlder()
+      historyPageStarted()
+    }
+    if (position !== null) readerPositionChanged(position)
+  }, [beforeLoadOlder, historyPageStarted, readHistoryPageId, readerPositionChanged, sessionId])
   const advanceRenderWindow = useCallback((): boolean => {
     const { order: currentOrder, renderBounds: currentBounds, sessionId: currentSession } = renderControlState.current
     const next = laterRenderWindow(currentOrder.length, currentBounds)
@@ -336,8 +433,13 @@ export function ChatView({
     isOpen: openState === 'open' && !waitingForSavedAnchor,
     sessionId,
     order, renderOrder, firstSeq, lastKey, running, loadingOlder, historyLoadStatus, hasMore, historyRevision,
-    chatScroll, loadOlder, consumeOlder, loadThrough,
-    revealEarlier, revealTurn, revealThrough, beforeLoadOlder, readerPositionChanged, deferCompletedTurns,
+    chatScroll: localChatScroll, loadOlder, consumeOlder, loadThrough,
+    revealEarlier, revealTurn, revealThrough, beforeLoadOlder, historyPageStarted, beforeConsumeOlder,
+    readerPositionChanged, deferCompletedTurns,
+    historyPagePending: pendingPage?.sessionId === sessionId && pendingPage.pageId !== undefined,
+    historyPagePosition: readerForRender.position,
+    historyPageCommitted,
+    historyPageInvalidated: pendingPageResult === 'invalidated' || pendingPageResult === 'error',
     renderedGlobalTail: renderBounds.end === order.length,
     advanceRenderWindow,
     lastIsUser: lastKey !== null && nodeStore.get(lastKey)?.kind === 'user',
@@ -352,34 +454,28 @@ export function ChatView({
     setRenderWindow(null)
     scroll.returnToBottom()
   }, [scroll.returnToBottom, sessionId])
-  const previousHistory = useRef({ sessionId, firstSeq, loadingOlder })
+  const previousHistory = useRef({ sessionId })
   useLayoutEffect(() => {
     const previous = previousHistory.current
     let rangeUpdated = false
     if (previous.sessionId !== sessionId) {
-      pendingRemoteAnchor.current = null
+      if (pendingRemoteAnchor.current?.sessionId !== sessionId) pendingRemoteAnchor.current = null
       setRenderWindow(null)
       rangeUpdated = true
-    } else {
-      const pending = pendingRemoteAnchor.current
-      if (pending !== null && pending.sessionId !== sessionId) {
-        pendingRemoteAnchor.current = null
-      } else if (pending !== null && firstSeq !== previous.firstSeq) {
-        const index = order.indexOf(pending.key)
-        if (index >= 0) {
-          const next = anchoredRenderWindow(order.length, index, CHAT_RENDER_WINDOW_NODES,
-            Math.floor(CHAT_RENDER_WINDOW_NODES * 0.75))
-          if (next.start > 0 || next.end < order.length) {
-            setRenderWindow(renderWindowAnchor(order, sessionId, next))
-            rangeUpdated = true
-          }
-        }
-        pendingRemoteAnchor.current = null
-      } else if (pending !== null && previous.loadingOlder && !loadingOlder) {
-        pendingRemoteAnchor.current = null
+    } else if (historyPageCommitted) {
+      if (committedWindow !== null) {
+        setRenderWindow(committedWindow)
+        rangeUpdated = true
       }
+      pendingRemoteAnchor.current = null
+      if (sharedPage !== undefined && sharedPage.id !== pendingPage?.pageId
+        && sharedPage.id !== observedSharedPage.current.pageId) retrySharedPage(value => value + 1)
+    } else if (pendingPageResult === 'error' || pendingPageResult === 'invalidated') {
+      pendingRemoteAnchor.current = null
+      if (sharedPage !== undefined && sharedPage.id !== pendingPage?.pageId
+        && sharedPage.id !== observedSharedPage.current.pageId) retrySharedPage(value => value + 1)
     }
-    previousHistory.current = { sessionId, firstSeq, loadingOlder }
+    previousHistory.current = { sessionId }
 
     if (rangeUpdated || openState !== 'open') return
     if (scroll.followingTail) {
@@ -388,8 +484,9 @@ export function ChatView({
       setRenderWindow(renderWindowAnchor(order, sessionId, renderBounds))
     }
   }, [
-    firstSeq, loadingOlder, openState, order, renderBounds, renderOrder.length, renderWindow,
-    scroll.followingTail, sessionId,
+    committedWindow, historyPageCommitted, pendingPage, pendingPageResult, sharedPage?.id,
+    openState, order, renderBounds,
+    renderOrder.length, renderWindow, scroll.followingTail, sessionId,
   ])
   const interactionSurfaceRef = useRef<HTMLDivElement>(null)
   const interactionIds = useInteractionIds(ids => ids)

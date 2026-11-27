@@ -90,10 +90,14 @@ export function laterRenderWindow(
 /** Resolve a stored row or split-node anchor into the complete Chat order. */
 export function savedAnchorIndex(order: readonly string[], anchorKey: string): number {
   const exact = order.indexOf(anchorKey)
-  if (exact >= 0 || !anchorKey.startsWith('[')) return exact
+  if (exact >= 0) return exact
+  const encoded = anchorKey.startsWith('group:') ? anchorKey.slice('group:'.length) : anchorKey
+  if (!encoded.startsWith('[')) return -1
   try {
-    const parts: unknown = JSON.parse(anchorKey)
-    return Array.isArray(parts) && typeof parts[0] === 'string' ? order.indexOf(parts[0]) : -1
+    const parts: unknown = JSON.parse(encoded)
+    if (!Array.isArray(parts)) return -1
+    const key = parts[0] === 'process' ? parts[1] : parts[0]
+    return typeof key === 'string' ? order.indexOf(key) : -1
   } catch {
     return -1
   }

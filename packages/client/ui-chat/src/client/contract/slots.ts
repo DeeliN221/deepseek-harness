@@ -308,6 +308,8 @@ export type ChatStore = ReturnType<typeof createChatStore>
 /** In-memory reader position resilient to transcript reflow. */
 export interface ChatScrollPosition {
   readonly anchorKey: string
+  /** A mounted member identifies the correct slice when anchorKey names a group. */
+  readonly windowAnchorKey?: string
   readonly anchorTop: number
   readonly scrollTop: number
 }
@@ -351,6 +353,12 @@ export interface ChatViewInjected {
   openFile: (path: string, options?: OpenFileOptions) => Promise<void>
   /** Prepare one older page without publishing it. */
   loadOlder: () => void
+  /** Return the identity of the most recently requested ordinary history page. */
+  historyPageId?: () => number | undefined
+  /** Read the shared Session's latest page synchronously for other open views. */
+  historyPageState?: () => { readonly id: number; readonly result: 'pending' | 'consumed' | 'invalidated' | 'error' } | undefined
+  /** Read the current page state synchronously before its content notifications settle. */
+  historyPageConsumed?: (pageId: number) => boolean
   /** Consume the prepared page synchronously; false when none is ready. */
   consumeOlder: () => boolean
   /** Jump loader: page history back through seq; resolves when the window covers it. */
