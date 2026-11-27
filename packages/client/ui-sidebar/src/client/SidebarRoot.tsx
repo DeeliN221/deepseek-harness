@@ -42,9 +42,6 @@ const COLLAPSE_SETTLE_MS = 150
  */
 const SCROLLBAR_LINGER_MS = 2000
 
-/** Panels rendered as icon buttons in the logo row (top tools). */
-const STRIP_PANEL_IDS: readonly string[] = ['dsh-task-center', 'task-board', 'dsh-context']
-
 /** Panel id of the Bot Team view selected by the second-row tab. */
 const BOT_TEAM_PANEL_ID = 'bot-team'
 
@@ -85,9 +82,35 @@ export function SidebarRoot({
   const panels = usePanels(snapshot => snapshot)
   const activePanelId = usePanelInfo(info => info.activePanelId)
   const pluginsPanel = panels.find(({ id }) => id === FIXED_PANEL_ID)
-  // The Bot Team tab addresses a panel the running profile registers; without
-  // one the second row keeps the Workspace tab alone.
   const botTeamId = panels.find(({ id }) => id === BOT_TEAM_PANEL_ID)?.id
+  const botTeamAvailable = botTeamId !== undefined
+  // 工具组渲染**全部已注册面板**（注册/注销即时生效），只排除两处既有入口的
+  // 重复：logo 行固定的插件入口，以及第二行的 Bot Team 专属页签。
+  const toolPanels = panels.filter(({ id }) => id !== pluginsPanel?.id && id !== BOT_TEAM_PANEL_ID)
+  const toolsRef = useRef<HTMLElement | null>(null)
+  const [toolsOverflow, setToolsOverflow] = useState<'none' | 'start' | 'end' | 'both'>('none')
+  useEffect(() => {
+    const node = toolsRef.current
+    if (node === null || typeof ResizeObserver === 'undefined') return
+    const update = (): void => {
+      const vertical = node.getAttribute('data-wide') === 'false'
+      const start = vertical ? node.scrollTop : node.scrollLeft
+      const size = vertical ? node.clientHeight : node.clientWidth
+      const total = vertical ? node.scrollHeight : node.scrollWidth
+      const before = start > 1
+      const after = start + size < total - 1
+      setToolsOverflow(before && after ? 'both' : before ? 'start' : after ? 'end' : 'none')
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(node)
+    for (const child of Array.from(node.children)) observer.observe(child)
+    node.addEventListener('scroll', update, { passive: true })
+    return () => {
+      observer.disconnect()
+      node.removeEventListener('scroll', update)
+    }
+  }, [panels, width])
   const shortcut = useShortcuts(rows => rows.find(row => row.id === 'sidebar.left.toggle'))
   const newShortcut = useShortcuts(rows => rows.find(row => row.id === 'session.new'))
   // A page whose access snapshot excludes starting a Session offers no New Session affordance.
@@ -133,7 +156,17 @@ export function SidebarRoot({
   // hide rather than restarting from a hidden bar.
   const column = useRef<HTMLDivElement>(null)
   const sidebarFocus = useRef<Element | null>(null)
-  useModalLayer(column, drawer && !collapsed, toggleSidebar)
+  const [coveredBySettings, setCoveredBySettings] = useState(false)
+  useLayoutEffect(() => {
+    const document = column.current?.ownerDocument
+    if (document === undefined) return
+    const update = (): void => { setCoveredBySettings(document.querySelector('[data-shortcut-modal="settings"][role="dialog"][aria-modal="true"]') !== null) }
+    update()
+    const observer = new MutationObserver(update)
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['role', 'aria-modal', 'data-shortcut-modal'] })
+    return () => { observer.disconnect() }
+  }, [])
+  useModalLayer(column, drawer && !collapsed && !coveredBySettings, toggleSidebar)
   useLayoutEffect(() => {
     if (!collapsed) return
     const controlled = sidebarFocus.current?.getAttribute('aria-controls')?.split(/\s+/) ?? []
@@ -223,52 +256,95 @@ export function SidebarRoot({
 
   // Top tools and the second-row tabs are built once and placed per width.
   const toolsNav = (
-    <nav className="dshsn-tools" aria-label={t('panels.label')} data-wide={wide ? 'true' : 'false'}>
-      {panels.filter(({ id }) => STRIP_PANEL_IDS.includes(id)).map(({ id, label }) => (
-        <button
-          key={id}
-          type="button"
-          className={clsx('dshsn-icon', activePanelId === id && 'dshsn-iconOn')}
-          aria-label={label}
-          aria-current={activePanelId === id ? 'page' : undefined}
-          data-dshsn-panel={id}
-          onClick={() => { selectPanel(id) }}
-        >
-          <span className="dshsn-glyph" aria-hidden="true">
-            {renderFactorySlot('sidebar.panel.icon', { id, size: 16, active: activePanelId === id })}
-          </span>
-        </button>
-      ))}
+    <div
+      className="dshsn-toolsWrap"
+      data-overflow={toolsOverflow}
+      data-wide={wide ? 'true' : 'false'}
+    >
+      <nav
+        ref={toolsRef}
+        className="dshsn-tools"
+        aria-label={t('panels.label')}
+        data-wide={wide ? 'true' : 'false'}
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+          const node = toolsRef.current
+          if (node === null) return
+          const buttons = Array.from(node.querySelectorAll<HTMLButtonElement>('button[data-dshsn-panel]'))
+          const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
+          if (index < 0) return
+          const next = event.key === 'ArrowRight' ? index + 1 : index - 1
+          if (next < 0 || next >= buttons.length) return
+          event.preventDefault()
+          buttons[next]?.focus()
+        }}
+      >
+        {toolPanels.map(({ id, label }) => (
+          <button
+            key={id}
+            type="button"
+            className={clsx('dshsn-icon', activePanelId === id && 'dshsn-iconOn')}
+            aria-label={label}
+            aria-current={activePanelId === id ? 'page' : undefined}
+            data-dshsn-panel={id}
+            onFocus={(event) => { event.currentTarget.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }) }}
+            onClick={() => { selectPanel(id) }}
+          >
+            <span className="dshsn-glyph" aria-hidden="true">
+              {renderFactorySlot('sidebar.panel.icon', { id, size: 16, active: activePanelId === id })}
+            </span>
+          </button>
+        ))}
+      </nav>
       <div className="dshsn-settings">
         {renderSlot('sidebar.settings', { wide: false })}
       </div>
-    </nav>
+    </div>
   )
 
+  // View navigation remains keyboard accessible even when another panel is active.
+  const tabButtons = useRef<Array<HTMLButtonElement | null>>([])
+  const selectTab = (index: number): void => {
+    const target = index === 1 ? botTeamId : null
+    if (target === undefined) return
+    if (target !== activePanelId) selectPanel(target)
+    tabButtons.current[index]?.focus()
+  }
   const tabs = (
-    <div className="dshsn-tabs" role="tablist" aria-label={t('tabs.label')}>
+    <nav
+      className="dshsn-tabs"
+      aria-label={t('tabs.label')}
+      onKeyDown={(event) => {
+        if (!botTeamAvailable || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+        const focused = tabButtons.current.findIndex(button => button === document.activeElement)
+        if (focused < 0) return
+        event.preventDefault()
+        const index = event.key === 'Home' ? 0 : event.key === 'End' ? 1 : 1 - focused
+        selectTab(index)
+      }}
+    >
       <button
+        ref={(node) => { tabButtons.current[0] = node }}
         type="button"
-        role="tab"
-        aria-selected={activePanelId == null}
+        aria-current={activePanelId == null ? 'page' : undefined}
         className={clsx('dshsn-tab', activePanelId == null && 'dshsn-tabOn')}
+        data-dshsn-tab="workspace"
         onClick={() => { if (activePanelId != null) selectPanel(null) }}
       >
         {t('tabs.workspace')}
       </button>
-      {botTeamId !== undefined && (
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activePanelId === botTeamId}
-          className={clsx('dshsn-tab', activePanelId === botTeamId && 'dshsn-tabOn')}
-          data-dshsn-active={activePanelId === botTeamId ? 'true' : 'false'}
-          onClick={() => { if (activePanelId !== botTeamId) selectPanel(botTeamId) }}
-        >
-          {t('tabs.botTeam')}
-        </button>
-      )}
-    </div>
+      {botTeamAvailable && <button
+        ref={(node) => { tabButtons.current[1] = node }}
+        type="button"
+        aria-current={activePanelId === BOT_TEAM_PANEL_ID ? 'page' : undefined}
+        data-dshsn-tab="bot-team"
+        className={clsx('dshsn-tab', activePanelId === BOT_TEAM_PANEL_ID && 'dshsn-tabOn')}
+        data-dshsn-active={activePanelId === BOT_TEAM_PANEL_ID ? 'true' : 'false'}
+        onClick={() => { if (botTeamId !== undefined && activePanelId !== botTeamId) selectPanel(botTeamId) }}
+      >
+        {t('tabs.botTeam')}
+      </button>}
+    </nav>
   )
 
   return (
@@ -343,11 +419,12 @@ export function SidebarRoot({
               </button>
             )
         })()}
-        {wide && pluginsPanel !== undefined && (
+        {pluginsPanel !== undefined && (
           <Tooltip label={pluginsPanel.label} delayMs={500} side="bottom" portal>
             <button
               type="button"
               className={clsx(css.iconButton, css.pluginsButton)}
+              data-dshsn-plugins="true"
               aria-label={pluginsPanel.label}
               aria-current={activePanelId === pluginsPanel.id ? 'page' : undefined}
               onClick={() => {
@@ -361,12 +438,9 @@ export function SidebarRoot({
             </button>
           </Tooltip>
         )}
-        {wide && toolsNav}
+        {toolsNav}
         {(!darwinDesktop || wide) && toggle}
       </div>
-
-      {/* The collapsed rail reuses the same tools column below the logo row. */}
-      {!wide && toolsNav}
 
       {/* Second row: 工作区 / Bot Team only. */}
       {wide && tabs}

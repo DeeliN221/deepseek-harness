@@ -1,9 +1,8 @@
 // @vitest-environment jsdom
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 /**
- * The sidebar's fixed tool strip: three panel icons in the logo row plus the
- * settings seat. Registered panels no longer render rows and the sidebar has no
- * More menu, so this suite pins the strip's membership, selection, locale
+ * The sidebar's tool strip renders registered panel icons in the logo row plus
+ * the settings seat. This suite covers dynamic membership, selection, locale
  * refresh, disposal, and analytics through the production slot renderer.
  */
 import type { Context } from '@deepseek-ai/cordis'
@@ -29,7 +28,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 const TASK_CENTER = 'dsh-task-center' as MainPanelId
 /** Second strip member, registered later by these specs. */
 const TASK_BOARD = 'task-board' as MainPanelId
-/** Panel outside the strip: its main body stays reachable, its row does not exist. */
+/** Additional registered panel, also available in the strip. */
 const EXTRA = 'sidebar-test-extra' as MainPanelId
 const PLUGINS = 'plugins' as MainPanelId
 const runtimes = new Set<SlotTestRuntime>()
@@ -146,17 +145,18 @@ describe('sidebar fixed tool strip', () => {
     const { runtime, view } = await bench()
     // The tools nav carries the settings seat even before any panel registers.
     expect(within(strip(view)).queryAllByRole('button')).toHaveLength(0)
-    expect(within(strip(view)).getByText('', { selector: '.dshsn-settings' })).toBeTruthy()
+    expect(strip(view).parentElement?.querySelector('.dshsn-settings')).toBeTruthy()
     expect(view.queryByRole('menu')).toBeNull()
     expect(view.queryByRole('button', { name: 'More' })).toBeNull()
     expect(view.getByText('Conversation content')).toBeTruthy()
 
-    await mountPanel(runtime, { id: EXTRA, heading: 'Extra content', label: 'Extra panel' })
-    // A panel outside the strip contributes no sidebar affordance at all.
-    await waitFor(() => { expect(within(strip(view)).queryAllByRole('button')).toHaveLength(0) })
-    expect(view.queryByRole('button', { name: 'Extra panel' })).toBeNull()
-    expect(view.queryByRole('heading', { name: 'Extra content' })).toBeNull()
+    const extra = await mountPanel(runtime, { id: EXTRA, heading: 'Extra content', label: 'Extra panel' })
+    const button = await within(strip(view)).findByRole('button', { name: 'Extra panel' })
+    fireEvent.click(button)
+    expect(view.getByRole('heading', { name: 'Extra content' })).toBeTruthy()
     expect(runtime.slots.entries('main').map(entry => entry.options.key)).toEqual(['conversation', EXTRA])
+    await extra.dispose()
+    await waitFor(() => { expect(within(strip(view)).queryByRole('button', { name: 'Extra panel' })).toBeNull() })
   })
 
   it.each([false, true])('renders the strip members as icons with collapsed=%s', async (collapsed) => {
@@ -261,6 +261,7 @@ describe('sidebar view tabs', () => {
 
   it('keeps the second row to two view tabs and returns to the conversation from a tool', async () => {
     const { runtime, locale, layout, view } = await bench()
+    expect(view.queryByRole('button', { name: 'Bot Team' })).toBeNull()
     await mountStrip(runtime, locale)
     await mountPanel(runtime, { id: CONTEXT, heading: 'Context content', label: 'Context', order: 30 })
     await mountPanel(runtime, { id: BOT_TEAM, heading: 'Bot Team content', label: 'Bot Team', order: 40 })
@@ -269,19 +270,20 @@ describe('sidebar view tabs', () => {
     expect([...strip(view).querySelectorAll('[data-dshsn-panel]')].map(node => node.getAttribute('data-dshsn-panel')))
       .toEqual([TASK_BOARD, TASK_CENTER, CONTEXT])
 
-    const tabs = view.getAllByRole('tab')
+    const tabs = within(view.container.querySelector('nav.dshsn-tabs')!).getAllByRole('button')
     expect(tabs.map(tab => tab.textContent)).toEqual(['Workspace', 'Bot Team'])
-    expect(tabs.map(tab => tab.getAttribute('aria-selected'))).toEqual(['true', 'false'])
+    expect(tabs.map(tab => tab.getAttribute('aria-current'))).toEqual(['page', null])
 
     // Selecting a tool clears the workspace tab's selection.
     fireEvent.click(within(strip(view)).getByRole('button', { name: 'Alpha panel' }))
     expect(layout.selectPanel).toHaveBeenLastCalledWith(TASK_CENTER)
-    expect(view.getAllByRole('tab').map(tab => tab.getAttribute('aria-selected'))).toEqual(['false', 'false'])
+    expect(within(view.container.querySelector('nav.dshsn-tabs')!).getAllByRole('button').map(tab => tab.getAttribute('aria-current'))).toEqual([null, null])
+    expect(view.getByRole('button', { name: 'Workspace' }).tabIndex).toBe(0)
 
     // The Workspace tab clears the panel and returns to the Conversation.
-    fireEvent.click(view.getByRole('tab', { name: 'Workspace' }))
+    fireEvent.click(view.getByRole('button', { name: 'Workspace' }))
     expect(layout.selectPanel).toHaveBeenLastCalledWith(null)
-    expect(view.getAllByRole('tab').map(tab => tab.getAttribute('aria-selected'))).toEqual(['true', 'false'])
+    expect(within(view.container.querySelector('nav.dshsn-tabs')!).getAllByRole('button').map(tab => tab.getAttribute('aria-current'))).toEqual(['page', null])
     expect(view.getByText('Conversation content')).toBeTruthy()
   })
 
@@ -289,13 +291,13 @@ describe('sidebar view tabs', () => {
     const { runtime, locale, layout, view } = await bench()
     await mountStrip(runtime, locale)
     await mountPanel(runtime, { id: BOT_TEAM, heading: 'Bot Team content', label: 'Bot Team', order: 40 })
-    fireEvent.click(view.getByRole('tab', { name: 'Bot Team' }))
+    fireEvent.click(view.getByRole('button', { name: 'Bot Team' }))
     expect(layout.selectPanel).toHaveBeenLastCalledWith(BOT_TEAM)
-    expect(view.getAllByRole('tab').map(tab => tab.getAttribute('aria-selected'))).toEqual(['false', 'true'])
+    expect(within(view.container.querySelector('nav.dshsn-tabs')!).getAllByRole('button').map(tab => tab.getAttribute('aria-current'))).toEqual([null, 'page'])
     expect(view.getByRole('heading', { name: 'Bot Team content' })).toBeTruthy()
     // A repeated activation does not re-select.
     const calls = layout.selectPanel.mock.calls.length
-    fireEvent.click(view.getByRole('tab', { name: 'Bot Team' }))
+    fireEvent.click(view.getByRole('button', { name: 'Bot Team' }))
     expect(layout.selectPanel.mock.calls).toHaveLength(calls)
   })
 
@@ -303,12 +305,11 @@ describe('sidebar view tabs', () => {
     const { runtime, locale, view } = await bench(true)
     await mountStrip(runtime, locale)
     const nav = strip(view)
-    // The rail keeps the tools but drops the view tabs and the row drag surface.
+    // The stable wrapper stays in the logo row so the settings seat remains mounted.
     expect(view.queryAllByRole('tab')).toHaveLength(0)
-    expect(nav.closest('[data-window-drag]')).toBeNull()
-    expect(nav.parentElement?.hasAttribute('data-window-drag')).not.toBe(true)
+    expect(nav.closest('[data-window-drag]')).not.toBeNull()
     expect(nav.querySelector('[data-dshsn-panel]')).not.toBeNull()
-    expect(nav.querySelector('.dshsn-settings')).not.toBeNull()
+    expect(nav.parentElement?.querySelector('.dshsn-settings')).not.toBeNull()
   })
 })
 

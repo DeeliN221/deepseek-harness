@@ -6,15 +6,113 @@
  * settings-account 侧补丁改为设置齿轮：`[data-dshsn-settings]`。
  * 全部使用不带哈希的 .dshsn-* 类名与 data 属性，避免依赖上游 CSS Module 哈希。 */
 
-/* ── 顶部工具组（位于 logo 行内） ─────────────────────────────────────── */
+/* ── 顶部工具组（位于 logo 行内） ───────────────────────────────────────
+ * 工具组渲染**全部已注册面板**（注册/注销即时生效），排除 Bot Team（专属页签）
+ * 与插件入口（logo 行已有固定按钮）的重复。空间不足时横向滚动，用两侧渐隐
+ * 提示还有隐藏入口；设置座位固定在滚动区之外，始终可直接点到。 */
+.dshsn-toolsWrap {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2px;
+  min-width: 0;
+  -webkit-app-region: no-drag;
+}
+
+.dshsn-toolsWrap[data-wide="false"] {
+  flex: none;
+  flex-direction: column;
+  width: 100%;
+  justify-content: flex-start;
+}
+
+/* 折叠 rail：工具组仍挂载在同一 logo 行内（不换父节点），用换行把它排到第二行，
+ * 避免 SettingsRoot / AccountMenu 因卸载重挂载而丢通知与对话框状态。 */
+[data-window-drag]:has(> .dshsn-toolsWrap[data-wide="false"]) {
+  flex-direction: column;
+  height: auto;
+  align-items: center;
+}
+
+[data-window-drag] > .dshsn-toolsWrap[data-wide="false"] .dshsn-tools {
+  max-height: min(50vh, 360px);
+}
+
+.dshsn-toolsWrap[data-wide="false"] {
+  flex: 0 0 100%;
+  order: 20;
+  margin-top: 6px;
+}
+
+[data-window-drag]:has(> .dshsn-toolsWrap[data-wide="false"]) [data-dshsn-plugins] {
+  width: 36px;
+  height: 36px;
+}
+
+/* 可发现的溢出提示：只在被隐藏的那一侧显示渐隐。 */
+.dshsn-toolsWrap::before,
+.dshsn-toolsWrap::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 18px;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 1;
+  transition: opacity 150ms ease;
+}
+
+.dshsn-toolsWrap::before {
+  left: 0;
+  background: linear-gradient(to right, var(--dsw-alias-bg-base, Canvas), transparent);
+}
+
+.dshsn-toolsWrap::after {
+  right: 0;
+  background: linear-gradient(to left, var(--dsw-alias-bg-base, Canvas), transparent);
+}
+
+.dshsn-toolsWrap[data-overflow="start"]::before,
+.dshsn-toolsWrap[data-overflow="both"]::before,
+.dshsn-toolsWrap[data-overflow="end"]::after,
+.dshsn-toolsWrap[data-overflow="both"]::after {
+  opacity: 1;
+}
+
+.dshsn-toolsWrap[data-wide="false"]::before,
+.dshsn-toolsWrap[data-wide="false"]::after {
+  left: 0;
+  right: 0;
+  width: auto;
+  height: 14px;
+}
+
+.dshsn-toolsWrap[data-wide="false"]::before {
+  top: 0;
+  bottom: auto;
+  background: linear-gradient(to bottom, var(--dsw-alias-bg-base, Canvas), transparent);
+}
+
+.dshsn-toolsWrap[data-wide="false"]::after {
+  top: auto;
+  bottom: 0;
+  background: linear-gradient(to top, var(--dsw-alias-bg-base, Canvas), transparent);
+}
+
 .dshsn-tools {
   display: flex;
-  flex: 0 1 auto;
+  /* 占满 logo 行剩余宽度，但至少留出一个入口，避免被固定控件挤成 0 宽。 */
+  flex: 1 1 auto;
+  min-width: 48px;
   align-items: center;
   gap: 4px;
-  min-width: 0;
   max-width: 100%;
   overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
   scrollbar-width: none;
   /* logo 行是桌面客户端的窗口拖拽区，按钮必须显式退出拖拽区才可点击。 */
   -webkit-app-region: no-drag;
@@ -24,14 +122,18 @@
   display: none;
 }
 
-/* 折叠成 56px rail 时作为 logo 行下方的纵向列（与改造前一致）。 */
+/* 折叠成 56px rail 时作为 logo 行下方的纵向列；入口多于一屏时纵向滚动。 */
 .dshsn-tools[data-wide="false"] {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  padding: 0 0 8px;
-  overflow: visible;
+  width: 100%;
+  max-height: 100%;
+  padding: 0 0 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .dshsn-icon {
@@ -82,7 +184,7 @@
   border-left: 1px solid var(--dsw-alias-border-l3);
 }
 
-.dshsn-tools[data-wide="false"] .dshsn-settings {
+.dshsn-toolsWrap[data-wide="false"] .dshsn-settings {
   margin-left: 0;
   padding-left: 0;
   border-left: none;
@@ -95,7 +197,7 @@
 
 /* settings-account 补丁后，座位内的触发器是设置齿轮按钮：
  * 点击直接打开设置对话框，不再弹出「设置/意见反馈/登录」菜单。 */
-.dshsn-tools .dshsn-settings [data-dshsn-settings] {
+.dshsn-toolsWrap .dshsn-settings [data-dshsn-settings] {
   display: inline-flex;
   -webkit-app-region: no-drag;
   align-items: center;
@@ -111,23 +213,23 @@
   cursor: pointer;
 }
 
-.dshsn-tools .dshsn-settings [data-dshsn-settings]:hover {
+.dshsn-toolsWrap .dshsn-settings [data-dshsn-settings]:hover {
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
 }
 
-.dshsn-tools .dshsn-settings [data-dshsn-settings][aria-expanded="true"] {
+.dshsn-toolsWrap .dshsn-settings [data-dshsn-settings][aria-expanded="true"] {
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
 }
 
-.dshsn-tools .dshsn-settings [data-dshsn-settings]:focus-visible {
+.dshsn-toolsWrap .dshsn-settings [data-dshsn-settings]:focus-visible {
   outline: 2px solid var(--dsw-alias-border-focus, currentColor);
   outline-offset: 2px;
 }
 
 .dshsn-tools[data-wide="false"] .dshsn-icon,
-.dshsn-tools[data-wide="false"] .dshsn-settings [data-dshsn-settings] {
+.dshsn-toolsWrap[data-wide="false"] .dshsn-settings [data-dshsn-settings] {
   width: 36px;
   height: 36px;
 }
@@ -139,7 +241,7 @@
   }
 
   .dshsn-icon,
-  .dshsn-tools .dshsn-settings [data-dshsn-settings] {
+  .dshsn-toolsWrap .dshsn-settings [data-dshsn-settings] {
     width: 28px;
     height: 28px;
   }
@@ -217,14 +319,14 @@
 
 /* 仅当 logo 行直接承载本任务工具组时，才抬高品牌按钮的最小命中区；
  * 用 :has() 精确限定当前侧栏，避免影响其他 dockkit / 会话页签的拖拽行。 */
-[data-window-drag]:has(> nav.dshsn-tools) > :first-child {
+[data-window-drag]:has(> .dshsn-toolsWrap) > :first-child {
   min-width: 24px;
 }
 
 /* 320px 级窄屏：再收一档，避免品牌标记被挤压。 */
 @media (max-width: 340px) and (pointer: coarse) {
   .dshsn-icon,
-  .dshsn-tools .dshsn-settings [data-dshsn-settings] {
+  .dshsn-toolsWrap .dshsn-settings [data-dshsn-settings] {
     width: 26px;
     height: 26px;
   }
