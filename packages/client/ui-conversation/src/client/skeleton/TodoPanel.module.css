@@ -121,3 +121,28 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Right-aligned estimate column: `margin-left: auto` pins it to the row edge
+   without changing `.content`, whose line box defines the row height — an
+   empty cell therefore neither grows the row nor shifts the text. */
+.eta {
+  flex: none;
+  /* A long estimate yields to the task text instead of squeezing it away. */
+  max-width: 45%;
+  margin-left: auto;
+  padding-left: 10px;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Below 400px the row budget goes to the task text; the estimate is a detail. */
+@media (max-width: 399px) {
+  .eta {
+    display: none;
+  }
+}

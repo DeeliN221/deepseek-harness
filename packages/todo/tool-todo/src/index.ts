@@ -25,6 +25,14 @@ export const inject = ['tools', 'sessionProjections']
 /** The valid {@link TodoItem} statuses, as a runtime set for input narrowing. */
 const STATUSES = ['pending', 'in_progress', 'completed'] as const
 
+/**
+ * Upper bound on a {@link TodoItem.eta} string. The estimate column renders one
+ * line, so an over-long value would be clipped UI-side; rejecting it here keeps
+ * the logged snapshot the model believes it wrote. The parameter-schema DSL
+ * cannot express `maxLength`, so `toTodoList` enforces it.
+ */
+const MAX_ETA_LENGTH = 32
+
 /** Model-facing todo tool configuration. */
 export interface Config {
   /**
@@ -68,16 +76,17 @@ function describe(allowParallel: boolean): string {
 
 /**
  * Validate the value constraints the ParameterSchemaSpec can't express and build the canonical {@link
- * TodoItem}[]: trimmed non-empty unique content, and at most one `in_progress` item unless the
- * deployment allows parallel work. The registry has already enforced the status enum and rejected
- * unknown item keys (`additionalProperties: false` — the logged snapshot must equal what the model
- * believes it wrote, so a nested/extended item shape fails loud at the schema boundary instead of
- * silently flattening); the cast below records that guarantee.
+ * TodoItem}[]: trimmed non-empty unique content, an optional trimmed `eta` of at most {@link
+ * MAX_ETA_LENGTH} characters, and at most one `in_progress` item unless the deployment allows
+ * parallel work. The registry has already enforced the status enum and rejected unknown item keys
+ * (`additionalProperties: false` — the logged snapshot must equal what the model believes it wrote,
+ * so a nested/extended item shape fails loud at the schema boundary instead of silently
+ * flattening); the cast below records that guarantee.
  * @param raw - the model-supplied list, already schema-checked.
  * @param allowParallel - whether several items may be `in_progress` at once.
  * @returns the canonical list.
  */
-function toTodoList(raw: { content: string; status: string }[], allowParallel: boolean): TodoItem[] {
+function toTodoList(raw: { content: string; status: string; eta?: string }[], allowParallel: boolean): TodoItem[] {
   const todos: TodoItem[] = []
   const seen = new Set<string>()
   let active = 0
@@ -90,8 +99,18 @@ function toTodoList(raw: { content: string; status: string }[], allowParallel: b
       throw new ToolArgsError([`todos[${index}].content duplicates ${JSON.stringify(content)}`])
     }
     seen.add(content)
+    // An omitted, blank, or whitespace-only estimate means "no estimate": the
+    // field is dropped so a no-eta list keeps its former exact shape.
+    const eta = item.eta?.trim()
+    if (eta !== undefined && eta.length > MAX_ETA_LENGTH) {
+      throw new ToolArgsError([`todos[${index}].eta must be at most ${MAX_ETA_LENGTH} characters`])
+    }
     if (item.status === 'in_progress') active++
-    todos.push({ content, status: item.status as TodoItem['status'] })
+    todos.push({
+      content,
+      status: item.status as TodoItem['status'],
+      ...(eta === undefined || eta === '' ? {} : { eta }),
+    })
   }
   if (!allowParallel && active > 1) {
     throw new ToolArgsError([`at most one task may be in_progress (got ${active})`])
@@ -104,6 +123,7 @@ const todosProjectionSchema: ZodType<TodoItem[] | null> = zod.union([
   zod.array(zod.object({
     content: zod.string(),
     status: zod.union([zod.literal('pending'), zod.literal('in_progress'), zod.literal('completed')]),
+    eta: zod.string().optional(),
   })),
   zod.null(),
 ])
@@ -131,7 +151,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       return state
     },
     wire: { viewSchema: todosProjectionSchema, view: state => state, summary: false },
-    stateVersion: 2,
+    // 3: items gained the optional `eta` field.
+    stateVersion: 3,
   })
   ctx.tools.register(defineTool({
     name: 'todo_write',
@@ -152,6 +173,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
               enum: [...STATUSES],
               description: 'pending (not started) | in_progress (now) | completed (done).',
             },
+            eta: {
+              type: 'string',
+              description: `Optional estimate of the effort left, free text such as \`~30m\`, \`20-30m\`, or \`1h\` (at most ${MAX_ETA_LENGTH} characters). Omit when unknown.`,
+            },
           },
         },
       },
@@ -170,6 +195,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
               properties: {
                 content: { type: 'string', required: true },
                 status: { type: 'string', required: true, enum: [...STATUSES] },
+                eta: { type: 'string' },
               },
             },
           },
@@ -200,7 +226,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       exec.agent.session.append('todo/write', { todos })
       const count = (status: TodoItem['status']): number => todos.filter(t => t.status === status).length
       return Promise.resolve({
-        todos: todos.map(todo => ({ content: todo.content, status: todo.status })),
+        todos: todos.map(todo => ({
+          content: todo.content,
+          status: todo.status,
+          ...(todo.eta === undefined ? {} : { eta: todo.eta }),
+        })),
         counts: {
           pending: count('pending'),
           inProgress: count('in_progress'),

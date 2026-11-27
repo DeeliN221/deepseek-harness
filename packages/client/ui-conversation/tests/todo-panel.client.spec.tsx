@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 /**
  * Todo display acceptance: the TodoPanel plan strip (empty-hidden, status rows
- * including several `in_progress` at once, collapse), and its TodoDock
- * adapter (selects the plan off the session snapshot and follows changes).
+ * including several `in_progress` at once, collapse, the right-aligned optional
+ * estimate column), and its TodoDock adapter (selects the plan off the session
+ * snapshot and follows changes).
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -101,6 +102,41 @@ describe('TodoPanel', () => {
     expect(screen.queryByText('都完了')).toBeNull()
     expect(screen.getByText('1 已完成')).toBeTruthy()
     expect(screen.queryByText(/进行中|待处理/)).toBeNull()
+  })
+})
+
+describe('TodoPanel estimate column', () => {
+  /** One plan whose rows mix an explicit estimate with an absent one. */
+  const MIXED: TodoItem[] = [
+    { content: '搭骨架', status: 'completed', eta: '~30m' },
+    { content: '写组件', status: 'in_progress', eta: '20-30m' },
+    { content: '补测试', status: 'pending' },
+  ]
+
+  it('renders each estimate as one right-aligned cell, empty where the item has none', () => {
+    const { container } = render(<TodoPanel todos={MIXED} t={t} />)
+    fireEvent.click(screen.getByRole('button', { expanded: false }))
+    const rows = screen.getAllByRole('listitem')
+    expect(rows.map(li => li.querySelector('[data-eta]')?.textContent)).toEqual(['~30m', '20-30m', ''])
+    // The empty cell still exists, so every estimate shares one column.
+    expect(container.querySelectorAll('[data-eta]')).toHaveLength(3)
+    // The estimate sits after the content in DOM order (the row's right edge).
+    const [first] = rows
+    expect(first!.lastElementChild?.getAttribute('data-eta')).toBe('~30m')
+    expect(first!.textContent).toBe('搭骨架~30m')
+  })
+
+  it('adds no estimate cell at all when the whole plan omits eta', () => {
+    const { container } = render(<TodoPanel todos={LIST} t={t} />)
+    fireEvent.click(screen.getByRole('button', { expanded: false }))
+    expect(container.querySelector('[data-eta]')).toBeNull()
+    expect(screen.getAllByRole('listitem').map(li => li.textContent)).toEqual(['搭骨架', '写组件', '补测试'])
+  })
+
+  it('renders nothing extra while the summary is collapsed', () => {
+    const { container } = render(<TodoPanel todos={MIXED} t={t} />)
+    expect(container.querySelector('[data-eta]')).toBeNull()
+    expect(screen.getByText('1 已完成 · 1 进行中 · 1 待处理')).toBeTruthy()
   })
 })
 

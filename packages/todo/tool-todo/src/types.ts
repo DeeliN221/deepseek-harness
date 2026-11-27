@@ -14,17 +14,25 @@ import type { SessionProjectionSummaryExcluded } from '@deepseek-ai/dsh-session-
  * One entry in an agent's todo list — the unit of the `todo/write`
  * whole-list snapshot declared by this package.
  *
- * Deliberately minimal: a human-readable `content` line and a three-state
- * `status`. No id, priority, or `activeForm` — the list is replaced wholesale
- * on every write (last-write-wins), so entries need no stable identity. The
- * three statuses describe the complete portable lifecycle needed by model and
- * UI consumers.
+ * Deliberately minimal: a human-readable `content` line, a three-state
+ * `status`, and an optional free-text estimate. No id, priority, or
+ * `activeForm` — the list is replaced wholesale on every write
+ * (last-write-wins), so entries need no stable identity. The three statuses
+ * describe the complete portable lifecycle needed by model and UI consumers.
  */
 export interface TodoItem {
   /** What this task is — a short imperative line shown in the UI. */
   content: string
   /** Lifecycle state. `in_progress` marks a task being worked now; parallel work may mark several. */
   status: 'pending' | 'in_progress' | 'completed'
+  /**
+   * Optional human estimate of the effort left, e.g. `~30m`, `20-30m`, `1h`.
+   * Free text by design: the harness never parses or sums it, so any readable
+   * duration form is allowed. The tool trims it, rejects more than 32
+   * characters, and drops an empty value, so consumers render `eta` verbatim
+   * and treat its absence as "no estimate".
+   */
+  eta?: string | undefined
 }
 
 declare module '@deepseek-ai/dsh-session/types' {
