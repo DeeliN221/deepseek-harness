@@ -536,9 +536,10 @@ describe('WorkspaceBrowser', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
     expect(screen.getByText('分组方式')).toBeTruthy() // the menu heading label
-    expect(screen.getAllByRole('separator')).toHaveLength(2)
+    expect(screen.getAllByRole('separator')).toHaveLength(3)
     expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual([
       '按工作区', '按工作区树', '单列表', '手动排序', '最近更新', '隐藏已归档', '全部对话（显示已归档）', '仅显示已归档',
+      '显示已收纳工作区',
     ])
     expect(screen.getByRole('menuitem', { name: '按工作区' }).querySelector('svg')).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: '手动排序' }).querySelector('svg')).toBeTruthy()
@@ -729,6 +730,123 @@ describe('WorkspaceBrowser', () => {
     expect(within(parentSection()).getByText('Child')).toBeTruthy()
     choose('单列表')
     expect(screen.queryByText('Projects')).toBeNull()
+    expect(screen.getByText('child-session')).toBeTruthy()
+  })
+
+  it('keeps tucked descendants hidden across list modes and restores them without losing sessions', () => {
+    const items = [
+      summary('parent-session', 5), summary('child-current', 4), summary('child-other', 3),
+      summary('independent-session', 2), summary('loose-session', 1),
+    ]
+    const folders = [
+      { ...workspace('parent', ['parent-session'], 'Parent'), path: '/projects/team' },
+      { ...workspace('child', ['child-current', 'child-other'], 'Child'), path: '/projects/team/app' },
+      { ...workspace('independent', ['independent-session'], 'Independent'), path: '/projects/team-other' },
+    ]
+    const originalFolders = structuredClone(folders)
+    const seats = {
+      useSessions: hook(sessionState(items, { main: sid('independent-session') })),
+      useWorkspaces: hook(workspaceState(folders)),
+    }
+    const b = mount(seats)
+    const pick = (name: string) => {
+      fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
+      fireEvent.click(screen.getByRole('menuitem', { name }))
+    }
+    pick('按工作区树')
+    act(() => {
+      b.store.actions.setGroupExpanded('parent', true)
+      b.store.actions.setGroupExpanded('child', true)
+      b.store.actions.setGroupExpanded('independent', true)
+      b.store.actions.setGroupExpanded(UNGROUPED_KEY, true)
+    })
+    expect(screen.getByText('parent-session')).toBeTruthy()
+    expect(screen.getByText('child-other')).toBeTruthy()
+    expect(screen.getByText('loose-session')).toBeTruthy()
+
+    // The context-menu provider owns this action; the browser receives its persisted store.
+    act(() => { b.store.actions.setWorkspaceHidden('parent', true) })
+    expect(screen.queryByText('Parent')).toBeNull()
+    expect(screen.queryByText('Child')).toBeNull()
+    expect(screen.queryByText('child-other')).toBeNull()
+    expect(screen.getByText('independent-session')).toBeTruthy()
+    expect(screen.getByText('loose-session')).toBeTruthy()
+
+    pick('单列表')
+    expect(screen.queryByText('parent-session')).toBeNull()
+    expect(screen.queryByText('child-current')).toBeNull()
+    expect(screen.queryByText('child-other')).toBeNull()
+    expect(screen.getByText('independent-session')).toBeTruthy()
+    expect(screen.getByText('loose-session')).toBeTruthy()
+
+    // Switching the active session into the hidden subtree preserves only that session.
+    rerender(b, { useSessions: hook(sessionState(items, { main: sid('child-current') })) })
+    expect(screen.getByText('child-current')).toBeTruthy()
+    expect(screen.queryByText('parent-session')).toBeNull()
+    expect(screen.queryByText('child-other')).toBeNull()
+    expect(screen.getByText('loose-session')).toBeTruthy()
+
+    pick('显示已收纳工作区')
+    expect(screen.getByText('parent-session')).toBeTruthy()
+    expect(screen.getByText('child-other')).toBeTruthy()
+    pick('隐藏已收纳工作区')
+    expect(screen.queryByText('child-other')).toBeNull()
+
+    b.view.unmount()
+    const restored = mount({
+      ...seats,
+      useSessions: hook(sessionState(items, { main: sid('child-current') })),
+    })
+    expect(screen.getByText('child-current')).toBeTruthy()
+    expect(screen.queryByText('parent-session')).toBeNull()
+    expect(screen.queryByText('child-other')).toBeNull()
+    expect(screen.getByText('independent-session')).toBeTruthy()
+    expect(screen.getByText('loose-session')).toBeTruthy()
+    expect(restored.store.getSnapshot().hiddenWorkspaceIds).toMatchObject({ parent: true })
+
+    pick('显示已收纳工作区')
+    expect(screen.getByText('parent-session')).toBeTruthy()
+    expect(screen.getByText('child-other')).toBeTruthy()
+    act(() => { restored.store.actions.setWorkspaceHidden('parent', false) })
+    pick('隐藏已收纳工作区')
+    expect(screen.getByText('parent-session')).toBeTruthy()
+    expect(screen.getByText('child-other')).toBeTruthy()
+    expect(folders).toEqual(originalFolders)
+    expect(restored.props.deleteWorkspace).not.toHaveBeenCalled()
+    expect(restored.props.unarchiveSession).not.toHaveBeenCalled()
+  })
+
+  it('retains a separately tucked child when its parent is restored after a remount', () => {
+    const seats = {
+      useSessions: hook(sessionState([summary('parent-session', 2), summary('child-session', 1)])),
+      useWorkspaces: hook(workspaceState([
+        { ...workspace('parent', ['parent-session'], 'Parent'), path: '/projects/team' },
+        { ...workspace('child', ['child-session'], 'Child'), path: '/projects/team/app' },
+      ])),
+    }
+    const b = mount(seats)
+    act(() => {
+      b.store.actions.setWorkspaceHidden('child', true)
+      b.store.actions.setWorkspaceHidden('parent', true)
+    })
+    b.view.unmount()
+    const restored = mount(seats)
+    expect(screen.queryByText('Parent')).toBeNull()
+    expect(screen.queryByText('Child')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '显示已收纳工作区' }))
+    expect(screen.getByText('Parent')).toBeTruthy()
+    expect(screen.getByText('Child')).toBeTruthy()
+    act(() => { restored.store.actions.setWorkspaceHidden('parent', false) })
+    fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '隐藏已收纳工作区' }))
+    expect(screen.getByText('Parent')).toBeTruthy()
+    expect(screen.queryByText('Child')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '单列表' }))
+    expect(screen.getByText('parent-session')).toBeTruthy()
+    expect(screen.queryByText('child-session')).toBeNull()
+    act(() => { restored.store.actions.setWorkspaceHidden('child', false) })
     expect(screen.getByText('child-session')).toBeTruthy()
   })
 

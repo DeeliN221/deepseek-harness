@@ -1048,6 +1048,27 @@ it('falls back to the ordinary notice when a follow-up notice provider fails', a
   warning.mockRestore()
 })
 
+it('toggles Workspace tuck and restore through the registered context menu', async () => {
+  const b = await bench()
+  b.setWorkspaces(workspaceState([workspace('alpha', [])]))
+  declare(b.slots, 'sidebar.workspaces')
+  const fiber = b.ctx.plugin({ inject: [...inject], apply })
+  await fiber.await()
+  const target = { kind: 'workspace' as const, value: { workspaceId: 'alpha' as WorkspaceId, path: '/projects/alpha', displayTitle: 'Alpha' } }
+  const menu = b.ctx.contextMenus.resolve(target)
+  await menu.ready
+  expect(menu.source.getSnapshot().map(item => item.id)).toContain('workspace.tuck/tuck')
+  menu.select('workspace.tuck/tuck')
+  const restore = b.ctx.contextMenus.resolve(target)
+  await restore.ready
+  expect(restore.source.getSnapshot().map(item => item.id)).toContain('workspace.tuck/untuck')
+  restore.select('workspace.tuck/untuck')
+  const again = b.ctx.contextMenus.resolve(target)
+  await again.ready
+  expect(again.source.getSnapshot().map(item => item.id)).toContain('workspace.tuck/tuck')
+  await fiber.dispose()
+})
+
 it('captures Workspace menu requests, rechecks mutable access, and withdraws registrations on unload', async () => {
   const b = await bench()
   b.setWorkspaces(workspaceState([workspace('alpha', [])]))
@@ -1058,7 +1079,7 @@ it('captures Workspace menu requests, rechecks mutable access, and withdraws reg
   const target = { kind: 'workspace' as const, value: { workspaceId: 'alpha' as WorkspaceId, path: '/projects/alpha', displayTitle: 'Alpha' } }
   const menu = b.ctx.contextMenus.resolve(target)
   await menu.ready
-  expect(menu.source.getSnapshot().map(item => item.id)).toEqual(['workspace.rename/rename', 'workspace.delete/delete'])
+  expect(menu.source.getSnapshot().map(item => item.id)).toEqual(['workspace.rename/rename', 'workspace.delete/delete', 'workspace.tuck/tuck'])
   menu.select('workspace.rename/rename')
   expect(browser.hooks.workspaceActionRequest.getSnapshot()).toEqual({ action: 'rename', workspaceId: 'alpha', displayTitle: 'Alpha', storedTitle: 'alpha' })
   browser.settleWorkspaceAction()

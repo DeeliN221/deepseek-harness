@@ -118,6 +118,10 @@ export interface TreeView {
   expandedGroups: readonly string[]
   /** Browser-local order for Sessions without a backing Workspace account. */
   ungroupedOrder?: readonly string[]
+  /** Daily-tree Workspaces tucked away by the user; their rows and Sessions stay intact. */
+  hiddenWorkspaceIds?: readonly string[]
+  /** Reveal tucked-away Workspaces (restore path) instead of filtering them out. */
+  showHiddenWorkspaces?: boolean
 }
 
 interface Group {
@@ -333,6 +337,7 @@ function groupByWorkspace(
   archived: ReadonlySet<SessionId>,
   archivedFilter: ArchivedFilter,
   ungroupedOrder: readonly string[] | undefined,
+  requiredGroups: ReadonlySet<string> = new Set(),
 ): Group[] {
   const current = mainSessionId(list)
   const groups: Group[] = []
@@ -348,7 +353,7 @@ function groupByWorkspace(
     }
     // The archived-only view lists archives, not the Workspace inventory, so
     // a Workspace without archived Sessions contributes no group.
-    if (archivedFilter === 'only' && members.length === 0) continue
+    if (archivedFilter === 'only' && members.length === 0 && !requiredGroups.has(workspace.workspaceId)) continue
     groups.push(buildGroup(
       workspace.workspaceId, workspace.workspaceId, workspace.path,
       Date.parse(workspace.createdAt), workspace.title, members,
@@ -446,19 +451,32 @@ export function deriveGroups(
     ? undefined
     : owningGroupKey(workspaces, current)
   const groups: GroupNode[] = []
-  for (const g of groupByWorkspace(list, workspaces, archived, rowState.archivedFilter, view.ungroupedOrder)) {
-    const expanded = expandedGroups.has(g.key)
+  const hidden = hiddenWorkspaceKeys(workspaces, view)
+  const currentWorkspace = workspaces.find(workspace => workspace.workspaceId === currentGroup)
+  const requiredGroups = new Set<string>()
+  if (currentWorkspace !== undefined && hidden.has(currentWorkspace.workspaceId)) {
+    for (const workspace of workspaces) {
+      if (workspace.workspaceId === currentWorkspace.workspaceId
+        || folderContains(workspace.path, currentWorkspace.path)) requiredGroups.add(workspace.workspaceId)
+    }
+  }
+  for (const g of groupByWorkspace(list, workspaces, archived, rowState.archivedFilter, view.ungroupedOrder, requiredGroups)) {
+    if (g.workspaceId !== undefined && hidden.has(g.key) && !requiredGroups.has(g.key)) continue
+    const members = hidden.has(g.key)
+      ? g.sessions.filter(session => g.key === currentGroup && session.id === current)
+      : g.sessions
+    const expanded = expandedGroups.has(g.key) || requiredGroups.has(g.key)
     groups.push({
       key: g.key,
       workspaceId: g.workspaceId,
       cwd: g.cwd,
       createdAt: g.createdAt,
       label: g.label,
-      sessionCount: g.sessions.length,
+      sessionCount: members.length,
       expanded,
       containsCurrent: g.key === currentGroup,
       sessions: expanded
-        ? sectionMembers(g.sessions, pinned, archived)
+        ? sectionMembers(members, pinned, archived)
           .map(session => sessionNode(session, list, statuses, pinned, archived))
         : [],
     })
@@ -509,15 +527,25 @@ export function deriveFlat(
   sessionIds: readonly SessionId[],
   rowState: SessionRowState,
   statuses: SessionStatuses,
+  workspaces: readonly WorkspaceView[] = [],
+  view: Pick<TreeView, 'hiddenWorkspaceIds' | 'showHiddenWorkspaces'> = {},
 ): SessionNode[] {
   const archived = new Set(rowState.archivedSessionIds)
   const pinned = new Set(rowState.pinnedSessionIds)
   const current = mainSessionId(list)
+  const hidden = hiddenWorkspaceKeys(workspaces, view)
+  const owners = new Map<SessionId, string>()
+  for (const workspace of workspaces) {
+    for (const id of workspace.sessionIds) {
+      if (!owners.has(id)) owners.set(id, workspace.workspaceId)
+    }
+  }
   const members = sessionIds.flatMap((id) => {
     const session = list.byId[id]
-    return session !== undefined && sessionVisible(session, current, archived, rowState.archivedFilter)
-      ? [session]
-      : []
+    if (session === undefined) return []
+    const tucked = hidden.has(owners.get(id) ?? UNGROUPED_KEY)
+    if (tucked && id !== current) return []
+    return sessionVisible(session, current, archived, rowState.archivedFilter) ? [session] : []
   })
   return sectionMembers(members, pinned, archived)
     .map(session => sessionNode(session, list, statuses, pinned, archived))
@@ -643,6 +671,29 @@ export function deriveSearchResults(
 function folderPath(path: string): string {
   const windows = /^[A-Za-z]:[/\\]/.test(path) || path.startsWith('\\\\')
   return (windows ? path.replaceAll('\\', '/') : path).replace(/\/+$/, '')
+}
+
+/** Compare directory boundaries, preserving the root directory as an ancestor. */
+function folderContains(parent: string, child: string): boolean {
+  if (parent === '' || child === '') return false
+  const root = folderPath(parent)
+  const path = folderPath(child)
+  return root !== path && path.startsWith(`${root}/`)
+}
+
+/** Resolve persisted Workspace ids to all registered paths below those roots. */
+function hiddenWorkspaceKeys(
+  workspaces: readonly WorkspaceView[],
+  view: Pick<TreeView, 'hiddenWorkspaceIds' | 'showHiddenWorkspaces'>,
+): Set<string> {
+  if (view.showHiddenWorkspaces === true) return new Set()
+  const stored = new Set(view.hiddenWorkspaceIds ?? [])
+  const roots = workspaces.filter(workspace => stored.has(workspace.workspaceId))
+  return new Set(workspaces.filter(workspace => roots.some(root =>
+    root.workspaceId === workspace.workspaceId
+      || (root.path !== '' && workspace.path !== '' && folderPath(root.path) === folderPath(workspace.path))
+      || folderContains(root.path, workspace.path),
+  )).map(workspace => workspace.workspaceId))
 }
 
 /**

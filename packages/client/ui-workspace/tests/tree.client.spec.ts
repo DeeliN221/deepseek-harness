@@ -1013,3 +1013,68 @@ it('leaves unnamed history titles empty for locale-owned row labels', () => {
   const sessions = list(item)
   expect(deriveFlat(sessions, [item.id], noRows, noAttention)[0]?.title).toBe('')
 })
+
+describe('Workspace tuck-away visibility', () => {
+  const sessions = withMain(list(summary('a1', 10), summary('b1', 20)), sid('a1'))
+  const workspaces = [workspace('alpha', ['a1']), workspace('beta', ['b1'])]
+
+  it('filters tucked Workspaces from the daily tree without touching their Sessions', () => {
+    const groups = deriveGroups(sessions, workspaces, noRows, noAttention, {
+      ...view(['alpha', 'beta']), hiddenWorkspaceIds: ['beta'],
+    })
+    expect(groups.map(group => group.key)).toEqual(['alpha'])
+    expect(workspaces[1]!.sessionIds).toEqual([sid('b1')])
+  })
+
+  it('keeps the Workspace hosting the current Session visible', () => {
+    const groups = deriveGroups(sessions, workspaces, noRows, noAttention, {
+      ...view(['alpha']), hiddenWorkspaceIds: ['alpha'],
+    })
+    expect(groups.map(group => group.key)).toContain('alpha')
+  })
+
+  it('reveals tucked Workspaces through the restore view', () => {
+    const groups = deriveGroups(sessions, workspaces, noRows, noAttention, {
+      ...view(['alpha', 'beta']), hiddenWorkspaceIds: ['alpha'], showHiddenWorkspaces: true,
+    })
+    expect(groups.map(group => group.key)).toEqual(['alpha', 'beta'])
+  })
+
+  it('hides a tucked parent and all descendants without losing independent or ungrouped sessions', () => {
+    const items = withMain(list(
+      summary('parent-session', 1), summary('child-session', 2), summary('grandchild-session', 3),
+      summary('independent-session', 4), summary('loose-session', 5),
+    ), sid('independent-session'))
+    const folders = [
+      { ...workspace('parent', ['parent-session']), path: '/projects/team' },
+      { ...workspace('child', ['child-session']), path: '/projects/team/app' },
+      { ...workspace('grandchild', ['grandchild-session']), path: '/projects/team/app/sub' },
+      { ...workspace('independent', ['independent-session']), path: '/projects/team-other' },
+    ]
+    const original = structuredClone(folders)
+    const options = { ...view(['parent', 'child', 'grandchild', 'independent', UNGROUPED_KEY]), hiddenWorkspaceIds: ['parent'] }
+    const groups = deriveGroups(items, folders, noRows, noAttention, options)
+    expect(groups.map(group => group.key)).toEqual(['independent', UNGROUPED_KEY])
+    expect(groups.flatMap(group => group.sessions.map(session => session.id)))
+      .toEqual([sid('independent-session'), sid('loose-session')])
+
+    const revealed = deriveGroups(items, folders, noRows, noAttention, { ...options, showHiddenWorkspaces: true })
+    expect(revealed.flatMap(group => group.sessions.map(session => session.id))).toEqual([
+      sid('parent-session'), sid('child-session'), sid('grandchild-session'), sid('independent-session'), sid('loose-session'),
+    ])
+    expect(folders).toEqual(original)
+    expect(items.ids).toHaveLength(5)
+  })
+
+  it('keeps an independently tucked child hidden after its parent is restored', () => {
+    const folders = [
+      { ...workspace('parent', ['a1']), path: '/projects/team' },
+      { ...workspace('child', ['b1']), path: '/projects/team/app' },
+    ]
+    const options = { ...view(['parent', 'child']), hiddenWorkspaceIds: ['child'] }
+    const groups = deriveGroups(sessions, folders, noRows, noAttention, options)
+    expect(groups.map(group => group.key)).toEqual(['parent'])
+    expect(deriveGroups(sessions, folders, noRows, noAttention, { ...options, hiddenWorkspaceIds: [] })
+      .map(group => group.key)).toEqual(['parent', 'child'])
+  })
+})
