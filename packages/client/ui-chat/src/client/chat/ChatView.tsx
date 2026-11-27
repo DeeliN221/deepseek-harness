@@ -22,7 +22,8 @@ import { useTextInteraction } from './text-interaction.ts'
 import { useChatScroll } from './use-chat-scroll.ts'
 import {
   CHAT_RENDER_WINDOW_NODES, anchoredRenderWindow, earlierRenderWindow, laterRenderWindow,
-  renderWindowAnchor, resolveRenderWindow, savedAnchorIndex,
+  historyRenderWindow, historyWindowTriggered, renderWindowAnchor, resolveRenderWindow,
+  savedAnchorIndex,
 } from './render-window.ts'
 import type { ChatRenderWindowAnchor } from './render-window.ts'
 import { fileAddressFor, fileMediaUrl, resolveWorkspacePath, sessionFileAddress } from '@deepseek-ai/dsh-util-workspace-path'
@@ -352,7 +353,7 @@ export function ChatView({
     setRenderWindow(null)
     scroll.returnToBottom()
   }, [scroll.returnToBottom, sessionId])
-  const previousHistory = useRef({ sessionId, firstSeq, loadingOlder })
+  const previousHistory = useRef({ sessionId, firstSeq, loadingOlder, orderLength: order.length })
   useLayoutEffect(() => {
     const previous = previousHistory.current
     let rangeUpdated = false
@@ -364,22 +365,29 @@ export function ChatView({
       const pending = pendingRemoteAnchor.current
       if (pending !== null && pending.sessionId !== sessionId) {
         pendingRemoteAnchor.current = null
-      } else if (pending !== null && firstSeq !== previous.firstSeq) {
+      } else if (pending !== null && historyWindowTriggered(
+        { firstSeq: previous.firstSeq, orderLength: previous.orderLength },
+        { firstSeq, orderLength: order.length },
+      )) {
+        // A history page extends the loaded order; `firstSeq` is the first durable row's
+        // anchor sequence and can stay unchanged when that row is not part of the page, so
+        // the order length is the reliable commit signal. The re-anchored window keeps the
+        // whole previous range mounted (offset 0) so the reader's rows and the viewport's
+        // retained paging row survive the prepend.
         const index = order.indexOf(pending.key)
         if (index >= 0) {
-          const next = anchoredRenderWindow(order.length, index, CHAT_RENDER_WINDOW_NODES,
-            Math.floor(CHAT_RENDER_WINDOW_NODES * 0.75))
+          const next = historyRenderWindow(order.length, index)
           if (next.start > 0 || next.end < order.length) {
             setRenderWindow(renderWindowAnchor(order, sessionId, next))
             rangeUpdated = true
           }
         }
         pendingRemoteAnchor.current = null
-      } else if (pending !== null && previous.loadingOlder && !loadingOlder) {
+      } else if (pending !== null && historyLoadStatus === 'error') {
         pendingRemoteAnchor.current = null
       }
     }
-    previousHistory.current = { sessionId, firstSeq, loadingOlder }
+    previousHistory.current = { sessionId, firstSeq, loadingOlder, orderLength: order.length }
 
     if (rangeUpdated || openState !== 'open') return
     if (scroll.followingTail) {
@@ -388,8 +396,8 @@ export function ChatView({
       setRenderWindow(renderWindowAnchor(order, sessionId, renderBounds))
     }
   }, [
-    firstSeq, loadingOlder, openState, order, renderBounds, renderOrder.length, renderWindow,
-    scroll.followingTail, sessionId,
+    firstSeq, loadingOlder, historyLoadStatus, openState, order, renderBounds, renderOrder.length,
+    renderWindow, scroll.followingTail, sessionId,
   ])
   const interactionSurfaceRef = useRef<HTMLDivElement>(null)
   const interactionIds = useInteractionIds(ids => ids)

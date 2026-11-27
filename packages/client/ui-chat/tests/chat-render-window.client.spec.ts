@@ -1,8 +1,43 @@
 import { describe, expect, it } from 'vitest'
 import {
-  CHAT_RENDER_WINDOW_NODES, anchoredRenderWindow, earlierRenderWindow, laterRenderWindow, renderWindowAnchor,
-  resolveRenderWindow, savedAnchorIndex, tailRenderWindow,
+  CHAT_RENDER_WINDOW_NODES, anchoredRenderWindow, earlierRenderWindow, historyRenderWindow,
+  historyWindowTriggered, laterRenderWindow, renderWindowAnchor, resolveRenderWindow, savedAnchorIndex,
+  tailRenderWindow,
 } from '../src/client/chat/render-window.ts'
+
+describe('history commit re-anchor', () => {
+  it('treats a grown order as a history commit even when the first anchor sequence stays put', () => {
+    expect(historyWindowTriggered({ firstSeq: null, orderLength: 42 }, { firstSeq: null, orderLength: 500 })).toBe(true)
+    expect(historyWindowTriggered({ firstSeq: 1774, orderLength: 42 }, { firstSeq: 1774, orderLength: 500 })).toBe(true)
+  })
+
+  it('treats a changed first anchor sequence as a history commit', () => {
+    expect(historyWindowTriggered({ firstSeq: 1510, orderLength: 42 }, { firstSeq: 1233, orderLength: 42 })).toBe(true)
+  })
+
+  it('does not re-anchor when neither the order nor its first anchor sequence changed', () => {
+    expect(historyWindowTriggered({ firstSeq: 1510, orderLength: 42 }, { firstSeq: 1510, orderLength: 42 })).toBe(false)
+  })
+
+  it('keeps the whole previously mounted range below the retained head after a prepend', () => {
+    const previous = { start: 600, end: 840 }
+    const prepended = Array.from({ length: 500 }, (_, index) => `older-${index}`)
+    const order = [...prepended, ...Array.from({ length: 840 }, (_, index) => `node-${index}`)]
+    const anchorIndex = prepended.length + previous.start
+    const range = historyRenderWindow(order.length, anchorIndex)
+    expect(range.start).toBe(anchorIndex)
+    expect(range.end - range.start).toBe(CHAT_RENDER_WINDOW_NODES)
+    expect(range.end).toBeGreaterThanOrEqual(prepended.length + previous.end)
+  })
+
+  it('widens a stale narrow window to the full node budget instead of freezing its span', () => {
+    const order = Array.from({ length: 900 }, (_, index) => `node-${index}`)
+    const range = historyRenderWindow(order.length, 600)
+    expect(range).toEqual({ start: 600, end: 840 })
+    expect(resolveRenderWindow(order, 'session-a', renderWindowAnchor(order, 'session-a', range)))
+      .toEqual({ start: 600, end: 840 })
+  })
+})
 
 describe('bounded Chat render window', () => {
   it('keeps only the newest node budget in the initial projection', () => {
