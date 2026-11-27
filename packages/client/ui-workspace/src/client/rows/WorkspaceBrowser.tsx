@@ -692,7 +692,8 @@ function SessionTree({
 
 /** The flat "In one list" body: every session is one draggable top-level row. */
 function FlatList({
-  list, sessionIds, rowState, onLeaveArchivedOnly, useSessionStatus, useSessionAccess, open, onSessionRenameRequest,
+  list, sessionIds, workspaces, hiddenWorkspaceIds, showHiddenWorkspaces,
+  rowState, onLeaveArchivedOnly, useSessionStatus, useSessionAccess, open, onSessionRenameRequest,
   usePanelInfo, setSessionOrder, workspaceReady, animationResetKey,
   revealSessionId, onSessionRevealed, renderSlot, renderFactorySlot, useContextMenuTarget, useContextMenu, home, t,
 }: Pick<
@@ -716,12 +717,18 @@ function FlatList({
 > & {
   list: SessionListState
   sessionIds: readonly SessionId[]
+  workspaces: readonly WorkspaceView[]
+  hiddenWorkspaceIds?: Readonly<Record<string, true>> | undefined
+  showHiddenWorkspaces?: boolean
 }) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
   const statuses = useSessionStatus(s => s)
   const rows = useMemo(
-    () => deriveFlat(list, sessionIds, rowState, statuses),
-    [list, sessionIds, rowState, statuses],
+    () => deriveFlat(list, sessionIds, rowState, statuses, workspaces, {
+      hiddenWorkspaceIds: Object.keys(hiddenWorkspaceIds ?? {}),
+      showHiddenWorkspaces: showHiddenWorkspaces === true,
+    }),
+    [list, sessionIds, rowState, statuses, workspaces, hiddenWorkspaceIds, showHiddenWorkspaces],
   )
   const [drag, setDrag] = useState<DragState | null>(null)
   const dropCommitted = useRef(false)
@@ -1419,6 +1426,9 @@ export function WorkspaceBrowser({
                 usePanelInfo={usePanelInfo}
                 list={list}
                 sessionIds={orderedFlatSessionIds}
+                workspaces={orderedWorkspaces}
+                hiddenWorkspaceIds={hiddenWorkspaceIds}
+                showHiddenWorkspaces={showHiddenWorkspaces}
                 rowState={rowState}
                 onLeaveArchivedOnly={leaveArchivedOnly}
                 workspaceReady={workspaceReady}
