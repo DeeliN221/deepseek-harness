@@ -58,17 +58,24 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 }
 
 describe('dsh-tool-todo', () => {
-  it('registers a `todo_write` tool whose schema is an array of {content,status}', async () => {
+  it('registers a `todo_write` tool whose item schema is {content,status} plus an optional eta', async () => {
     const ctx = await setup(true)
     const schema = ctx.tools.schemas().find(s => s.name === 'todo_write')
     expect(schema).toBeDefined()
     const props = (schema!.parameters as { properties?: Record<string, unknown> }).properties ?? {}
     expect(Object.keys(props)).toEqual(['todos'])
-    const todos = props.todos as { type: string; items?: { properties?: Record<string, { type: string; enum?: string[] }> } }
+    interface ItemSchema { type: string; enum?: string[] }
+    const todos = props.todos as {
+      type: string
+      items?: { required?: string[]; properties?: Record<string, ItemSchema> }
+    }
     expect(todos.type).toBe('array')
     const itemProps = todos.items?.properties ?? {}
-    expect(Object.keys(itemProps).sort()).toEqual(['content', 'status'])
+    expect(Object.keys(itemProps).sort()).toEqual(['content', 'eta', 'status'])
     expect(itemProps.status?.enum).toEqual(['pending', 'in_progress', 'completed'])
+    // `eta` is free text: typed as a plain string and never required.
+    expect(itemProps.eta?.type).toBe('string')
+    expect(todos.items?.required ?? []).toEqual(['content', 'status'])
   })
 
   it('appends a todo/write event carrying the whole list to the calling session', async () => {
@@ -243,6 +250,56 @@ describe('dsh-tool-todo', () => {
     expect(unwrapped.name).toBe('tool-todo')
     expect(unwrapped.inject).toEqual(['tools', 'sessionProjections'])
     expect(typeof unwrapped.apply).toBe('function')
+  })
+})
+
+describe('eta (optional estimate)', () => {
+  it('stores the trimmed estimate and echoes it in the tool result', async () => {
+    const ctx = await setup(true)
+    const agent = agentWithSession('eta')
+    const result = await callTodo(ctx, {
+      todos: [{ content: 'write the panel', status: 'in_progress', eta: '  20-30m  ' }],
+    }, { agent })
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected todo_write success')
+    expect(result.value).toEqual({
+      todos: [{ content: 'write the panel', status: 'in_progress', eta: '20-30m' }],
+      counts: { pending: 0, inProgress: 1, completed: 0 },
+    })
+    expect(agent.session.snapshotEvents().findLast(e => e.type === 'todo/write')!.data.todos)
+      .toEqual([{ content: 'write the panel', status: 'in_progress', eta: '20-30m' }])
+  })
+
+  it('keeps the exact former item shape when no estimate is supplied', async () => {
+    const ctx = await setup(true)
+    const agent = agentWithSession('no-eta')
+    await callTodo(ctx, { todos: [{ content: 'a', status: 'pending' }] }, { agent })
+    const [stored] = agent.session.snapshotEvents().findLast(e => e.type === 'todo/write')!.data.todos
+    expect(stored).toEqual({ content: 'a', status: 'pending' })
+    expect(Object.hasOwn(stored!, 'eta')).toBe(false)
+  })
+
+  it('treats a blank estimate as absent instead of logging an empty string', async () => {
+    const ctx = await setup(true)
+    const agent = agentWithSession('blank-eta')
+    const result = await callTodo(ctx, { todos: [{ content: 'a', status: 'pending', eta: '   ' }] }, { agent })
+    expect(result.isError).toBe(false)
+    const [stored] = agent.session.snapshotEvents().findLast(e => e.type === 'todo/write')!.data.todos
+    expect(Object.hasOwn(stored!, 'eta')).toBe(false)
+  })
+
+  it('accepts the 32-character bound and rejects one character more', async () => {
+    const ctx = await setup(true)
+    const agent = agentWithSession('long-eta')
+    const atBound = await callTodo(ctx, { todos: [{ content: 'a', status: 'pending', eta: 'x'.repeat(32) }] }, { agent })
+    expect(atBound.isError).toBe(false)
+
+    const overBound = await callTodo(ctx, {
+      todos: [{ content: 'b', status: 'pending', eta: 'x'.repeat(33) }],
+    }, { agent })
+    expect(overBound.isError).toBe(true)
+    expect(text(overBound)).toContain('todos[0].eta must be at most 32 characters')
+    expect(overBound.error?.info).toEqual({ name: 'ToolArgsError', code: 'INVALID_ARGS' })
   })
 })
 

@@ -2627,6 +2627,10 @@ Record and update a task list to plan multi-step work and show progress; skip it
               "in_progress",
               "completed"
             ]
+          },
+          "eta": {
+            "type": "string",
+            "description": "Optional estimate of the effort left, free text such as `~30m`, `20-30m`, or `1h` (at most 32 characters). Omit when unknown."
           }
         },
         "required": [

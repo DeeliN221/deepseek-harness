@@ -49,7 +49,7 @@ kind: "package-reference"
 
 ### 每次调用做什么
 
-agent 每次更新都发送完整列表；新列表替换旧列表，因此没有部分更新或逐项编辑。每个条目是一句简短的任务描述，外加 `pending`、`in_progress` 或 `completed` 状态。成功的更新会返回新的计数——`Updated todo list: <pending> pending, <inProgress> in progress, <completed> completed.`——UI 随即展示新计划。任务描述为空或重复、条目带有描述与状态之外的字段、或（禁用并行时）多个任务被标记为进行中，这些情况下更新都会明确失败。
+agent 每次更新都发送完整列表；新列表替换旧列表，因此没有部分更新或逐项编辑。每个条目是一句简短的任务描述，外加 `pending`、`in_progress` 或 `completed` 状态，并可选带一个 `eta` 估时（如 `~30m`、`20-30m`、`1h` 的自由文本，最长 32 字符，显示在计划清单右侧的估时列）。成功的更新会返回新的计数——`Updated todo list: <pending> pending, <inProgress> in progress, <completed> completed.`——UI 随即展示新计划。任务描述为空或重复、估时超过 32 字符、条目带有描述与状态（及估时）之外的字段、或（禁用并行时）多个任务被标记为进行中，这些情况下更新都会明确失败。
 
 ### 单一所有者
 
@@ -121,7 +121,7 @@ agent 每次更新都发送完整列表；新列表替换旧列表，因此没�
 
 #### 模型看到什么
 
-模型会看到生成的 [`todo_write` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-todo)：一个对象，含一个必填的 `todos` 数组，元素为 `{ content, status }`，其中 `status` 为 `pending`、`in_progress` 或 `completed`。`todos` 描述说明每次调用都会替换整个列表；工具描述中的活跃状态条款跟随 `allowParallelInProgress`。
+模型会看到生成的 [`todo_write` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-todo)：一个对象，含一个必填的 `todos` 数组，元素为 `{ content, status, eta? }`，其中 `status` 为 `pending`、`in_progress` 或 `completed`，可选的 `eta` 为自由文本估时。`todos` 描述说明每次调用都会替换整个列表；工具描述中的活跃状态条款跟随 `allowParallelInProgress`。
 
 #### Token 影响
 
@@ -153,7 +153,7 @@ token 用量随模型每次提交的完整列表增长，这些调用参数会�
 这些限制说明工具何时不合适。它们是当前包约束，不是任务积压。
 
 - **仅单一所有者作用域**——列表属于唯一调用 agent 会话；subagent、共享与 swarm 作用域是有意设置的限制，非 agent 调用方会被拒绝。
-- **条目形状刻意保持最小**——`content` 加三态 `status`；整表替换不需要稳定 id、优先级或 active-form 字段。
+- **条目形状刻意保持最小**——`content` 加三态 `status`，再加一个可选的、不做解析的 `eta` 估时；整表替换不需要稳定 id、优先级或 active-form 字段。
 - **整表替换是唯一操作**——没有部分更新、没有回读工具、没有逐项编辑；模型每次调用都必须重新发送完整列表。
 
 <a id="dev-note"></a>

@@ -2633,6 +2633,10 @@ subagent_oar 工具在为外部提供方配置的别名之间选择。本目录�
               "in_progress",
               "completed"
             ]
+          },
+          "eta": {
+            "type": "string",
+            "description": "Optional estimate of the effort left, free text such as `~30m`, `20-30m`, or `1h` (at most 32 characters). Omit when unknown."
           }
         },
         "required": [

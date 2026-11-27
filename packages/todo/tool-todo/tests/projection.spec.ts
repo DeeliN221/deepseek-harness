@@ -84,6 +84,23 @@ describe('todos projection provider', () => {
     expect(projections?.asOfSeq).toBe(session.seq - 1)
   })
 
+  it('carries each item\'s optional eta through the wire view unchanged', async () => {
+    const bench = await harness(true)
+    const session = bench.session
+    seedMessage(session)
+    const list: TodoItem[] = [
+      { content: 'estimate me', status: 'pending', eta: '~30m' },
+      { content: 'no estimate', status: 'in_progress' },
+    ]
+    session.append('turn/start', { turn: 1 })
+    session.append('todo/write', { todos: list })
+    const projections = await bench.tailProjections()
+    expect(projections?.values.todos).toEqual([
+      { content: 'estimate me', status: 'pending', eta: '~30m' },
+      { content: 'no estimate', status: 'in_progress' },
+    ])
+  })
+
   it('clears the standing plan on the next turn/start (turn/end keeps it)', async () => {
     const bench = await harness(true)
     const session = bench.session
