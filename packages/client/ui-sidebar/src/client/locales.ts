@@ -11,6 +11,9 @@ export const zh = {
   'panels.label': '全局面板',
   'navigation.label': '导航',
   'panels.more': '更多',
+  'tabs.label': '导航视图',
+  'tabs.workspace': '工作区',
+  'tabs.botTeam': 'Bot Team',
   'version.copied': '版本号复制成功',
 } satisfies Record<string, string>
 
@@ -28,6 +31,9 @@ export const en = {
   'panels.label': 'Global panels',
   'navigation.label': 'Navigation',
   'panels.more': 'More',
+  'tabs.label': 'Navigation views',
+  'tabs.workspace': 'Workspace',
+  'tabs.botTeam': 'Bot Team',
   'version.copied': 'Version copied',
 } satisfies Record<SidebarKey, string>
 
@@ -42,6 +48,9 @@ export const ja = {
   'panels.label': 'グローバルパネル',
   'navigation.label': 'ナビゲーション',
   'panels.more': 'その他',
+  'tabs.label': 'ナビゲーション',
+  'tabs.workspace': 'ワークスペース',
+  'tabs.botTeam': 'Bot Team',
   'version.copied': 'バージョンをコピーしました',
 } satisfies Record<keyof typeof en, string>
 
@@ -56,6 +65,9 @@ export const es = {
   'panels.label': 'Paneles globales',
   'navigation.label': 'Navegación',
   'panels.more': 'Más',
+  'tabs.label': 'Vistas de navegación',
+  'tabs.workspace': 'Espacio de trabajo',
+  'tabs.botTeam': 'Bot Team',
   'version.copied': 'Versión copiada',
 } satisfies Record<keyof typeof en, string>
 
@@ -70,6 +82,9 @@ export const fr = {
   'panels.label': 'Panneaux globaux',
   'navigation.label': 'Navigation',
   'panels.more': 'Plus',
+  'tabs.label': 'Vues de navigation',
+  'tabs.workspace': 'Espace de travail',
+  'tabs.botTeam': 'Bot Team',
   'version.copied': 'Version copiée',
 } satisfies Record<keyof typeof en, string>
 
@@ -84,6 +99,9 @@ export const de = {
   'panels.label': 'Globale Bereiche',
   'navigation.label': 'Navigation',
   'panels.more': 'Mehr',
+  'tabs.label': 'Navigationsansichten',
+  'tabs.workspace': 'Arbeitsbereich',
+  'tabs.botTeam': 'Bot Team',
   'version.copied': 'Version kopiert',
 } satisfies Record<keyof typeof en, string>
 
@@ -98,6 +116,9 @@ export const ru = {
   'panels.label': 'Глобальные панели',
   'navigation.label': 'Навигация',
   'panels.more': 'Ещё',
+  'tabs.label': 'Режимы навигации',
+  'tabs.workspace': 'Рабочая область',
+  'tabs.botTeam': 'Bot Team',
   'version.copied': 'Версия скопирована',
 } satisfies Record<keyof typeof en, string>
 
@@ -112,5 +133,8 @@ export const pt = {
   'panels.label': 'Painéis globais',
   'navigation.label': 'Navegação',
   'panels.more': 'Mais',
+  'tabs.label': 'Visões de navegação',
+  'tabs.workspace': 'Área de trabalho',
+  'tabs.botTeam': 'Bot Team',
   'version.copied': 'Versão copiada',
 } satisfies Record<keyof typeof en, string>

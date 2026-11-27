@@ -21,14 +21,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-  FishLogo, IconAppsAddOutlineRegular, IconNewChatOutlineRegular,
-  IconPanelLeftOutlineRegular, IconPinFillRegular, focusWithoutRing, isBehindModal, isDarwinDesktop, Menu, Toast,
-  Tooltip, useModalLayer, writeClipboard,
+  FishLogo, focusWithoutRing, IconNewChatOutlineRegular, IconPanelLeftOutlineRegular,
+  isBehindModal, isDarwinDesktop, Toast, Tooltip, useModalLayer, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { InjectFace, PropsRenderFactories, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
-  SidebarPanelActionsOwnerProps, SidebarPanelMetadata, SidebarRootComponentProps, SidebarRootInjected, SidebarSectionHookContext,
-  SidebarSectionOwnerProps,
+  SidebarRootComponentProps, SidebarSectionHookContext,
 } from './contract/slots.ts'
 import { FIXED_PANEL_ID } from './panel-pins.ts'
 import { createScrollHandoff } from './scroll-handoff.ts'
@@ -45,6 +42,12 @@ const COLLAPSE_SETTLE_MS = 150
  */
 const SCROLLBAR_LINGER_MS = 2000
 
+/** Panel id of the Bot Team view selected by the second-row tab. */
+const BOT_TEAM_PANEL_ID = 'bot-team'
+
+/** Expanded columns narrower than this keep only the brand mark in the logo row. */
+const TOOLBAR_WORDMARK_MIN_WIDTH = 320
+
 /** Format complete-build metadata for the local brand badge. */
 function localBuildVersion(): string | undefined {
   const version = process.env.DSH_CLIENT_VERSION
@@ -53,94 +56,6 @@ function localBuildVersion(): string | undefined {
   return version
     + (commit === undefined ? '' : `-${commit}`)
     + (process.env.DSH_CLIENT_GIT_DIRTY === 'true' ? '-dirty' : '')
-}
-
-type PanelRowProps =
-  Pick<SidebarPanelMetadata, 'id' | 'label'>
-  & Pick<SidebarSectionOwnerProps, 'wide'>
-  & Pick<PropsRuntime<'sidebar'>, 'usePanelInfo'>
-  & Pick<InjectFace<SidebarRootInjected>, 'selectPanel' | 'trackEntryClick' | 'setPinned'>
-  & { readonly unpinLabel: string; readonly unpinTooltip: string; readonly canUnpin: boolean }
-  & PropsRenderFactories
-
-/** Analytics category of an official panel; other panels are never reported. */
-function officialEntry(id: string): 'plugin' | 'cron' | undefined {
-  if (id === 'plugins') return 'plugin'
-  return id === 'schedules' ? 'cron' : undefined
-}
-
-/** Each panel row subscribes only to its own selection state. */
-function PanelRow({
-  id, label, wide, unpinLabel, unpinTooltip, canUnpin, usePanelInfo, selectPanel, setPinned, trackEntryClick, renderFactorySlot,
-}: PanelRowProps) {
-  const active = usePanelInfo(info => info.activePanelId === id)
-  return (
-    <div className={clsx(css.panelEntry, wide && css.panelEntryWide, active && css.panelEntryActive)}>
-      <Tooltip label={label} delayMs={500} disabled={wide}>
-        <button
-          type="button"
-          className={css.panelRow}
-          aria-label={label}
-          aria-current={active ? 'page' : undefined}
-          onClick={() => {
-            const entry = officialEntry(id)
-            if (entry !== undefined) trackEntryClick({ menu_name: entry, position: 'sidebar' })
-            selectPanel(id)
-          }}
-        >
-          <span className={css.panelGlyph} aria-hidden="true">
-            {renderFactorySlot('sidebar.panel.icon', { id, size: wide ? 16 : 18, active })}
-          </span>
-          {wide && (
-            <span className={clsx(css.panelTitle, css.wide)}>
-              {label}
-            </span>
-          )}
-        </button>
-      </Tooltip>
-      {wide && canUnpin && <Tooltip label={unpinTooltip} side="bottom" align="end" delayMs={500} portal>
-        <button type="button" className={css.panelUnpin} aria-label={unpinLabel} onClick={(event) => {
-          // Unpin is rendered only while this navigation also renders More.
-          const navigation = event.currentTarget.closest('nav') as HTMLElement
-          const more = navigation.querySelector('button[aria-haspopup="menu"]') as HTMLButtonElement
-          focusWithoutRing(more)
-          setPinned(id, false)
-        }}>
-          <IconPinFillRegular size={14} />
-        </button>
-      </Tooltip>}
-    </div>
-  )
-}
-
-type PanelMoreMenuProps =
-  Pick<SidebarSectionOwnerProps, 'wide'>
-  & Omit<SidebarPanelActionsOwnerProps, 'onDismiss'>
-  & PropsRenderSlots<'sidebar.panellist.actions'>
-  & Pick<InjectFace<SidebarRootInjected>, 'trackEntryClick'>
-  & { readonly label: string }
-
-/** The panel list's More launcher: a panel-row button whose menu rows come from `sidebar.panellist.actions`. */
-function PanelMoreMenu({ wide, label, entries, onOpen, onPinnedChange, trackEntryClick, renderSlot }: PanelMoreMenuProps) {
-  const [open, setOpen] = useState(false)
-  const onDismiss = (): void => { setOpen(false) }
-  return (
-    <Menu open={open} onClose={onDismiss} portal autoFocus className={css.moreAnchor} listClassName={css.moreMenu}
-      anchor={(
-        <Tooltip label={label} delayMs={500} disabled={wide}>
-          <button type="button" className={css.panelRow} aria-label={label} aria-haspopup="menu" aria-expanded={open}
-            onClick={() => {
-              trackEntryClick({ menu_name: 'more', position: 'sidebar' })
-              setOpen(value => !value)
-            }}>
-            <span className={css.panelGlyph} aria-hidden="true"><IconAppsAddOutlineRegular size={wide ? 16 : 18} /></span>
-            {wide && <span className={clsx(css.panelTitle, css.wide)}>{label}</span>}
-          </button>
-        </Tooltip>
-      )}>
-      {renderSlot('sidebar.panellist.actions', { entries, onOpen, onPinnedChange, onDismiss })}
-    </Menu>
-  )
 }
 
 /**
@@ -155,12 +70,9 @@ export function SidebarRoot({
   startSession,
   toggleSidebar,
   selectPanel,
-  setPinned,
   trackEntryClick,
   useRemoteAccess,
   usePanels,
-  useEntryPins,
-  useEntryActions,
   useShortcuts,
   usePanelInfo,
   t,
@@ -168,10 +80,37 @@ export function SidebarRoot({
   renderFactorySlot,
 }: SidebarRootComponentProps) {
   const panels = usePanels(snapshot => snapshot)
-  const unpinned = useEntryPins(ids => ids)
   const activePanelId = usePanelInfo(info => info.activePanelId)
   const pluginsPanel = panels.find(({ id }) => id === FIXED_PANEL_ID)
-  const hasEntryActions = useEntryActions(registered => registered)
+  const botTeamId = panels.find(({ id }) => id === BOT_TEAM_PANEL_ID)?.id
+  const botTeamAvailable = botTeamId !== undefined
+  // 工具组渲染**全部已注册面板**（注册/注销即时生效），只排除两处既有入口的
+  // 重复：logo 行固定的插件入口，以及第二行的 Bot Team 专属页签。
+  const toolPanels = panels.filter(({ id }) => id !== pluginsPanel?.id && id !== BOT_TEAM_PANEL_ID)
+  const toolsRef = useRef<HTMLElement | null>(null)
+  const [toolsOverflow, setToolsOverflow] = useState<'none' | 'start' | 'end' | 'both'>('none')
+  useEffect(() => {
+    const node = toolsRef.current
+    if (node === null || typeof ResizeObserver === 'undefined') return
+    const update = (): void => {
+      const vertical = node.getAttribute('data-wide') === 'false'
+      const start = vertical ? node.scrollTop : node.scrollLeft
+      const size = vertical ? node.clientHeight : node.clientWidth
+      const total = vertical ? node.scrollHeight : node.scrollWidth
+      const before = start > 1
+      const after = start + size < total - 1
+      setToolsOverflow(before && after ? 'both' : before ? 'start' : after ? 'end' : 'none')
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(node)
+    for (const child of Array.from(node.children)) observer.observe(child)
+    node.addEventListener('scroll', update, { passive: true })
+    return () => {
+      observer.disconnect()
+      node.removeEventListener('scroll', update)
+    }
+  }, [panels, width])
   const shortcut = useShortcuts(rows => rows.find(row => row.id === 'sidebar.left.toggle'))
   const newShortcut = useShortcuts(rows => rows.find(row => row.id === 'session.new'))
   // A page whose access snapshot excludes starting a Session offers no New Session affordance.
@@ -217,7 +156,17 @@ export function SidebarRoot({
   // hide rather than restarting from a hidden bar.
   const column = useRef<HTMLDivElement>(null)
   const sidebarFocus = useRef<Element | null>(null)
-  useModalLayer(column, drawer && !collapsed, toggleSidebar)
+  const [coveredBySettings, setCoveredBySettings] = useState(false)
+  useLayoutEffect(() => {
+    const document = column.current?.ownerDocument
+    if (document === undefined) return
+    const update = (): void => { setCoveredBySettings(document.querySelector('[data-shortcut-modal="settings"][role="dialog"][aria-modal="true"]') !== null) }
+    update()
+    const observer = new MutationObserver(update)
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['role', 'aria-modal', 'data-shortcut-modal'] })
+    return () => { observer.disconnect() }
+  }, [])
+  useModalLayer(column, drawer && !collapsed && !coveredBySettings, toggleSidebar)
   useLayoutEffect(() => {
     if (!collapsed) return
     const controlled = sidebarFocus.current?.getAttribute('aria-controls')?.split(/\s+/) ?? []
@@ -305,6 +254,99 @@ export function SidebarRoot({
     </Tooltip>
   )
 
+  // Top tools and the second-row tabs are built once and placed per width.
+  const toolsNav = (
+    <div
+      className="dshsn-toolsWrap"
+      data-overflow={toolsOverflow}
+      data-wide={wide ? 'true' : 'false'}
+    >
+      <nav
+        ref={toolsRef}
+        className="dshsn-tools"
+        aria-label={t('panels.label')}
+        data-wide={wide ? 'true' : 'false'}
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+          const node = toolsRef.current
+          if (node === null) return
+          const buttons = Array.from(node.querySelectorAll<HTMLButtonElement>('button[data-dshsn-panel]'))
+          const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
+          if (index < 0) return
+          const next = event.key === 'ArrowRight' ? index + 1 : index - 1
+          if (next < 0 || next >= buttons.length) return
+          event.preventDefault()
+          buttons[next]?.focus()
+        }}
+      >
+        {toolPanels.map(({ id, label }) => (
+          <button
+            key={id}
+            type="button"
+            className={clsx('dshsn-icon', activePanelId === id && 'dshsn-iconOn')}
+            aria-label={label}
+            aria-current={activePanelId === id ? 'page' : undefined}
+            data-dshsn-panel={id}
+            onFocus={(event) => { event.currentTarget.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }) }}
+            onClick={() => { selectPanel(id) }}
+          >
+            <span className="dshsn-glyph" aria-hidden="true">
+              {renderFactorySlot('sidebar.panel.icon', { id, size: 16, active: activePanelId === id })}
+            </span>
+          </button>
+        ))}
+      </nav>
+      <div className="dshsn-settings">
+        {renderSlot('sidebar.settings', { wide: false })}
+      </div>
+    </div>
+  )
+
+  // View navigation remains keyboard accessible even when another panel is active.
+  const tabButtons = useRef<Array<HTMLButtonElement | null>>([])
+  const selectTab = (index: number): void => {
+    const target = index === 1 ? botTeamId : null
+    if (target === undefined) return
+    if (target !== activePanelId) selectPanel(target)
+    tabButtons.current[index]?.focus()
+  }
+  const tabs = (
+    <nav
+      className="dshsn-tabs"
+      aria-label={t('tabs.label')}
+      onKeyDown={(event) => {
+        if (!botTeamAvailable || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+        const focused = tabButtons.current.findIndex(button => button === document.activeElement)
+        if (focused < 0) return
+        event.preventDefault()
+        const index = event.key === 'Home' ? 0 : event.key === 'End' ? 1 : 1 - focused
+        selectTab(index)
+      }}
+    >
+      <button
+        ref={(node) => { tabButtons.current[0] = node }}
+        type="button"
+        aria-current={activePanelId == null ? 'page' : undefined}
+        className={clsx('dshsn-tab', activePanelId == null && 'dshsn-tabOn')}
+        data-dshsn-tab="workspace"
+        onClick={() => { if (activePanelId != null) selectPanel(null) }}
+      >
+        {t('tabs.workspace')}
+      </button>
+      {botTeamAvailable && <button
+        ref={(node) => { tabButtons.current[1] = node }}
+        type="button"
+        aria-current={activePanelId === BOT_TEAM_PANEL_ID ? 'page' : undefined}
+        data-dshsn-tab="bot-team"
+        className={clsx('dshsn-tab', activePanelId === BOT_TEAM_PANEL_ID && 'dshsn-tabOn')}
+        data-dshsn-active={activePanelId === BOT_TEAM_PANEL_ID ? 'true' : 'false'}
+        onClick={() => { if (botTeamId !== undefined && activePanelId !== botTeamId) selectPanel(botTeamId) }}
+      >
+        {t('tabs.botTeam')}
+      </button>}
+    </nav>
+  )
+
   return (
     <div
       ref={column}
@@ -344,18 +386,20 @@ export function SidebarRoot({
                     : <span className={css.copyVersion} data-copy-version onClick={copyVersion(buildVersion)}><FishLogo size={24} /></span>,
                 })}
               </span>
-              <span className={css.brandName}>
-                {renderSlot('sidebar.brand.name', {}, {
-                  fallback: buildVersion === undefined
-                    ? <span className={css.fallbackBrandName}>{t('brand.localBuild')}</span>
-                    : (
-                      <span className={clsx(css.localBuildBrand, css.copyVersion)} data-copy-version onClick={copyVersion(buildVersion)}>
-                        <span className={css.localBuildTitle}>{t('brand.localBuild')}</span>
-                        <span className={css.buildVersion}>{buildVersion}</span>
-                      </span>
-                    ),
-                })}
-              </span>
+              {width >= TOOLBAR_WORDMARK_MIN_WIDTH && (
+                <span className={css.brandName}>
+                  {renderSlot('sidebar.brand.name', {}, {
+                    fallback: buildVersion === undefined
+                      ? <span className={css.fallbackBrandName}>{t('brand.localBuild')}</span>
+                      : (
+                        <span className={clsx(css.localBuildBrand, css.copyVersion)} data-copy-version onClick={copyVersion(buildVersion)}>
+                          <span className={css.localBuildTitle}>{t('brand.localBuild')}</span>
+                          <span className={css.buildVersion}>{buildVersion}</span>
+                        </span>
+                      ),
+                  })}
+                </span>
+              )}
             </span>
           )
           return darwinDesktop || !canStartSession
@@ -375,11 +419,12 @@ export function SidebarRoot({
               </button>
             )
         })()}
-        {wide && pluginsPanel !== undefined && (
+        {pluginsPanel !== undefined && (
           <Tooltip label={pluginsPanel.label} delayMs={500} side="bottom" portal>
             <button
               type="button"
               className={clsx(css.iconButton, css.pluginsButton)}
+              data-dshsn-plugins="true"
               aria-label={pluginsPanel.label}
               aria-current={activePanelId === pluginsPanel.id ? 'page' : undefined}
               onClick={() => {
@@ -393,14 +438,18 @@ export function SidebarRoot({
             </button>
           </Tooltip>
         )}
+        {toolsNav}
         {(!darwinDesktop || wide) && toggle}
       </div>
+
+      {/* Second row: 工作区 / Bot Team only. */}
+      {wide && tabs}
 
       {/* The label fades before the hover/focus shortcut, including on translucent backgrounds. */}
       {canStartSession && (
         <div className={css.newSessionRow}>
           {renderSlot('sidebar.session.action', { wide }, {
-            children: !wide && (
+            children: (
               <Tooltip label={t('session.new.label')} shortcutKeys={newShortcut?.keys} delayMs={500} side={captionTooltipSide} disabled={wide}>
                 <button
                   type="button"
@@ -425,44 +474,6 @@ export function SidebarRoot({
           className={css.scrollArea}
           data-sidebar-scrollport={wide ? '' : undefined}
         >
-          {panels.length > 0 && (
-            <nav className={css.panelList} aria-label={t('panels.label')}>
-              {panels.filter(({ id }) => id === FIXED_PANEL_ID ? !wide : !hasEntryActions || !unpinned.includes(id))
-                .map(({ id, label }) => (
-                  <PanelRow
-                    key={id}
-                    id={id}
-                    label={label}
-                    wide={wide}
-                    unpinLabel={t('panels.unpin', { name: label })}
-                    unpinTooltip={t('panels.unpinTooltip')}
-                    canUnpin={hasEntryActions && id !== FIXED_PANEL_ID}
-                    setPinned={setPinned}
-                    usePanelInfo={usePanelInfo}
-                    selectPanel={selectPanel}
-                    trackEntryClick={trackEntryClick}
-                    renderFactorySlot={renderFactorySlot}
-                  />
-                ))}
-              {hasEntryActions && (
-                <PanelMoreMenu
-                  wide={wide}
-                  label={t('panels.more')}
-                  entries={panels.filter(({ id }) => id !== FIXED_PANEL_ID)
-                    .map(({ id, label }) => ({ id, label, pinned: !unpinned.includes(id), active: id === activePanelId }))}
-                  onOpen={(id) => {
-                    const entry = officialEntry(id)
-                    if (entry !== undefined) trackEntryClick({ menu_name: entry, position: 'sidebar_more' })
-                    const panel = panels.find(candidate => candidate.id === id)
-                    if (panel !== undefined) selectPanel(panel.id)
-                  }}
-                  onPinnedChange={setPinned}
-                  trackEntryClick={trackEntryClick}
-                  renderSlot={renderSlot}
-                />
-              )}
-            </nav>
-          )}
           <div className={css.regionArea}>
             {renderSlot('sidebar.workspaces', {
               wide,
@@ -477,13 +488,10 @@ export function SidebarRoot({
         <Toast key={copiedToast} tone="success" text={t('version.copied')} onDone={() => { setCopiedToast(null) }} />
       )}
 
-      {/* Footer actions stack above Settings in both sidebar widths. */}
+      {/* Footer actions only: Settings moved into the logo-row tools. */}
       <div className={css.footArea}>
         <div className={css.footerActions}>
           {renderSlot('sidebar.footer.action', { wide })}
-        </div>
-        <div className={css.settingsArea}>
-          {renderSlot('sidebar.settings', { wide })}
         </div>
       </div>
     </div>

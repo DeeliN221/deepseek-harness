@@ -318,15 +318,13 @@ export function apply(ctx: Context): void {
   ctx.remoteAccess.whenAccess('account/watch', () => ctx.slots.inject('settings.section', () => {
     let unregister: (() => void) | undefined
     const update = () => {
-      if (snapshot.view?.status === 'credential-stored') {
-        unregister ??= ctx.slots.register({
-          name: 'settings.section', id: 'account', order: -10, label: () => t('nav'),
-          locale: 'settings.account', inject: () => operations,
-        }, AccountSection)
-      } else {
-        unregister?.()
-        unregister = undefined
-      }
+      // Registered for the whole account/watch lifetime: the signed-out page
+      // renders its own sign-in action, and the sidebar no longer carries the
+      // account menu that used to hold the only sign-in entry.
+      unregister ??= ctx.slots.register({
+        name: 'settings.section', id: 'account', order: -10, label: () => t('nav'),
+        locale: 'settings.account', inject: () => operations,
+      }, AccountSection)
     }
     listeners.add(update)
     update()
