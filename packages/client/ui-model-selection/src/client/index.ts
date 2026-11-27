@@ -28,7 +28,7 @@ import { ModelDirectoryResolver } from './service.ts'
 import type { ModelSelectInjected } from './slots.ts'
 import { ModelSelect } from './ModelSelect.tsx'
 import { en, ja, es, fr, de, ru, pt, zh, type ModelKey } from './locales.ts'
-import { orderModelProviders } from './provider-order.ts'
+import { groupModelsForDisplay, MERGED_GROUP_ID } from './model-groups.ts'
 
 export { ModelDirectory } from './directory.ts'
 export type { ModelDirectoryState } from './directory.ts'
@@ -48,19 +48,24 @@ function rowId(providerId: string, modelId: string): string {
   return `${providerId}/${modelId}`
 }
 
-/** Flatten the directory into popup rows; failure rows are listed for visibility but never selectable. */
+/**
+ * Flatten the directory into popup rows; failure rows are listed for visibility but never selectable.
+ * Rows collapse by model id, so each one names the provider its request routes to.
+ */
 function optionsOf(directory: ModelDirectoryState, t: TranslateNS<'model'>): SelectOption[] {
   const rows: SelectOption[] = []
-  for (const group of orderModelProviders(directory.groups)) {
-    const name = group.id === 'deepseek-account' ? t('provider.account') : group.name
+  for (const group of groupModelsForDisplay(directory.groups, directory.current)) {
+    const section = group.merged
+      ? { name: MERGED_GROUP_ID, label: t('menu.model') }
+      : { name: group.id, label: group.id === 'deepseek-account' ? t('provider.account') : group.name }
     for (const model of group.models) {
       rows.push({
-        id: rowId(group.id, model.id),
+        id: rowId(group.routeOf(model.id) ?? group.id, model.id),
         label: model.name,
-        group: { name: group.id, label: name },
+        group: section,
         ...(directory.current !== null
-          && directory.current.provider === group.id
           && directory.current.model === model.id
+          && group.hasRoute(model.id, directory.current.provider)
           ? { active: true } : {}),
       })
     }

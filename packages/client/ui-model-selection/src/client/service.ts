@@ -21,6 +21,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { WeakMapWithValues } from '@deepseek-ai/dsh-util-values'
 import { ModelCatalogDirectory } from './catalog.ts'
 import { ModelDirectory } from './directory.ts'
+import { draftBlocksSwitch } from './draft-guard.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -36,7 +37,7 @@ interface LiveState {
 
 /** The `ctx.modelDirectories` session model-selection service. */
 export class ModelDirectoryResolver extends Service {
-  static inject = ['sessions', 'remote', 'remote.session', 'uiWorkspace']
+  static inject = ['sessions', 'remote', 'remote.session', 'uiWorkspace', 'locale']
 
   private readonly live: LiveState = { directories: new WeakMapWithValues() }
   private readonly catalog: ModelCatalogDirectory
@@ -58,6 +59,34 @@ export class ModelDirectoryResolver extends Service {
     ctx.remote.$on('settings/document-updated', () => { this.catalog.refresh() })
     ctx.remote.$on('credentials/record-updated', () => { this.catalog.refresh() })
     ctx.remote.$on('credentials/reference-updated', () => { this.catalog.refresh() })
+  }
+
+  /**
+   * Refuse a Session-replacing switch while the source composer still owns text
+   * or runtime attachments. The persisted draft cannot carry attachment receipts
+   * (they are bound to this Session), so a silent switch would lose them.
+   * @param binding - source Session binding whose Composer state is inspected.
+   * @returns user-facing refusal, or null when the draft is empty and safe.
+   */
+  switchBlockReason(binding: SessionBinding): string | null {
+    try {
+      const conversation = binding.ctx.get('conversation') as {
+        readonly input?: { for(ctx: unknown): { readonly state: { getSnapshot(): unknown } } }
+      } | undefined
+      const input = conversation?.input?.for?.(binding.ctx)
+      if (!draftBlocksSwitch(input?.state.getSnapshot())) return null
+    } catch {
+      // The guard must fail closed: an unreadable draft state cannot prove the
+      // switch is safe, so keep the source Session and tell the user why.
+      return this.ctx.locale.resolveText({
+        zh: '无法确认当前草稿状态，已阻止切换以免丢失草稿或附件。',
+        en: 'Could not verify the current draft, so the switch was blocked to avoid losing a draft or attachment.',
+      })
+    }
+    return this.ctx.locale.resolveText({
+      zh: '当前会话仍有草稿或附件；切换引擎会丢失它们。请先发送或清空后再切换。',
+      en: 'This session still has a draft or attachment; switching engines would lose it. Send or clear it first.',
+    })
   }
 
   /**
@@ -84,6 +113,7 @@ export class ModelDirectoryResolver extends Service {
       () => binding.session.getSnapshot().blank,
       (name, attributes) => this.ctx.get('productAnalytics')?.track(name, attributes),
       (id) => { this.ctx.uiWorkspace.openSession(id) },
+      () => this.switchBlockReason(binding),
     )
     live.directories.set(binding, directory)
     actx.effect(() => () => {
