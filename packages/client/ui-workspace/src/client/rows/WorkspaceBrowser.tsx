@@ -139,13 +139,18 @@ function useNativeDragAcceptance(active: boolean): void {
 }
 
 /** Grouping, ordering, and archived-filter menu; own open state so it resets with the wide chrome. */
-function ViewOptionsMenu({ groupBy, orderBy, archivedFilter, onGroupPick, onOrderPick, onArchivedFilterPick, t }: {
+function ViewOptionsMenu({
+  groupBy, orderBy, archivedFilter, showHiddenWorkspaces, onGroupPick, onOrderPick, onArchivedFilterPick,
+  onToggleHidden, t,
+}: {
   groupBy: SessionGroupBy
   orderBy: SessionOrderBy
   archivedFilter: ArchivedFilter
+  showHiddenWorkspaces: boolean
   onGroupPick: (mode: SessionGroupBy) => void
   onOrderPick: (mode: SessionOrderBy) => void
   onArchivedFilterPick: (filter: ArchivedFilter) => void
+  onToggleHidden: () => void
   t: WorkspaceBrowserProps['t']
 }) {
   const [open, setOpen] = useState(false)
@@ -167,11 +172,14 @@ function ViewOptionsMenu({ groupBy, orderBy, archivedFilter, onGroupPick, onOrde
         { id: 'hide-archived', label: t('viewOptions.hideArchived'), icon: <IconArchiveOffOutlineRegular /> },
         { id: 'show-archived', label: t('viewOptions.showArchived'), icon: <IconQueueOutlineRegular /> },
         { id: 'only-archived', label: t('viewOptions.onlyArchived'), icon: <IconArchiveCheckOutlineRegular /> },
+        { type: 'separator' as const, id: 'hidden-separator' },
+        { id: 'toggle-hidden', label: showHiddenWorkspaces ? t('viewOptions.hideTucked') : t('viewOptions.showTucked') },
       ]}
       selectedIds={[
         groupBy,
         orderBy,
         { default: 'hide-archived', show: 'show-archived', only: 'only-archived' }[archivedFilter],
+        ...(showHiddenWorkspaces ? ['toggle-hidden'] : []),
       ]}
       onSelect={(id) => {
         if (id === 'workspace' || id === 'workspace-tree' || id === 'flat') onGroupPick(id)
@@ -179,6 +187,7 @@ function ViewOptionsMenu({ groupBy, orderBy, archivedFilter, onGroupPick, onOrde
         else if (id === 'hide-archived') onArchivedFilterPick('default')
         else if (id === 'show-archived') onArchivedFilterPick('show')
         else if (id === 'only-archived') onArchivedFilterPick('only')
+        else if (id === 'toggle-hidden') onToggleHidden()
         setOpen(false)
       }}
       align="end"
@@ -280,6 +289,10 @@ type SessionTreeProps = Pick<
   groupExpansion: Readonly<Record<string, boolean>>
   /** Persist one Workspace group's expansion. */
   setGroupExpanded: (key: string, expanded: boolean) => void
+  /** Tucked-away Workspaces filtered out of the daily tree. */
+  hiddenWorkspaceIds: Readonly<Record<string, true>>
+  /** Reveal tucked-away Workspaces so they can be restored from the row menu. */
+  showHiddenWorkspaces: boolean
   /** Save a drag order and select Manual. */
   setSessionOrder: (accountKey: string, order: readonly string[]) => void
   /** Registry-global pin and archive sets plus the archived-visibility choice. */
@@ -318,7 +331,7 @@ function SessionTree({
   onSessionRenameRequest,
   renderSlot, openSessionMenu, openWorkspaceMenu, useContextMenuTarget, useContextMenu,
   insertWorkspaceBefore,
-  nestWorkspaces, groupExpansion, setGroupExpanded,
+  nestWorkspaces, groupExpansion, setGroupExpanded, hiddenWorkspaceIds, showHiddenWorkspaces,
   setSessionOrder, home, t,
   revealSessionId, onSessionRevealed, shortcuts,
 }: SessionTreeProps) {
@@ -373,8 +386,10 @@ function SessionTree({
     () => deriveGroups(list, workspaces, rowState, statuses, {
       expandedGroups,
       ungroupedOrder: ungroupedSessionIds,
+      hiddenWorkspaceIds: Object.keys(hiddenWorkspaceIds ?? {}),
+      showHiddenWorkspaces,
     }),
-    [list, workspaces, rowState, statuses, expandedGroups, ungroupedSessionIds],
+    [list, workspaces, rowState, statuses, expandedGroups, ungroupedSessionIds, hiddenWorkspaceIds, showHiddenWorkspaces],
   )
   useEffect(() => {
     for (let key = revealGroup; key !== undefined; key = parents.get(key)) {
@@ -960,6 +975,8 @@ export function WorkspaceBrowser({
   // Persisted view blobs written before the archived filter existed rehydrate
   // without the field; they read as the default hide-archived view.
   const archivedFilter = useStore(s => s.archivedFilter ?? 'default')
+  const showHiddenWorkspaces = useStore(s => s.showHiddenWorkspaces === true)
+  const hiddenWorkspaceIds = useStore(s => s.hiddenWorkspaceIds ?? {})
   const groupExpansion = useStore(s => s.groupExpansion)
   const sessionOrderByAccount = useStore(s => s.sessionOrderByAccount)
   // Archived sessions are not openable: the row stays visible under the
@@ -1286,9 +1303,11 @@ export function WorkspaceBrowser({
               groupBy={groupBy}
               orderBy={orderBy}
               archivedFilter={archivedFilter}
+              showHiddenWorkspaces={showHiddenWorkspaces}
               onGroupPick={actions.setGroupBy}
               onOrderPick={(mode) => { actions.setOrderBy(mode, activeSessionOrders) }}
               onArchivedFilterPick={actions.setArchivedFilter}
+              onToggleHidden={() => { actions.setShowHiddenWorkspaces(!showHiddenWorkspaces) }}
               t={t}
             />
           )}
@@ -1412,9 +1431,11 @@ export function WorkspaceBrowser({
                 ungroupedSessionIds={orderedUngroupedSessionIds}
                 workspaceReady={workspaceReady}
                 nestWorkspaces={groupBy === 'workspace-tree'}
-                animationResetKey={`${groupBy}/${orderBy}/${archivedFilter}`}
+                animationResetKey={`${groupBy}/${orderBy}/${archivedFilter}/${showHiddenWorkspaces}`}
                 groupExpansion={groupExpansion}
                 setGroupExpanded={actions.setGroupExpanded}
+                hiddenWorkspaceIds={hiddenWorkspaceIds}
+                showHiddenWorkspaces={showHiddenWorkspaces}
                 setSessionOrder={saveSessionOrder}
                 rowState={rowState}
                 onLeaveArchivedOnly={leaveArchivedOnly}

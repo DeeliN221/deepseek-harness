@@ -113,6 +113,10 @@ export interface TreeView {
   expandedGroups: readonly string[]
   /** Browser-local order for Sessions without a backing Workspace account. */
   ungroupedOrder?: readonly string[]
+  /** Daily-tree Workspaces tucked away by the user; their rows and Sessions stay intact. */
+  hiddenWorkspaceIds?: readonly string[]
+  /** Reveal tucked-away Workspaces (restore path) instead of filtering them out. */
+  showHiddenWorkspaces?: boolean
 }
 
 interface Group {
@@ -440,7 +444,11 @@ export function deriveGroups(
     ? undefined
     : owningGroupKey(workspaces, current)
   const groups: GroupNode[] = []
+  const hidden = view.showHiddenWorkspaces === true ? new Set<string>() : new Set(view.hiddenWorkspaceIds ?? [])
   for (const g of groupByWorkspace(list, workspaces, archived, rowState.archivedFilter, view.ungroupedOrder)) {
+    // Hiding is presentation only: never drop a group that hosts the current
+    // Session, and never touch its records or Session list.
+    if (g.workspaceId !== undefined && hidden.has(String(g.workspaceId)) && g.key !== currentGroup) continue
     const expanded = expandedGroups.has(g.key)
     groups.push({
       key: g.key,

@@ -28,6 +28,10 @@ type WorkspaceViewState = {
   sessionOrderByAccount: Record<string, string[]>
   /** Archived-row visibility; omitted in pre-filter v5 snapshots and read as 'default'. */
   archivedFilter?: ArchivedFilter
+  /** Workspaces tucked away from the daily tree; records, Sessions and logs stay intact. */
+  hiddenWorkspaceIds?: Record<string, true>
+  /** Reveal tucked-away Workspaces so they can be restored from the row menu. */
+  showHiddenWorkspaces?: boolean
 }
 
 type SessionOrderSource = {
@@ -66,6 +70,8 @@ type WorkspaceViewActions = {
     source: SessionOrderSource,
   ) => void
   setArchivedFilter: (draft: WorkspaceViewState, filter: ArchivedFilter) => void
+  setWorkspaceHidden: (draft: WorkspaceViewState, workspaceId: string, hidden: boolean) => void
+  setShowHiddenWorkspaces: (draft: WorkspaceViewState, show: boolean) => void
 }
 
 /** Copy read-only projections into the persisted mutable store representation. */
@@ -87,6 +93,8 @@ export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState
       groupExpansion: {},
       sessionOrderByAccount: {},
       archivedFilter: 'default',
+      hiddenWorkspaceIds: {},
+      showHiddenWorkspaces: false,
     }),
     persist: 'dsh.workspace.view.v5',
     actions: {
@@ -125,6 +133,12 @@ export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState
         }))
       },
       setArchivedFilter: (d, filter: ArchivedFilter) => { d.archivedFilter = filter },
+      setWorkspaceHidden: (d, workspaceId: string, hidden: boolean) => {
+        d.hiddenWorkspaceIds = hidden
+          ? { ...(d.hiddenWorkspaceIds ?? {}), [workspaceId]: true }
+          : Object.fromEntries(Object.entries(d.hiddenWorkspaceIds ?? {}).filter(([key]) => key !== workspaceId))
+      },
+      setShowHiddenWorkspaces: (d, show: boolean) => { d.showHiddenWorkspaces = show },
     },
   })
 }
