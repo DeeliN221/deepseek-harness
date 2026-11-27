@@ -65,6 +65,11 @@ function progressLabel(todos: readonly TodoItem[], t: TodoPanelProps['t']): stri
 export function TodoPanel({ todos, t }: TodoPanelProps) {
   const [collapsed, setCollapsed] = useState(true)
   if (todos.length === 0) return null
+  // The estimate column appears only when SOMETHING in the list carries one:
+  // a plan without estimates keeps its former markup (and therefore its former
+  // spacing) untouched, while a mixed list renders an empty cell per row so
+  // every estimate stays in one right-aligned column.
+  const showEta = todos.some(item => item.eta !== undefined)
 
   return (
     <section className={css.root} data-testid="todo-panel" aria-label={t('todo.title')}>
@@ -90,6 +95,7 @@ export function TodoPanel({ todos, t }: TodoPanelProps) {
                   <StateDot state={statusDotState(item.status)} />
                 </span>
                 <span className={css.content}>{item.content}</span>
+                {showEta && <span className={css.eta} data-eta={item.eta ?? ''}>{item.eta}</span>}
               </li>
             ))}
           </ul>
