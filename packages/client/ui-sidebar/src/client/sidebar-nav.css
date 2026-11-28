@@ -390,3 +390,44 @@ html[data-sidebar-collapsed='true'] .dshsn-tools {
   background: var(--dsw-alias-bg-layer-2);
   outline: none;
 }
+
+/* ── 工作区 / 智能体团队 segmented switch (0.2.12) ───────────────────────── */
+.dshsn-switch {
+  display: flex;
+  gap: 2px;
+  margin: 2px 4px 6px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.dshsn-switchOption {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: center;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.dshsn-switchOption:hover {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.dshsn-switchOption[aria-selected='true'] {
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-primary);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
+}
+
+.dshsn-switchOption:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-selected);
+  outline-offset: 1px;
+}
