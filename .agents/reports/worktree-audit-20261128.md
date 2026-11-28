@@ -302,3 +302,78 @@ release/dsh-closeout-20261123
 - 所有被删分支的 tip 均存在于 `origin/master`（`--merged` 校验），重建：`git branch <name> <sha>`。
 - 被删 worktree 可从 `origin` 重新 `git worktree add`；未跟踪构建产物重新构建即可。
 - prunable 记录仅删除 `.git/worktrees/*` 管理文件，不删除对象。
+
+---
+
+## 6. 清理结果（2026-11-28 17:40 +08:00）
+
+### 6.1 数量对比
+
+| 指标 | 清理前 | 清理后 | 变化 |
+|---|---|---|---|
+| 注册工作树 | 36（含 2 条 prunable） | 19（另加当天新建的 `dsh-sidebar-nav-icons-20261128`，实际 20） | -17 |
+| prunable 记录 | 2 | 0 | -2 |
+| 本地分支 | 47 | 26 | -21 |
+| 未合并分支（`--no-merged origin/master`） | 16 | 16 | 0 |
+| 工作树目录占用 | 约 56 GB | 约 26 GB | 释放约 30.6 GB |
+
+### 6.2 已执行动作
+
+1. `git worktree prune -v`：移除 `core-master`、`core-ml` 两条失效记录（不删除对象，`fix/mainline-resolve-20261122` 分支保留）。
+2. `git worktree remove --force`：15 个 A 类目录，逐项校验「已注册 / 已跟踪树干净 / 分支已并入 `origin/master`」后才执行。
+3. `git branch -d`（未使用 `-D`）：21 条已合并分支，逐条校验祖先关系后删除。
+4. 主检出由 `feat/sidebar-split-plugins` 切回 `master`（`536d2e5b77`），随后删除该已合并分支。
+5. 删除已合并的远端审计分支 `origin/chore/worktree-audit-20261128`。
+
+### 6.3 已删除分支与 tip sha（可重建）
+
+| 分支 | tip |
+|---|---|
+| `chore/liveshare-owner-endpoint-classification-20261125` | `d6a47db206` |
+| `docs/release-gates-agy-20261126` | `e5eb7f4d54` |
+| `feat-session-search` | `d7b3732496` |
+| `feat/chat-async-dispatch-20261123` | `b3a74a8d13` |
+| `feat/conversation-view-tabs` | `14615821bc` |
+| `feat/openai-process-folding` | `f33971bac0` |
+| `feat/session-recovery-closeout-20261123` | `e11ad4966b` |
+| `feat/sidebar-split-plugins` | `646fcfa982` |
+| `fix/chat-elapsed-footer-20261122` | `b486fc32bd` |
+| `fix/chat-window-history-edge-20261124` | `c9f8f24190` |
+| `fix/chat-window-tail-20261124` | `209acdde0c` |
+| `fix/fleet-entry-dedup-20261123` | `904de5ccf9` |
+| `fix/mac-draft-model-selection-20261125` | `5e6eb5610b` |
+| `fix/mac-session-gui-20261125` | `e5eb7f4d54` |
+| `fix/netopt-closeout-20261123` | `e9cb4d000c` |
+| `fix/release-tests-copilot-20261126` | `e5eb7f4d54` |
+| `fix/sidebar-alias-bundles-20261125` | `99973c654e` |
+| `fix/sidebar-new-session-20261123` | `c0312bd786` |
+| `fix/wechat-dictation-state` | `d34795ca2c` |
+| `merge/sidebar-split-20261127` | `9c4be43bf6` |
+| `release/dsh-closeout-20261123` | `f5026e0fcd` |
+
+### 6.4 保留清单（26 条分支 / 20 个工作树）
+
+- 主干：`master`（唯一开发基线，已对齐 `origin/master`）
+- 发布快照：`release/dsh-0.2.3-final-20261123`（活跃，3 个未合并提交）、`release/wechat-dictation-20261116`（worktree 含发布产物）
+- 维护线：`maintained/dsh-0.2.2`
+- B 类（未合并提交/未提交改动）：`feat-instant-composer`、`fix-boot-review-followup`、`feat/acp-unified-mainchat-20261123`、`chore/complete-release-20261125`、`fix/history-scroll-20261126`、`feat/sidebar-minimal-nav`、`feat/sidebar-minimal-nav-plugins`、`feat/sidebar-nav-trim-20261124`、`fix/conv-windowing`、`netopt/integration-20261123`、`feat/session-recovery-20261123`、`fix/mainline-resolve-20261122`、`feat/sidebar-nav-icons-20261128`（进行中）
+- C 类（已推送未合并/本地实验）：`feat/cascade-stop`、`feat/todo-eta-column-20261127`、`fix/client-boot-degradation`、`fix/client-test-types`、`save/20261122-mac-core-manifests`、`feat/nas-sidebar-single-row-20261127`、`fix/explicit-enter-send-20261112`、`fix/header-actions-release-20261123`、`fix/inline-file-path-links-20261125`
+- 对应工作树 19 个 + 主检出，B/C 类逐条复核无变动：session-recovery 12 个已跟踪文件、netopt 17 个（含 5 处冲突）、complete-release 8 个、conv-windowing 5 个。
+
+### 6.5 验收
+
+- `git diff --stat` 本次仅含本报告文件，无源码改动。
+- `git branch --no-merged origin/master` = 16，与清理前一致（未误删未合并分支）。
+- `git worktree list` = 20，全部为 B/C 类或主检出。
+- 已合并分支删除前均通过 `git merge-base --is-ancestor <branch> origin/master` 校验。
+
+### 6.6 长期基线建议
+
+| 角色 | 分支 | 规则 |
+|---|---|---|
+| 开发主干 | `master` | 唯一基线；所有特性分支从 `origin/master` 切出 |
+| 发布快照 | `release/<version>` | 只读快照，仅用于发布与回滚；不承接新特性 |
+| 维护线 | `maintained/<version>` | 仅历史版本补丁，向 `master` 回流后即关闭 |
+| 特性分支 | `<type>/<name>-<date>` | 生命周期 = PR 生命周期，合并即删 |
+
+统一口径：**任何特性改动必须从 `origin/master` 开分支，合并进 `master` 之后才允许部署**；未合并分支不得进入发布链路，也不得直接在主检出上开发。
