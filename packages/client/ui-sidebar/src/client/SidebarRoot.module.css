@@ -897,3 +897,45 @@
   inset-inline-start: 0;
   inset-block-end: 0;
 }
+
+/* Rail (0.2.9): the top strip must stay ONE horizontal row. Master's rail
+   rules turn the logo row and the tool list into columns; here the whole row
+   becomes the horizontal scroller instead, so the five launchers never stack. */
+.collapsed .logoRow {
+  flex-direction: row !important;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.collapsed .logoRow::-webkit-scrollbar {
+  display: none;
+}
+
+.collapsed .logoRow > * {
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+.collapsed :global(.dshsn-toolsWrap) {
+  flex: 0 0 auto;
+  flex-direction: row !important;
+  width: auto !important;
+  order: 0;
+  margin-top: 0;
+  max-height: none;
+}
+
+.collapsed :global(.dshsn-tools) {
+  flex: 0 0 auto;
+  flex-direction: row !important;
+  flex-wrap: nowrap;
+  overflow: visible;
+  max-height: none;
+}
+
+/* The wide column keeps only the icon strip: the old label-row New session
+   box is a rail affordance now, so it does not draw an empty pill up top. */
+.root:not(.collapsed) .newSessionRow {
+  display: none;
+}
