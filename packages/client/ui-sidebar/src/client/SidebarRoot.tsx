@@ -338,6 +338,24 @@ export function SidebarRoot({
           </button>
         ))}
         {moreMenu}
+        {canStartSession && renderSlot('sidebar.session.action', { wide }, {
+          children: (
+            <Tooltip label={t('session.new.label')} shortcutKeys={newShortcut?.keys} delayMs={400} side="bottom">
+              <button
+                type="button"
+                className="dshsn-icon"
+                aria-label={t('session.new.label')}
+                aria-keyshortcuts={newShortcut?.aria}
+                data-dshsn-new-session="true"
+                onClick={openNewSession}
+              >
+                <span className="dshsn-glyph" aria-hidden="true">
+                  <NavGlyph name="new-session" size={16} />
+                </span>
+              </button>
+            </Tooltip>
+          ),
+        })}
       </nav>
     </div>
   )
@@ -426,27 +444,6 @@ export function SidebarRoot({
       {wide && tabs}
 
       {/* The label fades before the hover/focus shortcut, including on translucent backgrounds. */}
-      {canStartSession && (
-        <div className={css.newSessionRow}>
-          {renderSlot('sidebar.session.action', { wide }, {
-            children: (
-              <Tooltip label={t('session.new.label')} shortcutKeys={newShortcut?.keys} delayMs={500} side={captionTooltipSide} disabled={wide}>
-                <button
-                  type="button"
-                  className={css.newSession}
-                  aria-label={t('session.new.label')}
-                  aria-keyshortcuts={newShortcut?.aria}
-                  onClick={openNewSession}
-                >
-                  <span className={css.newSessionLabelMask}><span className={css.newSessionContent}>
-                    <NavGlyph name="new-session" size={windowsTitlebar ? 16 : 18} />
-                  </span></span>
-                </button>
-              </Tooltip>
-            ),
-          })}
-        </div>
-      )}
 
       {/* Settings, achievements and the workbench stay mounted in their own
           column context; the More menu opens them through their triggers. */}
