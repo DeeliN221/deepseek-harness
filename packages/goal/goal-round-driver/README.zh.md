@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-goal-round-driver` 会在同一会话内自动继续 active goal，但前提是 agent（智能体）已空闲、续行已启用且配置的 Round 额度仍有剩余。每个 Round 都让模型获得另一次推进目标的机会；只有进入模型历史的 goal Round 才消耗额度，额度耗尽时会记录 blocker。驱动器本身没有配置：goal 定义 Round 上限，`dsh-tool-goal` 定义重复受阻后何时停止续行。若任务需要无人值守的多轮推进，应与 `dsh-goal` 和 `dsh-tool-goal` 一起挂载；若每一步都需要人工 steering（中途引导），则不要挂载。
+`dsh-goal-round-driver` 会在同一会话内自动继续 active goal，但前提是 agent（智能体）已空闲、续行已启用且配置的 Round 额度仍有剩余。每个 Round 都让模型获得另一次推进目标的机会；只有进入模型历史的 goal Round 才消耗额度，额度耗尽时会记录 blocker。Goal Round 的调度不需要配置：goal 定义 Round 上限，`dsh-tool-goal` 定义重复受阻后何时停止续行。除 goal 之外，本插件还负责默认开启的轮末自检：当一轮结束时仍有工作、且没有 goal 接管该会话，它会排入配置好的自检问题，并把会话继续推进到模型通过 `turn_status` 声明 `done` 或 `blocked`，或该请求的自检额度耗尽为止。若任务需要无人值守的多轮推进，应与 `dsh-goal` 和 `dsh-tool-goal` 一起挂载；若每一步都需要人工 steering（中途引导），则不要挂载。
 
 ## 目录
 
@@ -29,7 +29,7 @@ kind: "package-reference"
 
 ### 组合方式
 
-把驱动器挂载在 goal 服务与 goal 工具旁边；驱动器本身不需要任何配置。
+把驱动器挂载在 goal 服务与 goal 工具旁边。Goal Round 本身不需要配置；轮末自检接受三个可选键：
 
 ```yaml
 - id: goal
@@ -40,7 +40,13 @@ kind: "package-reference"
 
 - id: goal-round-driver
   name: '@deepseek-ai/dsh-goal-round-driver'
+  config:
+    turnGuardEnabled: true
+    turnGuardMaxRounds: 8
+    turnGuardQuestion: '任务是否全部完成，停在这是否真是因为必须由用户做方向性决策或者高危操作批准？如果不是，请继续自动推进，不要等待用户简单发送继续指令催促。'
 ```
+
+`turnGuardEnabled` 默认为 `true`，`turnGuardMaxRounds` 默认为 `8`，`turnGuardQuestion` 默认为内置的中文问题；如果模型应看到某一种固定措辞，请按部署语言设置问题。自检启用时才会注册 `turn_status` 工具及其提示词策略。
 
 `maxGoalRounds` 属于 goal 定义，面向模型的阻塞阈值属于 `dsh-tool-goal`；在驱动器中重复任一数值都可能产生分歧策略。
 
@@ -51,6 +57,8 @@ kind: "package-reference"
 ### 何时停止续行
 
 Round 只在整个 agent 进入 idle 时启动；加载了子 agent 服务时，还要等该 agent 仍在推进的后代全部结束后才启动；完成、暂停和阻塞会阻止续行；宿主发起的暂停还会中止正在运行的轮次，而模型在自己轮次内发起的暂停会正常结束。编辑只会通过修订栅栏使进行中的 Round 失效，驱动器会继续新修订。驱动器也会在以下情况自行停止：轮次因 max tokens 结束、持久性写入失败、agent 被取消、插件卸载，或 Round 上限耗尽——上限耗尽时它会以稳定代码 `round-limit` 记录一个 blocker。取消绝不会自动重启 Round：Round 已在进行的 goal 会在下一次 idle 时被暂停；与 goal 尝试无关的取消只会停用续行。Agent 被处置（例如进程正常关停，或重载拥有该 Agent 的插件）时，Round 以 `disposed` 原因中止，此时只停用续行，goal 保持 active，与插件卸载时一致；用户、父 Agent 与 hook 发起的取消仍会暂停它。agent 进入 idle 时仍在排队的 Round 提示会从收件箱移除，后续人类输入不会排在它后面等待；被取消的轮次属于其他工作时，续行会被停用而不是暂停。
+
+轮末自检会在以下情况停止：模型声明 `done` 或 `blocked`、人类消息开启新请求、会话属于被委派的子 agent、agent 上存在 goal，或该请求的 `turnGuardMaxRounds` 已耗尽；用户取消会抑制下一次自检。自检的轮次不会消耗 goal 的额度。
 
 ### resume、fork 或卸载之后
 

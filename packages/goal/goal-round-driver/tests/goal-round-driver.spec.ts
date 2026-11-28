@@ -95,12 +95,12 @@ afterEach(async () => {
 })
 
 /** Mount a real loop with only its model scripted. */
-async function harness(script: ScriptEntry[]): Promise<Harness> {
+async function harness(script: ScriptEntry[], config: Record<string, unknown> = { turnGuardEnabled: false }): Promise<Harness> {
   const ctx = new Context()
   contexts.push(ctx)
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(GoalService)
-  const driver = await ctx.plugin(goalSession)
+  const driver = await ctx.plugin(goalSession, config)
   await ctx.plugin(AgentLoop, { agents: [] })
   const adapter = new ScriptedAdapter(script)
   ctx.llm.registerAdapter(['mock'], adapter)
@@ -237,7 +237,7 @@ describe('same-session goal driving', () => {
     const agent = await ctx.agentLoop.create(brandString<SessionId>('goal-session-hot-load'), { provider: 'mock', model: 'mock' })
     const created = ctx.goals.create(agent, { objective: 'wait for a human', maxGoalRounds: 1 })
 
-    await ctx.plugin(goalSession)
+    await ctx.plugin(goalSession, { turnGuardEnabled: false })
     await Promise.resolve()
     expect(ctx.goals.get(agent)).toMatchObject({ phase: 'active', activation: 'disarmed', revision: 1 })
     expect(adapter.requests).toHaveLength(0)
@@ -1296,5 +1296,41 @@ describe('same-session goal driving', () => {
     await handle.dispose()
 
     expect(test.ctx.agents.get(handle.agent.id)).toBeUndefined()
+  })
+})
+
+describe('turn guard', () => {
+  it('asks the self-check question after a turn ends without a declaration', async () => {
+    const test = await harness(
+      [textResponse('working'), textResponse('still working')],
+      { turnGuardEnabled: true, turnGuardMaxRounds: 1 },
+    )
+    const queued: UserMessage[] = []
+    onInboxMessage(test.ctx, test.agent, message => queued.push(message))
+    test.agent.followup(createUserMessage({
+      content: [{ type: 'text', text: 'do the task' }],
+      source: { kind: 'user' },
+    }))
+    await vi.waitFor(() => {
+      expect(queued.filter(message => message.source.kind === 'turn-guard')).toHaveLength(1)
+    })
+    const guarded = queued.find(message => message.source.kind === 'turn-guard')
+    expect(JSON.stringify(guarded?.content)).toContain('任务是否全部完成')
+  })
+
+  it('stops asking after the configured round allowance', async () => {
+    const test = await harness(
+      [textResponse('a'), textResponse('b'), textResponse('c'), textResponse('d'), textResponse('e')],
+      { turnGuardEnabled: true, turnGuardMaxRounds: 2 },
+    )
+    test.agent.followup(createUserMessage({
+      content: [{ type: 'text', text: 'long task' }],
+      source: { kind: 'user' },
+    }))
+    await vi.waitFor(() => {
+      expect(test.adapter.requests).toHaveLength(3)
+    })
+    await new Promise(resolve => setTimeout(resolve, 25))
+    expect(test.adapter.requests).toHaveLength(3)
   })
 })
