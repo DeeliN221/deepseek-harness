@@ -292,6 +292,19 @@ export function apply(ctx: Context): void {
             }
           },
           loadOlder: () => { void session.loadOlder({ deferConsumption: true }) },
+          historyPageId: () => {
+            const state = session.getSnapshot()
+            return state.historyPageResult === 'pending' ? state.historyPageId : undefined
+          },
+          historyPageState: () => {
+            const state = session.getSnapshot()
+            return state.historyPageId === undefined || state.historyPageResult === undefined
+              ? undefined : { id: state.historyPageId, result: state.historyPageResult }
+          },
+          historyPageConsumed: (pageId) => {
+            const state = session.getSnapshot()
+            return state.historyPageResults?.get(pageId) === 'consumed'
+          },
           consumeOlder: () => session.consumeOlder(),
           loadThrough: seq => session.loadThrough(seq),
           loadImage: Object.assign(

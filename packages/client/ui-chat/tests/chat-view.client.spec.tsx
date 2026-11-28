@@ -436,15 +436,27 @@ function makeHarness(
   const openUserFile = vi.fn<(path: string) => void>()
   const renderUserContent = createUserContentFixture({ openFile: openUserFile })
   let preparedOlder: (() => void) | null = null
+  let historyPageId = 0
+  let historyConsumed = false
+  const historyPageResults = new Map<number, NonNullable<SessionSnapshot['historyPageResult']>>()
   const loadOlder = vi.fn(() => {
-    session.set({ loadingOlder: true, historyLoadStatus: 'loading' })
+    historyPageId++
+    historyConsumed = false
+    historyPageResults.set(historyPageId, 'pending')
+    session.set({ loadingOlder: true, historyLoadStatus: 'loading', historyPageId, historyPageResult: 'pending',
+      historyPageResults: new Map(historyPageResults) })
   })
   const consumeOlder = vi.fn(() => {
     if (preparedOlder === null) return false
     const consume = preparedOlder
     preparedOlder = null
+    historyConsumed = true
+    historyPageResults.set(historyPageId, 'consumed')
     consume()
-    session.set({ loadingOlder: false, historyLoadStatus: 'idle' })
+    const previous = conversation.getSnapshot()
+    conversation.set({ ...previous, historyPageIds: [...(previous.historyPageIds ?? []), historyPageId] })
+    session.set({ loadingOlder: false, historyLoadStatus: 'idle', historyPageResult: 'consumed',
+      historyPageResults: new Map(historyPageResults) })
     return true
   })
   const prepareOlder = (consume: () => void) => {
@@ -585,6 +597,10 @@ function makeHarness(
     openFile,
     openExternalLink: vi.fn(),
     loadOlder,
+    historyPageId: () => historyPageId,
+    historyPageState: () => historyPageId === 0 ? undefined
+      : { id: historyPageId, result: historyConsumed ? 'consumed' : 'pending' },
+    historyPageConsumed: pageId => pageId === historyPageId && historyConsumed,
     consumeOlder,
     loadThrough,
     loadImage: vi.fn(() => Promise.reject(new Error('not used'))),
@@ -613,8 +629,11 @@ function makeHarness(
     session.set(sessionUpdate)
   }
   return {
-    set, setSession: session.set, setChat: chatSource.set,
-    setConversation: (value: ConversationSnapshot) => { conversation.set(value) }, ChatView, props,
+    set, setSession: session.set, sessionSnapshot: session.source.getSnapshot, setChat: chatSource.set,
+    setConversation: (value: ConversationSnapshot) => { conversation.set(value) },
+    conversationSnapshot: conversation.getSnapshot,
+    historyPageIds: () => conversation.getSnapshot().historyPageIds,
+    ChatView, props,
     setConnection: (state: ConnectionState) => { connection.set(state) },
     openFile, openUserFile, loadOlder, consumeOlder, prepareOlder, loadThrough, openView,
     setOutline: (value: unknown) => { outlineValue = value },
@@ -1596,6 +1615,184 @@ describe('ChatView', () => {
     expect(h.loadOlder).toHaveBeenCalledTimes(1)
   }, 20_000)
 
+  it('renders each mixed live message once when a pending page is consumed', async () => {
+    const older: ConversationNode[] = [userInTurn(1, 'older user', 1), assistant(2, 'older assistant', 1), toolResult(3, 'older-tool')]
+    const current: ConversationNode[] = [userInTurn(10, 'current user', 2), assistant(11, 'current assistant', 2), toolResult(12, 'current-tool')]
+    const live = [userInTurn(20, 'live user', 3), assistant(21, 'live assistant', 3), toolResult(22, 'live-tool')]
+    let visible = [...current]
+    const h = makeHarness({ nodes: visible }, { hasMore: true })
+    h.setTranscriptView('verbose')
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    installScrollMetrics(scroller, 2000, 200)
+    const rows = () => [...view.container.querySelectorAll<HTMLElement>('[data-chat-node-key]')]
+      .map(row => row.dataset.chatNodeKey!).filter(key => /^fixture:(user|assistant|tool):/.test(key))
+    const initial = ['fixture:user:10', 'fixture:assistant:11', 'fixture:tool:current-tool']
+    const appended = ['fixture:user:20', 'fixture:assistant:21', 'fixture:tool:live-tool']
+    const page = ['fixture:user:1', 'fixture:assistant:2', 'fixture:tool:older-tool']
+    expect(rows()).toEqual(initial)
+    readerScroll(scroller, 100)
+    fireEvent.click(view.getByText('加载更早'))
+    await historyFrame()
+    expect(h.loadOlder).toHaveBeenCalledTimes(1)
+    expect(h.sessionSnapshot().historyLoadStatus).toBe('loading')
+    for (const node of live) {
+      visible = [...visible, node]
+      act(() => { h.setChat({ nodes: visible }) })
+    }
+    expect(h.consumeOlder).not.toHaveBeenCalled()
+    expect(rows()).toEqual([...initial, ...appended])
+    expect(view.getByText('live user')).toBeTruthy()
+    expect(view.getByText('live assistant')).toBeTruthy()
+    expect(view.getByTestId('tool-seat-live-tool')).toBeTruthy()
+    act(() => { h.prepareOlder(() => { visible = [...older, ...visible]; h.setChat({ nodes: visible }) }) })
+    expect(h.sessionSnapshot().historyLoadStatus).toBe('pendingConsumption')
+    // A live user append can move the reader to the tail during the request.
+    fireEvent.click(view.container.querySelector('[data-chat-history] button')!)
+    await historyFrame()
+    expect(h.consumeOlder).toHaveBeenCalledTimes(1)
+    expect(rows()).toEqual([...page, ...initial, ...appended])
+    expect(new Set(rows()).size).toBe(rows().length)
+    expect(view.getByText('older user')).toBeTruthy()
+    expect(view.getByText('older assistant')).toBeTruthy()
+    expect(view.getByTestId('tool-seat-older-tool')).toBeTruthy()
+    await historyFrame()
+    expect(rows()).toEqual([...page, ...initial, ...appended])
+    expect(h.consumeOlder).toHaveBeenCalledTimes(1)
+  })
+
+  it('reaches the first mixed node after multiple remote pages and repeated local earlier loads', async () => {
+    const RailObserver = ResizeObserver
+    const observers = new Map<Element, { observer: ResizeObserver; callback: ResizeObserverCallback }>()
+    class ResizeObserverStub extends RailObserver {
+      constructor(private readonly notifyCallback: ResizeObserverCallback) { super(notifyCallback) }
+      override observe(element: Element): void {
+        super.observe(element)
+        observers.set(element, { observer: this, callback: this.notifyCallback })
+      }
+      override unobserve(element: Element): void {
+        super.unobserve(element)
+        if (observers.get(element)?.observer === this) observers.delete(element)
+      }
+      override disconnect(): void {
+        super.disconnect()
+        for (const [element, observed] of observers) {
+          if (observed.observer === this) observers.delete(element)
+        }
+      }
+    }
+    vi.stubGlobal('ResizeObserver', ResizeObserverStub)
+    const mixed = (start: number, end: number): ConversationNode[] => Array.from(
+      { length: end - start + 1 }, (_, index) => {
+        const seq = start + index
+        if (seq % 3 === 1) return userInTurn(seq, `prompt ${seq}`, 1)
+        if (seq % 3 === 2) return assistant(seq, `answer ${seq}`, 1, seq)
+        return { ...toolResult(seq, `call-${seq}`), turn: 1 } as ConversationNode
+      },
+    )
+    const key = (node: ConversationNode): string => node.kind === 'tool-result'
+      ? `fixture:tool:${node.callId}` : `fixture:${node.kind}:${node.seq}`
+    let nodes = mixed(1001, 1120)
+    const h = makeHarness({ nodes }, { hasMore: true })
+    h.setNodeRenderer((_slot, owner) => <span>{owner.node.key}</span>)
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    installScrollMetrics(scroller, 960, 200)
+    let positions = new Map(nodes.map((node, index) => [key(node), index]))
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this === scroller) return new DOMRect(0, 0, 500, 200)
+      if (this.hasAttribute('data-chat-history')) return new DOMRect(0, -scroller.scrollTop, 500, 4)
+      const rows = [...view.container.querySelectorAll<HTMLElement>('[data-chat-node-key]')]
+      const first = rows.find(row => positions.has(row.dataset.chatNodeKey ?? ''))
+      const firstIndex = positions.get(first?.dataset.chatNodeKey ?? '') ?? 0
+      const index = positions.get(this.dataset.chatNodeKey ?? '')
+      return new DOMRect(0, index === undefined ? 0 : (index - firstIndex) * 4 - scroller.scrollTop, 500, 4)
+    })
+    const windows: string[][] = []
+    const record = () => {
+      const expected = nodes.map(key)
+      const rows = [...view.container.querySelectorAll<HTMLElement>('[data-chat-node-key]')]
+        .map(row => row.dataset.chatNodeKey!)
+        .filter(rowKey => positions.has(rowKey))
+      windows.push(rows)
+      expect(rows.length).toBeGreaterThan(0)
+      expect(rows.length).toBeLessThanOrEqual(240)
+      expect(new Set(rows).size).toBe(rows.length)
+      const start = expected.indexOf(rows[0]!)
+      expect(start).toBeGreaterThanOrEqual(0)
+      expect(rows).toEqual(expected.slice(start, start + rows.length))
+      return rows
+    }
+    readerScroll(scroller, 400)
+    record()
+    for (const [page, [start, end]] of [[801, 1000], [601, 800], [1, 600]].entries()) {
+      // Reach the currently loaded head before requesting the next Host page.
+      for (let clicks = 0; record()[0] !== key(nodes[0]!) && clicks < 10; clicks++) {
+        fireEvent.click(view.getByText('加载更早'))
+        record()
+      }
+      expect(record()[0]).toBe(key(nodes[0]!))
+      fireEvent.click(view.getByText('加载更早'))
+      await historyFrame()
+      expect(h.loadOlder).toHaveBeenCalledTimes(page + 1)
+      const appended = mixed(1121 + page * 3, 1123 + page * 3)
+      act(() => {
+        nodes = [...nodes, ...appended]
+        positions = new Map(nodes.map((node, index) => [key(node), index]))
+        h.setChat({ nodes })
+      })
+      record()
+      act(() => { h.prepareOlder(() => {
+        nodes = [...mixed(start!, end!), ...nodes]
+        positions = new Map(nodes.map((node, index) => [key(node), index]))
+        h.setChat({ nodes })
+        if (page === 2) h.setSession({ hasMore: false })
+      }) })
+      // A live user append can move the local slice; reveal it before consuming the ready page.
+      for (let clicks = 0; record()[0] !== key(nodes[0]!) && clicks < 10; clicks++) {
+        fireEvent.click(view.getByText('加载更早'))
+        record()
+      }
+      expect(record()[0]).toBe(key(nodes[0]!))
+      fireEvent.click(view.getByText('加载更早'))
+      await historyFrame()
+      expect(h.consumeOlder).toHaveBeenCalledTimes(page + 1)
+      record()
+    }
+    expect(nodes.length).toBeGreaterThan(600)
+    expect(nodes.some(node => node.kind === 'user')).toBe(true)
+    expect(nodes.some(node => node.kind === 'assistant')).toBe(true)
+    expect(nodes.some(node => node.kind === 'tool-result')).toBe(true)
+
+    // Exercise the top gate before continuing with explicit manual requests.
+    expect(scroller.scrollHeight - scroller.clientHeight).toBeGreaterThan(400)
+    readerScroll(scroller, 400)
+    expect(scroller.scrollTop).toBe(400)
+    const observed = observers.get(scroller)
+    expect(observed).toBeDefined()
+    const rect = scroller.getBoundingClientRect()
+    const size = { inlineSize: rect.width, blockSize: rect.height }
+    const entry: ResizeObserverEntry = { target: scroller, contentRect: rect,
+      borderBoxSize: [size], contentBoxSize: [size], devicePixelContentBoxSize: [size] }
+    act(() => { observed!.callback([entry], observed!.observer) })
+    const beforeTop = record()[0]!
+    readerScroll(scroller, 0)
+    expect(scroller.scrollTop).toBe(0)
+    await historyFrame()
+    const afterTop = record()[0]!
+    expect(positions.get(afterTop)!).toBeLessThan(positions.get(beforeTop)!)
+    let manualClicks = 0
+    while (record()[0] !== key(nodes[0]!) && manualClicks < 10) {
+      fireEvent.click(view.getByText('加载更早'))
+      manualClicks++
+      record()
+    }
+    expect(manualClicks).toBeGreaterThanOrEqual(2)
+    expect(record()[0]).toBe('fixture:user:1')
+    expect(windows.length).toBeGreaterThan(8)
+    expect(h.loadOlder).toHaveBeenCalledTimes(3)
+  }, 30_000)
+
   it('advances from a bounded slice floor while preserving the reader anchor without following the global tail', () => {
     const nodes = Array.from({ length: 1_000 }, (_, index) => user(index + 1, `prompt ${index + 1}`))
     const h = makeHarness({ nodes })
@@ -2105,6 +2302,625 @@ describe('ChatView', () => {
     expect(h.toolOwners[0]).toMatchObject({ callId: 'w1', toolName: '' })
   })
 
+  it('expands the previously short render window when a prepared history page is consumed', async () => {
+    const current = Array.from({ length: 42 }, (_, index) => user(1001 + index, `current ${index}`))
+    const older = Array.from({ length: 300 }, (_, index) => user(1 + index, `older ${index}`))
+    const h = makeHarness({ nodes: current }, { hasMore: true })
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    installScrollMetrics(scroller, 2000, 200)
+    readerScroll(scroller, 100)
+    fireEvent.click(view.getByText('加载更早'))
+    await historyFrame()
+    expect(h.loadOlder).toHaveBeenCalledOnce()
+    const live = assistant(2000, 'live reply')
+    act(() => { h.setChat({ nodes: [...current, live] }) })
+    expect(h.consumeOlder).not.toHaveBeenCalled()
+    act(() => { h.prepareOlder(() => { h.setChat({ nodes: [...older, ...current, live] }) }) })
+    await historyFrame()
+    expect(h.consumeOlder).toHaveBeenCalledOnce()
+    expect(view.container.querySelectorAll('[data-chat-flow-key]').length).toBe(240)
+  }, 20_000)
+
+  it('preserves both readers when one of two views consumes their shared page', async () => {
+    const current = Array.from({ length: 42 }, (_, index) => user(1001 + index, `current ${index}`))
+    const older = Array.from({ length: 300 }, (_, index) => user(1 + index, `older ${index}`))
+    const h = makeHarness({ nodes: current }, { hasMore: true })
+    const first = render(<h.ChatView {...h.props} />)
+    const second = render(<h.ChatView {...h.props} />)
+    const firstScroll = first.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    const secondScroll = second.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    installScrollMetrics(firstScroll, 2000, 200)
+    installScrollMetrics(secondScroll, 2000, 200)
+    let expanded = false
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this === firstScroll || this === secondScroll) return new DOMRect(0, 0, 500, 200)
+      const scroller = first.container.contains(this) ? firstScroll : secondScroll
+      return new DOMRect(0, 120 + (expanded ? 500 : 0) - scroller.scrollTop, 500, 40)
+    })
+    readerScroll(firstScroll, 100)
+    readerScroll(secondScroll, 100)
+    fireEvent.click(first.container.querySelector('[data-chat-history] button')!)
+    await historyFrame()
+    expect(h.loadOlder).toHaveBeenCalledOnce()
+    act(() => { h.prepareOlder(() => { expanded = true; h.setChat({ nodes: [...older, ...current] }) }) })
+    await historyFrame()
+    expect(h.consumeOlder).toHaveBeenCalledOnce()
+    expect(secondScroll.scrollTop).toBe(600)
+    expect(first.container.querySelectorAll('[data-chat-flow-key]').length).toBe(240)
+    expect(second.container.querySelectorAll('[data-chat-flow-key]').length).toBe(240)
+    expect(second.container.textContent).toContain('current 0')
+  }, 20_000)
+
+  it('preserves a second view that begins reading after a shared page request starts', async () => {
+    const current = Array.from({ length: 42 }, (_, index) => user(1001 + index, `current ${index}`))
+    const older = Array.from({ length: 300 }, (_, index) => user(301 + index, `older ${index}`))
+    const h = makeHarness({ nodes: current }, { hasMore: true })
+    const first = render(<h.ChatView {...h.props} />)
+    const second = render(<h.ChatView {...h.props} />)
+    const firstScroll = first.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    const secondScroll = second.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    installScrollMetrics(firstScroll, 2_000, 200)
+    installScrollMetrics(secondScroll, 2_000, 200)
+    let shift = 0
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this === firstScroll || this === secondScroll) return new DOMRect(0, 0, 500, 200)
+      const scroller = first.container.contains(this) ? firstScroll : secondScroll
+      return new DOMRect(0, 120 + shift - scroller.scrollTop, 500, 40)
+    })
+    readerScroll(secondScroll, 1_800)
+    expect(second.container.querySelector('[data-chat-following-tail]')).not.toBeNull()
+    readerScroll(firstScroll, 100)
+    fireEvent.click(first.container.querySelector('[data-chat-history] button')!)
+    await historyFrame()
+    expect(h.loadOlder).toHaveBeenCalledOnce()
+    expect(h.props.historyPageState?.()).toEqual({ id: 1, result: 'pending' })
+
+    readerScroll(secondScroll, 100)
+    expect(second.container.querySelector('[data-chat-following-tail]')).toBeNull()
+    const anchor = second.container.querySelector<HTMLElement>('[data-chat-node-key="fixture:user:1001"]')
+    if (anchor === null) throw new Error('expected second view reading anchor')
+    const before = anchor.getBoundingClientRect().top
+    expect(h.chatScroll.read()?.anchorKey).toBe('fixture:user:1001')
+    act(() => { h.prepareOlder(() => { shift = 500; h.setChat({ nodes: [...older, ...current] }) }) })
+    await historyFrame()
+
+    expect(h.consumeOlder).toHaveBeenCalledOnce()
+    expect(second.container.contains(anchor)).toBe(true)
+    expect(anchor.getBoundingClientRect().top).toBe(before)
+    expect(secondScroll.scrollTop).toBe(600)
+    expect(second.container.querySelectorAll('[data-chat-flow-key]')).toHaveLength(240)
+  }, 20_000)
+
+  it('keeps a second reader anchored across batched page confirmation and a newer pending page', async () => {
+    const current = Array.from({ length: 42 }, (_, index) => user(1001 + index, `current ${index}`))
+    const older = Array.from({ length: 300 }, (_, index) => user(301 + index, `older ${index}`))
+    const oldest = Array.from({ length: 300 }, (_, index) => user(1 + index, `oldest ${index}`))
+    const h = makeHarness({ nodes: current }, { hasMore: true })
+    const first = render(<h.ChatView {...h.props} />)
+    const second = render(<h.ChatView {...h.props} />)
+    const firstScroll = first.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    const secondScroll = second.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    installScrollMetrics(firstScroll, 2_000, 200)
+    installScrollMetrics(secondScroll, 2_000, 200)
+    let shift = 0
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this === firstScroll || this === secondScroll) return new DOMRect(0, 0, 500, 200)
+      const scroller = first.container.contains(this) ? firstScroll : secondScroll
+      return new DOMRect(0, 120 + shift - scroller.scrollTop, 500, 40)
+    })
+    readerScroll(firstScroll, 100)
+    readerScroll(secondScroll, 100)
+    const anchor = second.container.querySelector<HTMLElement>('[data-chat-node-key="fixture:user:1001"]')
+    if (anchor === null) throw new Error('expected second view reading anchor')
+    const before = anchor.getBoundingClientRect().top
+    fireEvent.click(first.container.querySelector('[data-chat-history] button')!)
+    await historyFrame()
+    expect(h.loadOlder).toHaveBeenCalledOnce()
+
+    act(() => { h.prepareOlder(() => { shift = 500; h.setChat({ nodes: [...older, ...current] }) }) })
+    act(() => {
+      expect(h.consumeOlder()).toBe(true)
+      // React has not committed the first acknowledgement when the next request starts.
+      h.loadOlder()
+      expect(h.props.historyPageState?.()).toEqual({ id: 2, result: 'pending' })
+    })
+    expect(h.loadOlder).toHaveBeenCalledTimes(2)
+    expect(second.container.contains(anchor)).toBe(true)
+    expect(anchor.getBoundingClientRect().top).toBe(before)
+
+    act(() => {
+      h.prepareOlder(() => { shift = 1_000; h.setChat({ nodes: [...oldest, ...older, ...current] }) })
+      expect(h.consumeOlder()).toBe(true)
+    })
+    expect(h.consumeOlder).toHaveBeenCalledTimes(2)
+    expect(second.container.contains(anchor)).toBe(true)
+    expect(anchor.getBoundingClientRect().top).toBe(before)
+    expect(secondScroll.scrollTop).toBe(1_100)
+    expect(second.container.querySelectorAll('[data-chat-flow-key]')).toHaveLength(240)
+  }, 20_000)
+
+  it('compensates once for two shared pages consumed in one React batch', async () => {
+    const current = Array.from({ length: 42 }, (_, index) => user(1001 + index, `current ${index}`))
+    const older = Array.from({ length: 300 }, (_, index) => user(301 + index, `older ${index}`))
+    const oldest = Array.from({ length: 300 }, (_, index) => user(1 + index, `oldest ${index}`))
+    const h = makeHarness({ nodes: current }, { hasMore: true })
+    const first = render(<h.ChatView {...h.props} />)
+    const second = render(<h.ChatView {...h.props} />)
+    const firstScroll = first.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    const secondScroll = second.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    installScrollMetrics(firstScroll, 2_000, 200)
+    installScrollMetrics(secondScroll, 2_000, 200)
+    let shift = 0
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this === firstScroll || this === secondScroll) return new DOMRect(0, 0, 500, 200)
+      const scroller = first.container.contains(this) ? firstScroll : secondScroll
+      return new DOMRect(0, 120 + shift - scroller.scrollTop, 500, 40)
+    })
+    readerScroll(firstScroll, 100)
+    readerScroll(secondScroll, 100)
+    const anchor = second.container.querySelector<HTMLElement>('[data-chat-node-key="fixture:user:1001"]')
+    if (anchor === null) throw new Error('expected second view reading anchor')
+    const before = anchor.getBoundingClientRect().top
+    fireEvent.click(first.container.querySelector('[data-chat-history] button')!)
+    await historyFrame()
+    expect(h.loadOlder).toHaveBeenCalledOnce()
+    expect(h.props.historyPageState?.()).toEqual({ id: 1, result: 'pending' })
+
+    let top = secondScroll.scrollTop
+    const writes: number[] = []
+    Object.defineProperty(secondScroll, 'scrollTop', {
+      configurable: true,
+      get: () => top,
+      set: (value: number) => {
+        top = Math.max(0, Math.min(value, 1_800))
+        writes.push(top)
+      },
+    })
+    act(() => {
+      h.prepareOlder(() => { shift = 500; h.setChat({ nodes: [...older, ...current] }) })
+      expect(h.consumeOlder()).toBe(true)
+      expect(h.historyPageIds()).toEqual([1])
+      expect(anchor.getBoundingClientRect().top).toBe(before + 500)
+      expect(writes).toEqual([])
+
+      h.loadOlder()
+      expect(h.props.historyPageState?.()).toEqual({ id: 2, result: 'pending' })
+      h.prepareOlder(() => { shift = 1_000; h.setChat({ nodes: [...oldest, ...older, ...current] }) })
+      expect(h.consumeOlder()).toBe(true)
+      expect(h.historyPageIds()).toEqual([1, 2])
+      expect(anchor.getBoundingClientRect().top).toBe(before + 1_000)
+      expect(writes).toEqual([])
+    })
+
+    expect(h.loadOlder).toHaveBeenCalledTimes(2)
+    expect(h.consumeOlder).toHaveBeenCalledTimes(2)
+    expect(second.container.contains(anchor)).toBe(true)
+    expect(anchor.getBoundingClientRect().top).toBe(before)
+    expect(writes).toEqual([1_100])
+    expect(secondScroll.scrollTop).toBe(1_100)
+  }, 20_000)
+
+  it('preserves a second view turn-navigation landing made while another view loads history', async () => {
+    const current: ConversationNode[] = []
+    for (let turn = 1; turn <= 20; turn++) {
+      const seq = 1001 + (turn - 1) * 2
+      current.push(userInTurn(seq, `prompt ${turn}`, turn), assistant(seq + 1, `answer ${turn}`, turn))
+    }
+    const older = Array.from({ length: 300 }, (_, index) => user(301 + index, `older ${index}`))
+    const h = makeHarness({ nodes: current }, { hasMore: true })
+    const first = render(<h.ChatView {...h.props} />)
+    const second = render(<h.ChatView {...h.props} />)
+    const firstScroll = first.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    const secondScroll = second.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    installScrollMetrics(firstScroll, 2_000, 200)
+    installScrollMetrics(secondScroll, 2_000, 200)
+    let shift = 0
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this === firstScroll || this === secondScroll) return new DOMRect(0, 0, 500, 200)
+      const scroller = first.container.contains(this) ? firstScroll : secondScroll
+      const match = /^fixture:user:(\d+)$/.exec(this.dataset.chatNodeKey ?? '')
+      const offset = match === null ? 300 : 300 + ((Number(match[1]) - 1001) / 2) * 40
+      return new DOMRect(0, offset + shift - scroller.scrollTop, 500, 40)
+    })
+    readerScroll(firstScroll, 100)
+    fireEvent.click(first.container.querySelector('[data-chat-history] button')!)
+    await historyFrame()
+    expect(h.loadOlder).toHaveBeenCalledOnce()
+    expect(h.props.historyPageState?.()).toEqual({ id: 1, result: 'pending' })
+
+    const target = second.container.querySelector<HTMLElement>('[data-chat-node-key="fixture:user:1005"]')
+    if (target === null) throw new Error('expected the loaded turn target')
+    fireEvent.click(second.container.querySelector('button[aria-label="跳转到第 3 轮"]')!)
+    expect(secondScroll.scrollTop).toBe(356)
+    expect(target.getBoundingClientRect().top).toBe(24)
+    expect(h.chatScroll.read()?.anchorKey).toBe('fixture:user:1005')
+    // The reader does not scroll again between this navigation and consumption.
+    act(() => { h.prepareOlder(() => { shift = 500; h.setChat({ nodes: [...older, ...current] }) }) })
+    await historyFrame()
+
+    expect(h.consumeOlder).toHaveBeenCalledOnce()
+    expect(second.container.contains(target)).toBe(true)
+    expect(target.getBoundingClientRect().top).toBe(24)
+    expect(secondScroll.scrollTop).toBe(856)
+  }, 20_000)
+
+  it('preserves a second view restored from saved scroll after a shared request starts', async () => {
+    const current = Array.from({ length: 42 }, (_, index) => user(1001 + index, `current ${index}`))
+    const older = Array.from({ length: 300 }, (_, index) => user(301 + index, `older ${index}`))
+    const h = makeHarness({ nodes: current }, { hasMore: true })
+    const first = render(<h.ChatView {...h.props} />)
+    const firstScroll = first.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    installScrollMetrics(firstScroll, 2_000, 200)
+    const host = document.createElement('div')
+    host.dataset.conversationScroll = ''
+    document.body.append(host)
+    installScrollMetrics(host, 2_000, 200)
+    let shift = 0
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this === firstScroll || this === host) return new DOMRect(0, 0, 500, 200)
+      const scroller = first.container.contains(this) ? firstScroll : host
+      const match = /^fixture:user:(\d+)$/.exec(this.dataset.chatNodeKey ?? '')
+      const offset = match === null ? 300 : 300 + (Number(match[1]) - 1001) * 40
+      return new DOMRect(0, offset + shift - scroller.scrollTop, 500, 40)
+    })
+    try {
+      readerScroll(firstScroll, 100)
+      fireEvent.click(first.container.querySelector('[data-chat-history] button')!)
+      await historyFrame()
+      expect(h.loadOlder).toHaveBeenCalledOnce()
+      expect(h.props.historyPageState?.()).toEqual({ id: 1, result: 'pending' })
+
+      h.chatScroll.save({ anchorKey: 'fixture:user:1011', anchorTop: 24, scrollTop: 676 })
+      const second = render(<h.ChatView {...h.props} />, { container: host })
+      const anchor = second.container.querySelector<HTMLElement>('[data-chat-node-key="fixture:user:1011"]')
+      if (anchor === null) throw new Error('expected the restored reading anchor')
+      expect(host.scrollTop).toBe(676)
+      expect(anchor.getBoundingClientRect().top).toBe(24)
+      expect(h.chatScroll.read()?.anchorKey).toBe('fixture:user:1011')
+      act(() => { h.prepareOlder(() => { shift = 500; h.setChat({ nodes: [...older, ...current] }) }) })
+      await historyFrame()
+
+      expect(h.consumeOlder).toHaveBeenCalledOnce()
+      expect(second.container.contains(anchor)).toBe(true)
+      expect(anchor.getBoundingClientRect().top).toBe(24)
+      expect(host.scrollTop).toBe(1_176)
+    } finally {
+      host.remove()
+    }
+  }, 20_000)
+
+  it('preserves the restored reader when the same ChatView switches into a session with a shared page pending', async () => {
+    const oldSession = makeHarness({ nodes: [user(11, 'old session row'), assistant(12, 'old session answer')] })
+    const current = Array.from({ length: 42 }, (_, index) => user(1001 + index, `new session ${index}`))
+    const older = Array.from({ length: 300 }, (_, index) => user(301 + index, `older ${index}`))
+    const newSession = makeHarness({ nodes: current }, { hasMore: true })
+    const newSessionId = 'session-b' as SessionId
+    newSession.setSession({ sessionId: newSessionId })
+    const host = document.createElement('div')
+    host.dataset.conversationScroll = ''
+    document.body.append(host)
+    installScrollMetrics(host, 2_000, 200)
+    let consumerScroll: HTMLElement | undefined
+    let shift = 0
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this === host || this === consumerScroll) return new DOMRect(0, 0, 500, 200)
+      const scroller = host.contains(this) ? host : consumerScroll
+      const match = /^fixture:user:(\d+)$/.exec(this.dataset.chatNodeKey ?? '')
+      const offset = match === null ? 300 : 300 + (Number(match[1]) - 1001) * 40
+      return new DOMRect(0, offset + shift - (scroller?.scrollTop ?? 0), 500, 40)
+    })
+    try {
+      const view = render(<ChatView {...oldSession.props} />, { container: host })
+      expect(view.getByText('old session row')).toBeTruthy()
+      const originalFlow = view.container.querySelector('[data-chat-flow]')
+      expect(originalFlow).not.toBeNull()
+      const consumer = render(<ChatView {...newSession.props} sessionId={newSessionId} />)
+      consumerScroll = consumer.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+      installScrollMetrics(consumerScroll, 2_000, 200)
+      readerScroll(consumerScroll, 100)
+      fireEvent.click(consumer.container.querySelector('[data-chat-history] button')!)
+      await historyFrame()
+      expect(newSession.loadOlder).toHaveBeenCalledOnce()
+      expect(newSession.props.historyPageState?.()).toEqual({ id: 1, result: 'pending' })
+      expect(oldSession.loadOlder).not.toHaveBeenCalled()
+
+      newSession.chatScroll.save({ anchorKey: 'fixture:user:1011', anchorTop: 24, scrollTop: 676 })
+      view.rerender(<ChatView {...newSession.props} sessionId={newSessionId} />)
+      expect(view.container.querySelector('[data-chat-flow]')).toBe(originalFlow)
+      expect(view.queryByText('old session row')).toBeNull()
+      const anchor = view.container.querySelector<HTMLElement>('[data-chat-node-key="fixture:user:1011"]')
+      if (anchor === null) throw new Error('expected the new Session reading anchor')
+      expect(host.scrollTop).toBe(676)
+      expect(anchor.getBoundingClientRect().top).toBe(24)
+      expect(newSession.chatScroll.read()?.anchorKey).toBe('fixture:user:1011')
+
+      act(() => { newSession.prepareOlder(() => {
+        shift = 500
+        newSession.setChat({ nodes: [...older, ...current] })
+      }) })
+      await historyFrame()
+      expect(newSession.consumeOlder).toHaveBeenCalledOnce()
+      expect(view.container.contains(anchor)).toBe(true)
+      expect(anchor.getBoundingClientRect().top).toBe(24)
+      expect(host.scrollTop).toBe(1_176)
+    } finally {
+      host.remove()
+    }
+  }, 20_000)
+
+  it('anchors a page prepared by another view before consuming it', async () => {
+    const current = Array.from({ length: 42 }, (_, index) => user(1001 + index, `current ${index}`))
+    const older = Array.from({ length: 300 }, (_, index) => user(1 + index, `older ${index}`))
+    const h = makeHarness({ nodes: current }, { hasMore: true })
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    installScrollMetrics(scroller, 2000, 200)
+    readerScroll(scroller, 100)
+    act(() => { h.prepareOlder(() => { h.setChat({ nodes: [...older, ...current] }) }) })
+    fireEvent.click(view.getByText('加载更早'))
+    await historyFrame()
+    expect(h.loadOlder).not.toHaveBeenCalled()
+    expect(h.consumeOlder).toHaveBeenCalledOnce()
+    expect(view.container.querySelectorAll('[data-chat-flow-key]').length).toBe(240)
+  }, 20_000)
+
+  it('cancels an invalidated consumed prepend before a newer shared page lands', async () => {
+    const current = [user(1001, 'first reader row'), user(1002, 'second reader row'), assistant(1003, 'answer')]
+    const h = makeHarness({ nodes: current }, { hasMore: true })
+    const props = { ...h.props, historyPageState: () => {
+      const snapshot = h.sessionSnapshot()
+      return snapshot.historyPageId === undefined || snapshot.historyPageResult === undefined ? undefined
+        : { id: snapshot.historyPageId, result: snapshot.historyPageResult }
+    } }
+    vi.spyOn(ChatViewport.prototype, 'confirmHistoryStart').mockReturnValue(true)
+    const begin = vi.spyOn(ChatViewport.prototype, 'beginHistoryPrepend')
+    const cancel = vi.spyOn(ChatViewport.prototype, 'cancelHistoryPrepend')
+    const landings: (string | undefined)[] = []
+    const originalFinish = ChatViewport.prototype.finishHistoryPrepend
+    vi.spyOn(ChatViewport.prototype, 'finishHistoryPrepend').mockImplementation(function (this: ChatViewport) {
+      landings.push(this.historyPosition()?.anchorKey)
+      return originalFinish.call(this)
+    })
+    const view = render(<h.ChatView {...props} />)
+    const scroller = view.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    installScrollMetrics(scroller, 2_000, 200)
+    let shift = 0
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this === scroller) return new DOMRect(0, 0, 500, 200)
+      const offset = this.dataset.chatAnchorKey === 'fixture:user:1001' ? 20 : 120
+      return new DOMRect(0, offset + shift - scroller.scrollTop, 500, 40)
+    })
+    const first = view.container.querySelector<HTMLElement>('[data-chat-anchor-key="fixture:user:1001"]')!
+    const second = view.container.querySelector<HTMLElement>('[data-chat-anchor-key="fixture:user:1002"]')!
+    let hit = first
+    const originalHitTest = Object.getOwnPropertyDescriptor(document, 'elementsFromPoint')
+    Object.defineProperty(document, 'elementsFromPoint', { configurable: true, value: () => [hit] })
+    try {
+      readerScroll(scroller, 100)
+      await historyFrame()
+      readerScroll(scroller, 0)
+      await historyFrame()
+      expect(h.loadOlder).toHaveBeenCalledOnce()
+      const consume = h.consumeOlder.getMockImplementation()!
+      h.consumeOlder.mockImplementationOnce(() => {
+        expect(begin).toHaveReturnedWith(true)
+        expect((begin.mock.instances.at(-1) as ChatViewport | undefined)?.historyPosition()?.anchorKey).toBe('fixture:user:1001')
+        expect(consume()).toBe(true)
+        expect(props.historyPageState()).toEqual({ id: 1, result: 'consumed' })
+        expect(h.historyPageIds()).toEqual([1])
+        // Feed replacement removes page 1's acknowledgement before React commits.
+        h.setConversation({ ...h.conversationSnapshot(), historyPageIds: [] })
+        h.setSession({ historyPageResult: 'invalidated', historyPageResults: new Map([[1, 'invalidated']]) })
+        h.loadOlder()
+        h.setSession({ historyPageResults: new Map([[1, 'invalidated'], [2, 'pending']]) })
+        expect(props.historyPageState()).toEqual({ id: 2, result: 'pending' })
+        return true
+      })
+      cancel.mockClear()
+      act(() => { h.prepareOlder(() => {}) })
+      await historyFrame()
+      expect(h.consumeOlder).toHaveBeenCalledOnce()
+      expect(begin).toHaveReturnedWith(true)
+      expect(cancel).toHaveBeenCalled()
+
+      hit = second
+      readerScroll(scroller, 100)
+      expect(h.chatScroll.read()?.anchorKey).toBe('fixture:user:1002')
+      const before = second.getBoundingClientRect().top
+      act(() => {
+        h.prepareOlder(() => { shift = 500; h.setChat({ nodes: [user(1, 'older'), ...current] }) })
+        expect(h.consumeOlder()).toBe(true)
+      })
+      expect(second.getBoundingClientRect().top).toBe(before)
+      expect(h.chatScroll.read()?.anchorKey).toBe('fixture:user:1002')
+      expect(landings).not.toContain('fixture:user:1001')
+    } finally {
+      if (originalHitTest !== undefined) Object.defineProperty(document, 'elementsFromPoint', originalHitTest)
+      else Reflect.deleteProperty(document, 'elementsFromPoint')
+    }
+  })
+
+  it('releases an invalidated page even when a newer request is already current', async () => {
+    const current = Array.from({ length: 42 }, (_, index) => user(1001 + index, `current ${index}`))
+    const h = makeHarness({ nodes: current }, { hasMore: true })
+    const finish = vi.spyOn(ChatViewport.prototype, 'finishHistoryPrepend')
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    installScrollMetrics(scroller, 2000, 200)
+    readerScroll(scroller, 100)
+    fireEvent.click(view.getByText('加载更早'))
+    await historyFrame()
+    expect(h.loadOlder).toHaveBeenCalledOnce()
+    finish.mockClear()
+    act(() => { h.setSession({ historyPageId: 2, historyPageResult: 'pending',
+      historyPageResults: new Map([[1, 'invalidated'], [2, 'pending']]) }) })
+    finish.mockClear()
+    act(() => { h.setChat({ nodes: [...current, assistant(2000, 'live reply')] }) })
+    expect(finish).toHaveBeenCalled()
+  })
+
+  it.each(['part', 'group'] as const)(
+    'expands the history window around a reader-selected %s anchor while a page is loading', async (anchorKind) => {
+      const mixed: AssistantMessageNode = {
+        ...assistant(1021, 'retained answer', 1),
+        blocks: [{ kind: 'reasoning', text: 'retained reasoning' }, { kind: 'text', text: 'retained answer' }],
+      }
+      const current: ConversationNode[] = [
+        ...Array.from({ length: 20 }, (_, index) => user(1001 + index, `current ${index}`)),
+        mixed,
+        ...Array.from({ length: 20 }, (_, index) => user(1022 + index, `current ${index + 20}`)),
+      ]
+      const older = Array.from({ length: 300 }, (_, index) => user(index + 1, `older ${index}`))
+      let source = chatSnapshotFixture({ nodes: current })
+      const builder = new ChatSnapshotBuilder()
+      const state = new ProcessState()
+      const groups = new ConversationGroupStore<ProcessGroupData>()
+      const h = makeHarness({ chat: installGroupedSnapshot(builder, state, groups, source) }, { hasMore: true })
+      h.setGrouped(groups)
+      const view = render(<h.ChatView {...h.props} />)
+      const scroller = view.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+      installScrollMetrics(scroller, 2_000, 200)
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+        return this === scroller ? new DOMRect(0, 0, 500, 200) : new DOMRect(0, 20, 500, 40)
+      })
+      const nodeKey = source.order.find(key => source.nodes.get(key)?.kind === 'assistant-step')
+      if (nodeKey === undefined) throw new Error('expected the split assistant Node')
+      const group = view.container.querySelector<HTMLElement>('[data-chat-group-key]')
+      if (group === null) throw new Error('expected a real process group')
+      const groupKey = JSON.stringify(['process', nodeKey, 'reasoning'])
+      expect(group.dataset.chatGroupKey).toBe(groupKey)
+      const header = group.querySelector<HTMLButtonElement>('[data-process-activity]')!
+      if (anchorKind === 'part') fireEvent.click(header)
+      const part = group.querySelector<HTMLElement>('[data-chat-group-part="reasoning"]')
+      if (part === null) throw new Error('expected a reasoning part')
+      const selected = anchorKind === 'part' ? part : group
+      const anchorKey = anchorKind === 'part' ? JSON.stringify([nodeKey, 'reasoning']) : `group:${groupKey}`
+      expect(selected.dataset.chatAnchorKey).toBe(anchorKey)
+      expect(view.getByText('retained answer')).toBeTruthy()
+
+      const initialRow = view.getByText('current 0').closest<HTMLElement>('[data-chat-anchor-key]')
+      if (initialRow === null) throw new Error('expected an initial reading row')
+      let hit: HTMLElement = initialRow
+      const originalHitTest = Object.getOwnPropertyDescriptor(document, 'elementsFromPoint')
+      Object.defineProperty(document, 'elementsFromPoint', { configurable: true, value: () => [hit] })
+      try {
+        readerScroll(scroller, 100)
+        expect(h.chatScroll.read()?.anchorKey).toBe(initialRow.dataset.chatAnchorKey)
+        fireEvent.click(view.getByText('加载更早'))
+        await historyFrame()
+        expect(h.loadOlder).toHaveBeenCalledOnce()
+        expect(h.consumeOlder).not.toHaveBeenCalled()
+        hit = selected
+        readerScroll(scroller, 150)
+        expect(h.chatScroll.read()?.anchorKey).toBe(anchorKey)
+
+        act(() => { h.prepareOlder(() => {
+          source = chatSnapshotFixture({ nodes: [...older, ...current] }, source)
+          h.set({ chat: installGroupedSnapshot(builder, state, groups, source) })
+          h.setGrouped(groups)
+        }) })
+        await historyFrame()
+
+        expect(h.consumeOlder).toHaveBeenCalledOnce()
+        expect(view.getByText('retained answer')).toBeTruthy()
+        expect(view.container.contains(selected)).toBe(true)
+        expect(h.chatScroll.read()?.anchorKey).toBe(anchorKey)
+        // A stale 41-node window retains the answer but cannot show this older row.
+        expect(view.getByText('older 150')).toBeTruthy()
+        expect(view.queryByText('older 0')).toBeNull()
+      } finally {
+        if (originalHitTest !== undefined) Object.defineProperty(document, 'elementsFromPoint', originalHitTest)
+        else Reflect.deleteProperty(document, 'elementsFromPoint')
+      }
+    }, 20_000,
+  )
+
+  it('keeps the visible slice of a long process group when history arrives after reader movement', async () => {
+    const current: ConversationNode[] = Array.from({ length: 600 }, (_, index) => ({
+      ...toolResult(1001 + index, `long-${index + 1}`), turn: 1,
+    }))
+    const older = Array.from({ length: 300 }, (_, index) => user(index + 1, `older ${index}`))
+    let source = chatSnapshotFixture({ nodes: current })
+    const builder = new ChatSnapshotBuilder()
+    const state = new ProcessState()
+    const groups = new ConversationGroupStore<ProcessGroupData>()
+    const h = makeHarness({ chat: installGroupedSnapshot(builder, state, groups, source) }, { hasMore: true })
+    h.setGrouped(groups)
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[data-chat-flow]')!.parentElement as HTMLDivElement
+    installScrollMetrics(scroller, 2_000, 200)
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return this === scroller ? new DOMRect(0, 0, 500, 200) : new DOMRect(0, 20, 500, 40)
+    })
+    const group = view.container.querySelector<HTMLElement>('[data-chat-group-key]')
+    if (group === null) throw new Error('expected a real process group')
+    const firstKey = 'fixture:tool:long-1'
+    const groupAnchor = `group:${JSON.stringify(['process', firstKey, null])}`
+    expect(group.dataset.chatAnchorKey).toBe(groupAnchor)
+    const mountedMembers = () => [...group.querySelectorAll<HTMLElement>('[data-chat-node-key]')]
+      .map(row => row.dataset.chatNodeKey)
+    expect(mountedMembers()).not.toContain(firstKey)
+
+    const originalHitTest = Object.getOwnPropertyDescriptor(document, 'elementsFromPoint')
+    Object.defineProperty(document, 'elementsFromPoint', { configurable: true, value: () => [group] })
+    try {
+      readerScroll(scroller, 700)
+      // A group member may be mounted before the synthetic Turn control at the order head.
+      // Continue through local slices until the remote request actually starts.
+      for (let step = 0; step < 8 && h.loadOlder.mock.calls.length === 0; step++) {
+        fireEvent.click(view.getByText('加载更早'))
+        await historyFrame()
+      }
+      expect(mountedMembers()).toContain(firstKey)
+      expect(h.loadOlder).toHaveBeenCalledOnce()
+      expect(h.consumeOlder).not.toHaveBeenCalled()
+
+      // Move well into the same group while that request is in flight.
+      for (let step = 0; step < 4; step++) {
+        readerScroll(scroller, 700)
+        readerScroll(scroller, 1_800)
+      }
+      readerScroll(scroller, 700)
+      expect(h.chatScroll.read()?.anchorKey).toBe(groupAnchor)
+      const representative = mountedMembers()[0]
+      if (representative === undefined) throw new Error('expected a mounted group member')
+      expect(mountedMembers()).not.toContain(firstKey)
+      expect(Number(representative.slice('fixture:tool:long-'.length))).toBeGreaterThan(180)
+      expect(h.chatScroll.read()).toMatchObject({ anchorKey: groupAnchor, windowAnchorKey: representative })
+
+      act(() => { h.prepareOlder(() => {
+        source = chatSnapshotFixture({ nodes: [...older, ...current] }, source)
+        h.set({ chat: installGroupedSnapshot(builder, state, groups, source) })
+        h.setGrouped(groups)
+      }) })
+      await historyFrame()
+
+      expect(h.consumeOlder).toHaveBeenCalledOnce()
+      expect(h.chatScroll.read()).toMatchObject({ anchorKey: groupAnchor, windowAnchorKey: representative })
+      expect(mountedMembers()).toContain(representative)
+      expect(mountedMembers()).not.toContain(firstKey)
+
+      // Remount with the same per-session scroll memory and a new scrollport.
+      view.rerender(<div />)
+      Object.defineProperty(document, 'elementsFromPoint', { configurable: true, value: () => [] })
+      vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockReturnValue(2_000)
+      vi.spyOn(Element.prototype, 'clientHeight', 'get').mockReturnValue(200)
+      view.rerender(<h.ChatView {...h.props} />)
+      const restoredGroup = view.container.querySelector<HTMLElement>('[data-chat-group-key]')
+      if (restoredGroup === null) throw new Error('expected the restored process group')
+      const restoredMembers = [...restoredGroup.querySelectorAll<HTMLElement>('[data-chat-node-key]')]
+        .map(row => row.dataset.chatNodeKey)
+      expect(restoredGroup.dataset.chatAnchorKey).toBe(groupAnchor)
+      expect(restoredMembers).toContain(representative)
+      expect(restoredMembers).not.toContain(firstKey)
+      expect(h.chatScroll.read()).toMatchObject({ anchorKey: groupAnchor, windowAnchorKey: representative })
+    } finally {
+      if (originalHitTest !== undefined) Object.defineProperty(document, 'elementsFromPoint', originalHitTest)
+      else Reflect.deleteProperty(document, 'elementsFromPoint')
+    }
+  }, 20_000)
+
   it('keeps a reader anchor through a delayed prepend after paging a bounded slice to its head', async () => {
     let nodes = Array.from({ length: 1_000 }, (_, index) => user(1_001 + index, `prompt ${index}`))
     const h = makeHarness({ nodes }, { hasMore: true })
@@ -2129,20 +2945,16 @@ describe('ChatView', () => {
 
     const older = Array.from({ length: 500 }, (_, index) => user(index + 1, `older ${index + 1}`))
     nodes = [...older, ...nodes]
-    act(() => {
+    act(() => { h.prepareOlder(() => {
       geometry.setNodes(nodes)
-      h.set({ nodes, loadingOlder: false })
-    })
+      h.set({ nodes })
+    }) })
+    await historyFrame()
 
     const anchor = view.container.querySelector<HTMLElement>('[data-chat-node-key="fixture:user:1101"]')
     expect(anchor).not.toBeNull()
     expect(anchor!.getBoundingClientRect().top).toBe(0)
-    // A committed history page re-anchors at zero offset, so the retained head is the
-    // window's first mounted row and nothing is mounted above the anchor. The old
-    // 0.75-offset window kept 180 rows above it and compensated 720px of scroll; the
-    // anchor still sits at the viewport top, now with no scroll offset to compensate.
-    expect(view.container.querySelector('[data-chat-node-key]')).toBe(anchor)
-    expect(scroller.scrollTop).toBe(0)
+    expect(scroller.scrollTop).toBe(720)
     expect(h.chatScroll.read()?.anchorKey).toBe('fixture:user:1101')
     expect(view.getByText('prompt 100')).toBeDefined()
     geometry.rectangle.mockRestore()

@@ -86,6 +86,12 @@ export interface SessionSnapshot {
   readonly loadingOlder: boolean
   /** History request status; pendingConsumption retains an unpublished ordinary page. */
   readonly historyLoadStatus: 'idle' | 'loading' | 'pendingConsumption' | 'error'
+  /** Identity of the current or most recent ordinary history page request; absent until one is created. */
+  readonly historyPageId?: number
+  /** Outcome of that request; a feed replacement invalidates previously consumed pages. */
+  readonly historyPageResult?: 'pending' | 'consumed' | 'invalidated' | 'error'
+  /** Per-request outcomes retained for this Session's lifetime; each snapshot owns an immutable view. */
+  readonly historyPageResults?: ReadonlyMap<number, 'pending' | 'consumed' | 'invalidated' | 'error'>
   readonly promptError: PromptError | null
   readonly blank: boolean
   readonly lastAgentError: string | null

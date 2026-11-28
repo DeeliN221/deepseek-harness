@@ -15,41 +15,6 @@ export interface ChatRenderWindowAnchor {
   readonly lastKey: string
 }
 
-/** Reading facts that decide whether a loaded history page committed. */
-export interface HistoryProjection {
-  readonly firstSeq: number | null
-  readonly orderLength: number
-}
-
-/**
- * Whether a loaded history page committed into the Chat order.
- * The first durable row's anchor sequence can stay unchanged when that row predates
- * the page (session-scope rows or a page that does not start at the row), so the
- * order length is the reliable commit signal.
- * @param previous - projection before the commit was observed.
- * @param current - projection of the committed order.
- * @returns whether the committed order must re-anchor the bounded render window.
- */
-export function historyWindowTriggered(previous: HistoryProjection, current: HistoryProjection): boolean {
-  return previous.firstSeq !== current.firstSeq || previous.orderLength !== current.orderLength
-}
-
-/**
- * Re-anchor the bounded window after a history prepend while keeping the whole
- * previously mounted range. A zero offset starts the window at the retained head,
- * so every row the reader could be looking at (all rows newer than the head) stays
- * mounted; centering the head would unmount up to three quarters of the old window.
- * @param length - complete loaded order length.
- * @param anchorIndex - index of the retained head row in the committed order.
- * @param limit - node budget of the window.
- * @returns the window bounds.
- */
-export function historyRenderWindow(
-  length: number, anchorIndex: number, limit = CHAT_RENDER_WINDOW_NODES,
-): ChatRenderWindowBounds {
-  return anchoredRenderWindow(length, anchorIndex, limit, 0)
-}
-
 /** Return the newest suffix that fits the transcript node budget. */
 export function tailRenderWindow(length: number, limit = CHAT_RENDER_WINDOW_NODES): ChatRenderWindowBounds {
   const end = Math.max(0, length)
@@ -125,10 +90,14 @@ export function laterRenderWindow(
 /** Resolve a stored row or split-node anchor into the complete Chat order. */
 export function savedAnchorIndex(order: readonly string[], anchorKey: string): number {
   const exact = order.indexOf(anchorKey)
-  if (exact >= 0 || !anchorKey.startsWith('[')) return exact
+  if (exact >= 0) return exact
+  const encoded = anchorKey.startsWith('group:') ? anchorKey.slice('group:'.length) : anchorKey
+  if (!encoded.startsWith('[')) return -1
   try {
-    const parts: unknown = JSON.parse(anchorKey)
-    return Array.isArray(parts) && typeof parts[0] === 'string' ? order.indexOf(parts[0]) : -1
+    const parts: unknown = JSON.parse(encoded)
+    if (!Array.isArray(parts)) return -1
+    const key = parts[0] === 'process' ? parts[1] : parts[0]
+    return typeof key === 'string' ? order.indexOf(key) : -1
   } catch {
     return -1
   }

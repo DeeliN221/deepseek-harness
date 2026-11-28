@@ -222,6 +222,106 @@ describe('Conversation registries', () => {
     expect(openTurn.getSnapshot()).toBe(8)
   })
 
+  it('acknowledges an assembled history page but not an untracked navigation prepend', async () => {
+    const { uiConversation, binding, events, views } = await bootRegistries()
+    events.register({
+      kind: 'history-page-probe',
+      target: 'recovery-probe',
+      match: event => event.type === 'turn/start'
+        ? { id: String(event.data.turn), role: 'start' }
+        : null,
+      start: () => null,
+      update: context => context.state,
+      buildViewNode: context => ({
+        key: context.key, kind: 'history-page-probe', id: context.id, target: 'recovery-probe', data: null,
+      }),
+    } satisfies ConversationNodeDefinition<null>)
+    views.register({
+      target: 'recovery-probe',
+      create: () => {
+        let ids: readonly string[] = []
+        return {
+          empty: ids,
+          replace: ({ nodes }) => (ids = nodes.map(node => node.id)),
+          apply: ({ upserts }) => (ids = [...new Set([...ids, ...upserts.map(node => node.id)])]),
+        }
+      },
+    } satisfies ConversationViewDefinition<ConversationViewNode, readonly string[]>)
+    await Promise.resolve()
+
+    const source = binding.eventSource as MutableSessionEventSource
+    const conversation = uiConversation.binding(binding)
+    conversation.activate('recovery-probe')
+    const published: { pages: readonly number[]; nodes: readonly string[] | undefined }[] = []
+    const unsubscribe = conversation.snapshot.subscribe(() => {
+      const snapshot = conversation.snapshot.getSnapshot()
+      published.push({ pages: snapshot.historyPageIds ?? [], nodes: snapshot.views.get('recovery-probe') })
+    })
+    onTestFinished(unsubscribe)
+
+    source.replace([{ type: 'event', event: {
+      type: 'turn/start', seq: SessionSeq(30), time: 30, data: { turn: 3 },
+    } }], true)
+    source.prepend([{ type: 'event', event: {
+      type: 'turn/start', seq: SessionSeq(20), time: 20, data: { turn: 2 },
+    } }], true, 101)
+    const acknowledged = published.find(snapshot => snapshot.pages.includes(101))
+    expect(acknowledged?.nodes).toEqual(expect.arrayContaining(['2', '3']))
+    expect(conversation.snapshot.getSnapshot().historyPageIds).toEqual([101])
+
+    source.prepend([{ type: 'event', event: {
+      type: 'turn/start', seq: SessionSeq(10), time: 10, data: { turn: 1 },
+    } }], false)
+    expect(conversation.snapshot.getSnapshot().historyPageIds).toEqual([101])
+    expect(conversation.target('recovery-probe').getSnapshot()).toEqual(expect.arrayContaining(['1', '2', '3']))
+    expect(published.every(snapshot => snapshot.pages.length <= 1)).toBe(true)
+  })
+
+  it('publishes and retains consecutive page confirmations even for empty pages', async () => {
+    const { uiConversation, binding } = await bootRegistries()
+    const source = binding.eventSource as MutableSessionEventSource
+    const conversation = uiConversation.binding(binding)
+    const published: (readonly number[])[] = []
+    const unsubscribe = conversation.snapshot.subscribe(() => {
+      published.push(conversation.snapshot.getSnapshot().historyPageIds ?? [])
+    })
+    onTestFinished(unsubscribe)
+
+    expect(conversation.snapshot.getSnapshot().historyPageIds).toEqual([])
+    source.prepend([], false, 201)
+    const firstSnapshot = conversation.snapshot.getSnapshot()
+    expect(firstSnapshot.historyPageIds).toEqual([201])
+    source.prepend([], false, 202)
+    expect(conversation.snapshot.getSnapshot().historyPageIds).toEqual([201, 202])
+    expect(firstSnapshot.historyPageIds).toEqual([201])
+    expect(published).toEqual([[201], [201, 202]])
+
+    source.append({ type: 'event', event: {
+      type: 'turn/start', seq: SessionSeq(1), time: 1, data: { turn: 1 },
+    } })
+    expect(conversation.snapshot.getSnapshot().historyPageIds).toEqual([201, 202])
+  })
+
+  it('clears page confirmations on window replacement and starts a new sequence', async () => {
+    const { uiConversation, binding } = await bootRegistries()
+    const source = binding.eventSource as MutableSessionEventSource
+    const conversation = uiConversation.binding(binding)
+    source.prepend([], false, 301)
+    const beforeReplacement = conversation.snapshot.getSnapshot()
+    const published: (readonly number[])[] = []
+    const unsubscribe = conversation.snapshot.subscribe(() => {
+      published.push(conversation.snapshot.getSnapshot().historyPageIds ?? [])
+    })
+    onTestFinished(unsubscribe)
+
+    source.replace([], false)
+    expect(conversation.snapshot.getSnapshot().historyPageIds).toEqual([])
+    expect(published).toContainEqual([])
+    expect(beforeReplacement.historyPageIds).toEqual([301])
+    source.prepend([], false, 302)
+    expect(conversation.snapshot.getSnapshot().historyPageIds).toEqual([302])
+  })
+
   it('publishes the rebuilt window after an incremental update throws and keeps applying later events', async () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
     onTestFinished(() => { errors.mockRestore() })

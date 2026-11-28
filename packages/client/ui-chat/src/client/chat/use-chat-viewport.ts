@@ -720,8 +720,11 @@ export class ChatViewport {
       anchor = row !== undefined && row.getBoundingClientRect().top < bottom ? row : rows[0] ?? null
     }
     const key = anchor?.dataset.chatAnchorKey
+    const windowAnchorKey = anchor?.dataset.chatGroupKey === undefined ? undefined
+      : anchor.querySelector<HTMLElement>('[data-chat-node-key]')?.dataset.chatNodeKey
     return anchor === null || key === undefined ? null : {
       anchorKey: key,
+      ...(windowAnchorKey === undefined ? {} : { windowAnchorKey }),
       anchorTop: anchor.getBoundingClientRect().top - viewport.top,
       scrollTop: scroller.scrollTop,
     }
@@ -794,7 +797,7 @@ export class ChatViewport {
    */
   restore(position: ChatScrollPosition): ViewportLanding | null {
     const row = this.anchor(position.anchorKey)
-    if (row !== null) return this.align(row, position.anchorTop, null)
+    if (row !== null) return this.align(row, position.anchorTop, null, position.windowAnchorKey)
     const metrics = this.metrics()
     return metrics === null ? null : this.write(position.scrollTop, metrics, null)
   }
@@ -880,6 +883,14 @@ export class ChatViewport {
   get preserving(): boolean { return this.paging !== null }
 
   /**
+   * Read the anchor captured by the selected history consumption mode.
+   * @returns the retained position, or null when no anchor is captured.
+   */
+  historyPosition(): ChatScrollPosition | null {
+    return this.historyPrepend?.position ?? this.paging?.position ?? null
+  }
+
+  /**
    * Compensate inner scrolling first, then the outer scrollport, within their actual scroll ranges.
    * An inner write pauses its bound follow controller so the reading anchor takes priority.
    * @returns the actual landing, or null when no visible retained row remains.
@@ -929,7 +940,7 @@ export class ChatViewport {
     if (metrics === null) return null
     const top = row.getBoundingClientRect().top - elements.scroller.getBoundingClientRect().top
     const target = metrics.top + top - position.anchorTop
-    return this.write(target, metrics, null, { key: position.anchorKey, top })
+    return this.write(target, metrics, null, { key: position.anchorKey, top, windowAnchorKey: position.windowAnchorKey })
   }
 
   /**
@@ -953,16 +964,16 @@ export class ChatViewport {
     return landing
   }
 
-  private align(row: HTMLElement, offset: number, turn: number | null): ViewportLanding | null {
+  private align(row: HTMLElement, offset: number, turn: number | null, windowAnchorKey?: string): ViewportLanding | null {
     const metrics = this.metrics()
     if (metrics === null || this.elements === null) return null
     const top = row.getBoundingClientRect().top - this.elements.scroller.getBoundingClientRect().top
-    return this.write(metrics.top + top - offset, metrics, turn, { key: row.dataset.chatAnchorKey, top })
+    return this.write(metrics.top + top - offset, metrics, turn, { key: row.dataset.chatAnchorKey, top, windowAnchorKey })
   }
 
   private write(
     target: number, metrics: ViewportMetrics, turn: number | null,
-    anchor?: { key: string | undefined; top: number },
+    anchor?: { key: string | undefined; top: number; windowAnchorKey?: string | undefined },
   ): ViewportLanding | null {
     if (this.elements === null) return null
     const top = Math.max(0, Math.min(metrics.floor, target))
@@ -973,6 +984,7 @@ export class ChatViewport {
       turn,
       position: anchor?.key === undefined ? null : {
         anchorKey: anchor.key,
+        ...(anchor.windowAnchorKey === undefined ? {} : { windowAnchorKey: anchor.windowAnchorKey }),
         anchorTop: anchor.top - (actual - metrics.top),
         scrollTop: actual,
       },

@@ -1,43 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  CHAT_RENDER_WINDOW_NODES, anchoredRenderWindow, earlierRenderWindow, historyRenderWindow,
-  historyWindowTriggered, laterRenderWindow, renderWindowAnchor, resolveRenderWindow, savedAnchorIndex,
-  tailRenderWindow,
+  CHAT_RENDER_WINDOW_NODES, anchoredRenderWindow, earlierRenderWindow, laterRenderWindow, renderWindowAnchor,
+  resolveRenderWindow, savedAnchorIndex, tailRenderWindow,
 } from '../src/client/chat/render-window.ts'
-
-describe('history commit re-anchor', () => {
-  it('treats a grown order as a history commit even when the first anchor sequence stays put', () => {
-    expect(historyWindowTriggered({ firstSeq: null, orderLength: 42 }, { firstSeq: null, orderLength: 500 })).toBe(true)
-    expect(historyWindowTriggered({ firstSeq: 1774, orderLength: 42 }, { firstSeq: 1774, orderLength: 500 })).toBe(true)
-  })
-
-  it('treats a changed first anchor sequence as a history commit', () => {
-    expect(historyWindowTriggered({ firstSeq: 1510, orderLength: 42 }, { firstSeq: 1233, orderLength: 42 })).toBe(true)
-  })
-
-  it('does not re-anchor when neither the order nor its first anchor sequence changed', () => {
-    expect(historyWindowTriggered({ firstSeq: 1510, orderLength: 42 }, { firstSeq: 1510, orderLength: 42 })).toBe(false)
-  })
-
-  it('keeps the whole previously mounted range below the retained head after a prepend', () => {
-    const previous = { start: 600, end: 840 }
-    const prepended = Array.from({ length: 500 }, (_, index) => `older-${index}`)
-    const order = [...prepended, ...Array.from({ length: 840 }, (_, index) => `node-${index}`)]
-    const anchorIndex = prepended.length + previous.start
-    const range = historyRenderWindow(order.length, anchorIndex)
-    expect(range.start).toBe(anchorIndex)
-    expect(range.end - range.start).toBe(CHAT_RENDER_WINDOW_NODES)
-    expect(range.end).toBeGreaterThanOrEqual(prepended.length + previous.end)
-  })
-
-  it('widens a stale narrow window to the full node budget instead of freezing its span', () => {
-    const order = Array.from({ length: 900 }, (_, index) => `node-${index}`)
-    const range = historyRenderWindow(order.length, 600)
-    expect(range).toEqual({ start: 600, end: 840 })
-    expect(resolveRenderWindow(order, 'session-a', renderWindowAnchor(order, 'session-a', range)))
-      .toEqual({ start: 600, end: 840 })
-  })
-})
 
 describe('bounded Chat render window', () => {
   it('keeps only the newest node budget in the initial projection', () => {
@@ -75,8 +40,44 @@ describe('bounded Chat render window', () => {
     const order = ['node-a', 'node-b', 'node-c']
     expect(savedAnchorIndex(order, 'node-b')).toBe(1)
     expect(savedAnchorIndex(order, JSON.stringify(['node-b', 'assistant'] ))).toBe(1)
+    expect(savedAnchorIndex(order, `group:${JSON.stringify(['process', 'node-b', 'reasoning'])}`)).toBe(1)
     expect(savedAnchorIndex(order, 'missing')).toBe(-1)
     expect(savedAnchorIndex(order, '[invalid')).toBe(-1)
+  })
+
+  it('keeps a reader anchor at the same window offset while a page is in flight and turns append', () => {
+    const order = Array.from({ length: 700 }, (_, index) => `node-${index}`)
+    const anchorIndex = 300
+    const bounds = anchoredRenderWindow(order.length, anchorIndex, CHAT_RENDER_WINDOW_NODES,
+      Math.floor(CHAT_RENDER_WINDOW_NODES * 0.75))
+    const anchor = renderWindowAnchor(order, 'session-a', bounds)
+    const offset = anchorIndex - bounds.start
+
+    const appended = [...order, 'node-700', 'node-701']
+    const afterAppend = resolveRenderWindow(appended, 'session-a', anchor)
+    expect(afterAppend).toEqual(bounds)
+    expect(anchorIndex - afterAppend.start).toBe(offset)
+
+    const prepended = [...Array.from({ length: 120 }, (_, index) => `older-${index}`), ...appended]
+    const afterPrepend = resolveRenderWindow(prepended, 'session-a', anchor)
+    expect(prepended[afterPrepend.start]).toBe(anchor?.firstKey)
+    expect(prepended.indexOf('node-300') - afterPrepend.start).toBe(offset)
+    expect(afterPrepend.end - afterPrepend.start).toBeLessThanOrEqual(CHAT_RENDER_WINDOW_NODES)
+  })
+
+  it('resolves a long group anchor to a stable member and never to a prefix-similar node', () => {
+    const order = Array.from({ length: 700 }, (_, index) => `node-${index}`)
+    const group = `group:${JSON.stringify(['process', 'node-250', 'node-251', 'node-252'])}`
+    expect(savedAnchorIndex(order, group)).toBe(250)
+    expect(savedAnchorIndex(order, group)).toBe(savedAnchorIndex(
+      [...Array.from({ length: 80 }, (_, index) => `older-${index}`), ...order], group) - 80)
+    // The member is a group of many rows; its window must still mount it after the reader's slice moves.
+    const bounds = anchoredRenderWindow(order.length, 250, CHAT_RENDER_WINDOW_NODES,
+      Math.floor(CHAT_RENDER_WINDOW_NODES * 0.75))
+    expect(order.slice(bounds.start, bounds.end)).toEqual(expect.arrayContaining(['node-250', 'node-252']))
+    expect(savedAnchorIndex(['node-2500'], `group:${JSON.stringify(['process', 'node-250'])}`)).toBe(-1)
+    expect(savedAnchorIndex(order, `group:${JSON.stringify(['process', 'removed'])}`)).toBe(-1)
+    expect(savedAnchorIndex(order, 'group:[not-json')).toBe(-1)
   })
 
   it('renders empty and short sessions completely despite a stale anchor', () => {

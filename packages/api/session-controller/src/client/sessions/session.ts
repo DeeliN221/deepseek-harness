@@ -85,7 +85,13 @@ interface PendingHistory {
   readonly pages: (readonly SessionEventLikeEntry[])[]
 }
 
+// Share the counter across copies of this module in the same JavaScript runtime.
+const HISTORY_PAGE_COUNTER = Symbol.for('@deepseek-ai/dsh-session-controller/history-page-counter')
+const historyPageGlobals = globalThis as typeof globalThis & { [HISTORY_PAGE_COUNTER]?: { value: number } }
+const historyPageCounter = historyPageGlobals[HISTORY_PAGE_COUNTER] ??= { value: 0 }
+
 interface OlderHistoryRequest {
+  readonly id: number
   readonly generation: number
   readonly beforeSeq: SessionLogOffset
   page: { readonly entries: readonly SessionEventLikeEntry[]; readonly hasMore: boolean } | null
@@ -132,6 +138,9 @@ export class Session implements SessionFace {
   private openGeneration = 0
   private get loadingOlder(): boolean { return this.historyLoadStatus === 'loading' }
   private historyLoadStatus: SessionSnapshot['historyLoadStatus'] = 'idle'
+  private historyPageId: number | undefined
+  private historyPageResult: NonNullable<SessionSnapshot['historyPageResult']> = 'pending'
+  private historyPageResults: NonNullable<SessionSnapshot['historyPageResults']> = new Map()
   private olderRequest: OlderHistoryRequest | null = null
   /** Shared low-water target of the running jump loop; null when no jump is paging. */
   private jumpTargetSeq: SessionSeq | null = null
@@ -512,7 +521,9 @@ export class Session implements SessionFace {
     if (this.olderRequest !== null) return this.olderRequest
     const events = this.events
     if (this.openState !== 'open' || !this.hasMore || this.loadingOlder || events === undefined) return null
+    if (historyPageCounter.value >= Number.MAX_SAFE_INTEGER) throw new Error('History page identity exhausted')
     const request: OlderHistoryRequest = {
+      id: ++historyPageCounter.value,
       generation: this.openGeneration,
       beforeSeq: this.baseSeq,
       page: null,
@@ -521,6 +532,8 @@ export class Session implements SessionFace {
       consuming: false,
     }
     this.olderRequest = request
+    this.historyPageId = request.id
+    this.setHistoryPageResult(request.id, 'pending')
     this.historyLoadStatus = 'loading'
     this.notifier.markDirty()
     request.promise = (async () => {
@@ -532,10 +545,12 @@ export class Session implements SessionFace {
         const first = page?.entries[0]
         this.historyLoadStatus = page === null || (first === undefined ? page.hasMore : first.event.seq >= request.beforeSeq)
           ? 'error' : 'pendingConsumption'
+        if (this.historyLoadStatus === 'error') this.setHistoryPageResult(request.id, 'error')
       } catch (error) {
         if (this.olderRequest !== request) return
         request.page = null
         this.historyLoadStatus = 'error'
+        if (!request.invalidated) this.setHistoryPageResult(request.id, 'error')
         if (!isRemoteFailure(error)) console.error('[session-controller] loadOlder failed:', error)
       } finally {
         if (this.olderRequest === request) {
@@ -564,10 +579,12 @@ export class Session implements SessionFace {
     const page = request.page
     // Retain the request through synchronous feed notification so subscribers cannot reenter consumption.
     request.consuming = true
+    this.setHistoryPageResult(request.id, 'consumed')
     try {
-      this.prependWindow(page.entries, page.hasMore)
+      this.prependWindow(page.entries, page.hasMore, request.id)
       return true
     } catch (error) {
+      this.setHistoryPageResult(request.id, 'error')
       if (this.olderRequest === request) this.historyLoadStatus = 'error'
       throw error
     } finally {
@@ -579,7 +596,34 @@ export class Session implements SessionFace {
     }
   }
 
+  private setHistoryPageResult(id: number, result: NonNullable<SessionSnapshot['historyPageResult']>): void {
+    const results = new Map(this.historyPageResults)
+    results.set(id, result)
+    this.historyPageResults = results
+    if (this.historyPageId === id) this.historyPageResult = result
+    this.notifier.markDirty()
+  }
+
+  private invalidateConsumedHistoryPages(): void {
+    let results: Map<number, NonNullable<SessionSnapshot['historyPageResult']>> | undefined
+    for (const [id, result] of this.historyPageResults) {
+      if (result !== 'consumed') continue
+      results ??= new Map(this.historyPageResults)
+      results.set(id, 'invalidated')
+    }
+    if (results === undefined) return
+    this.historyPageResults = results
+    if (this.historyPageId !== undefined && results.get(this.historyPageId) === 'invalidated') {
+      this.historyPageResult = 'invalidated'
+    }
+    this.notifier.markDirty()
+  }
+
   private clearOlderHistory(): void {
+    const request = this.olderRequest
+    if (request !== null && this.historyPageResults.get(request.id) === 'pending') {
+      this.setHistoryPageResult(request.id, 'invalidated')
+    }
     this.olderRequest = null
     this.historyLoadStatus = this.pendingHistory === null ? 'idle' : 'loading'
     this.notifier.markDirty()
@@ -853,9 +897,14 @@ export class Session implements SessionFace {
     // page/baseline pair instead of applying it to an unrelated repair cut.
     this.durableEntries = [...entries]
     const visible = this.assistantStream.replace(this.durableEntries, assistantStream)
+    // A feed replacement drops Conversation's page acknowledgements, including on resume.
+    this.invalidateConsumedHistoryPages()
     if (this.olderRequest !== null && this.loadingOlder && !this.olderRequest.recovering) {
       this.olderRequest.invalidated = true
       this.olderRequest.page = null
+      if (this.historyPageResults.get(this.olderRequest.id) === 'pending') {
+        this.setHistoryPageResult(this.olderRequest.id, 'invalidated')
+      }
     } else this.clearOlderHistory()
     this.baseSeq = SessionLogOffset(entries[0]?.event.seq ?? 0)
     this.hasMore = hasMore
@@ -919,7 +968,7 @@ export class Session implements SessionFace {
   }
 
   /** Prepend one stream-validated history page. */
-  private prependWindow(entries: readonly SessionEventLikeEntry[], hasMore: boolean): void {
+  private prependWindow(entries: readonly SessionEventLikeEntry[], hasMore: boolean, pageId?: number): void {
     if (this.pendingHistory !== null) {
       const pending = this.pendingHistory
       pending.beforeSeq = entries[0] === undefined ? pending.beforeSeq : SessionLogOffset(entries[0].event.seq)
@@ -931,7 +980,7 @@ export class Session implements SessionFace {
     this.hasMore = hasMore
     this.historyWasPartial ||= hasMore
     this.durableEntries = [...entries, ...this.durableEntries]
-    this.eventSource.prepend(entries, hasMore)
+    this.eventSource.prepend(entries, hasMore, pageId)
   }
 
   /** Append one stream-validated live event. */
@@ -1110,6 +1159,11 @@ export class Session implements SessionFace {
       historyWasPartial: this.historyWasPartial,
       loadingOlder: this.loadingOlder,
       historyLoadStatus: this.historyLoadStatus,
+      ...(this.historyPageId === undefined ? {} : {
+        historyPageId: this.historyPageId,
+        historyPageResult: this.historyPageResult,
+        historyPageResults: this.historyPageResults,
+      }),
       promptError: this.promptError,
       blank: this.blankBit,
       lastAgentError: this.lastAgentError,
