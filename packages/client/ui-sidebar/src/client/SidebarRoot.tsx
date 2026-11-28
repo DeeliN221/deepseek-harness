@@ -71,10 +71,12 @@ export function SidebarRoot({
   const activePanelId = usePanelInfo(info => info.activePanelId)
   const pluginsPanel = panels.find(({ id }) => id === FIXED_PANEL_ID)
   const botTeamId = panels.find(({ id }) => id === BOT_TEAM_PANEL_ID)?.id
-  const botTeamAvailable = botTeamId !== undefined
   // 工具组渲染**全部已注册面板**（注册/注销即时生效），只排除两处既有入口的
   // 重复：logo 行固定的插件入口，以及第二行的 Bot Team 专属页签。
-  const toolPanels = panels.filter(({ id }) => id !== pluginsPanel?.id)
+  // The strip carries only these two panels; context insight and the team view
+  // moved out (menu item / segmented switch), so the row stays one short line.
+  const TOOL_PANEL_IDS = new Set(['dsh-task-center', 'task-board'])
+  const toolPanels = panels.filter(({ id }) => TOOL_PANEL_IDS.has(id))
   const toolsRef = useRef<HTMLElement | null>(null)
   const [toolsOverflow, setToolsOverflow] = useState<'none' | 'start' | 'end' | 'both'>('none')
   useEffect(() => {
@@ -261,7 +263,7 @@ export function SidebarRoot({
   const clickParked = (label: string): void => {
     setMoreOpen(false)
     const button = [...(parked.current?.querySelectorAll<HTMLButtonElement>('button') ?? [])]
-      .find(candidate => (candidate.getAttribute('aria-label') ?? candidate.textContent ?? '').includes(label))
+      .find(candidate => ((candidate.getAttribute('aria-label') ?? candidate.textContent) || '').includes(label))
     button?.click()
   }
   const [moreOpen, setMoreOpen] = useState(false)
@@ -292,7 +294,13 @@ export function SidebarRoot({
     >
       <button type="button" className="dshsn-moreItem" onClick={() => { clickParked('设置') }}>设置</button>
       <button type="button" className="dshsn-moreItem" onClick={() => { clickParked('成就') }}>成就</button>
-      <button type="button" className="dshsn-moreItem" onClick={() => { clickParked('工作台') }}>工作台</button>
+      <button
+        type="button"
+        className="dshsn-moreItem"
+        onClick={() => { setMoreOpen(false); selectPanel('dsh-context') }}
+      >
+        {panels.find(({ id }) => id === 'dsh-context')?.label ?? '上下文洞察'}
+      </button>
     </Menu>
   )
 
@@ -329,7 +337,7 @@ export function SidebarRoot({
             aria-label={label}
             aria-current={activePanelId === id ? 'page' : undefined}
             data-dshsn-panel={id}
-            onFocus={(event) => { event.currentTarget.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }) }}
+            onFocus={(event) => { event.currentTarget.scrollIntoView({ block: 'nearest', inline: 'nearest' }) }}
             onClick={() => { selectPanel(id) }}
           >
             <span className="dshsn-glyph" aria-hidden="true">
@@ -360,38 +368,48 @@ export function SidebarRoot({
     </div>
   )
 
-  // View navigation remains keyboard accessible even when another panel is active.
-  const tabButtons = useRef<Array<HTMLButtonElement | null>>([])
-  const selectTab = (index: number): void => {
-    const target = index === 1 ? botTeamId : null
-    if (target === undefined) return
-    if (target !== activePanelId) selectPanel(target)
-    tabButtons.current[index]?.focus()
+  // 工作区 / 智能体团队: one segmented control where the section header used to
+  // be. The choice drives both the main view and the region below, and it
+  // survives a reload through localStorage.
+  const VIEW_KEY = 'dsh-sidebar-view'
+  const [sidebarView, setSidebarView] = useState<'workspace' | 'team'>(() => {
+    try { return window.localStorage.getItem(VIEW_KEY) === 'team' ? 'team' : 'workspace' } catch { return 'workspace' }
+  })
+  useEffect(() => {
+    try { window.localStorage.setItem(VIEW_KEY, sidebarView) } catch { /* private mode: keep the session state */ }
+  }, [sidebarView])
+  useEffect(() => {
+    if (sidebarView === 'team' && botTeamId !== undefined && activePanelId !== botTeamId) selectPanel(botTeamId)
+    // Restore only once, on mount: later visits go through the control.
+  }, [])
+  const chooseView = (next: 'workspace' | 'team'): void => {
+    setSidebarView(next)
+    if (next === 'team') { if (botTeamId !== undefined) selectPanel(botTeamId) }
+    else if (activePanelId != null) selectPanel(null)
   }
-  const tabs = (
-    <nav
-      className="dshsn-tabs"
-      aria-label={t('tabs.label')}
-      onKeyDown={(event) => {
-        if (!botTeamAvailable || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
-        const focused = tabButtons.current.findIndex(button => button === document.activeElement)
-        if (focused < 0) return
-        event.preventDefault()
-        const index = event.key === 'Home' ? 0 : event.key === 'End' ? 1 : 1 - focused
-        selectTab(index)
-      }}
-    >
+  const viewSwitch = (
+    <div className="dshsn-switch" role="tablist" aria-label={t('tabs.label')}>
       <button
-        ref={(node) => { tabButtons.current[0] = node }}
         type="button"
-        aria-current={activePanelId == null ? 'page' : undefined}
-        className={clsx('dshsn-tab', activePanelId == null && 'dshsn-tabOn')}
-        data-dshsn-tab="workspace"
-        onClick={() => { if (activePanelId != null) selectPanel(null) }}
+        role="tab"
+        aria-selected={sidebarView === 'workspace'}
+        className={clsx('dshsn-switchOption', sidebarView === 'workspace' && 'dshsn-switchOn')}
+        data-dshsn-view="workspace"
+        onClick={() => { chooseView('workspace') }}
       >
         {t('tabs.workspace')}
       </button>
-    </nav>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={sidebarView === 'team'}
+        className={clsx('dshsn-switchOption', sidebarView === 'team' && 'dshsn-switchOn')}
+        data-dshsn-view="team"
+        onClick={() => { chooseView('team') }}
+      >
+        {t('tabs.team')}
+      </button>
+    </div>
   )
 
   return (
@@ -441,7 +459,7 @@ export function SidebarRoot({
       </div>
 
       {/* Second row: 工作区 / Bot Team only. */}
-      {wide && tabs}
+      {viewSwitch}
 
       {/* The label fades before the hover/focus shortcut, including on translucent backgrounds. */}
 
@@ -458,11 +476,16 @@ export function SidebarRoot({
           className={css.scrollArea}
           data-sidebar-scrollport={wide ? '' : undefined}
         >
-          <div className={css.regionArea}>
-            {renderSlot('sidebar.workspaces', {
-              wide,
-              expandSidebar: () => { if (collapsed) toggleSidebar() },
-            }, { hookContext: sectionHookContext })}
+          <div
+            className={clsx(css.regionArea, sidebarView === 'team' && css.regionAreaTeam)}
+            data-sidebar-view={sidebarView}
+          >
+            {sidebarView === 'workspace'
+              ? renderSlot('sidebar.workspaces', {
+                wide,
+                expandSidebar: () => { if (collapsed) toggleSidebar() },
+              }, { hookContext: sectionHookContext })
+              : null}
           </div>
         </div>
         <span className={css.scrollFade} aria-hidden="true" />

@@ -14,6 +14,7 @@ export const zh = {
   'tabs.label': '导航视图',
   'tabs.workspace': '工作区',
   'tabs.botTeam': 'Bot Team',
+  'tabs.team': '智能体团队',
   'version.copied': '版本号复制成功',
 } satisfies Record<string, string>
 
@@ -34,6 +35,7 @@ export const en = {
   'tabs.label': 'Navigation views',
   'tabs.workspace': 'Workspace',
   'tabs.botTeam': 'Bot Team',
+  'tabs.team': 'Agents',
   'version.copied': 'Version copied',
 } satisfies Record<SidebarKey, string>
 
@@ -51,6 +53,7 @@ export const ja = {
   'tabs.label': 'ナビゲーション',
   'tabs.workspace': 'ワークスペース',
   'tabs.botTeam': 'Bot Team',
+  'tabs.team': 'エージェント',
   'version.copied': 'バージョンをコピーしました',
 } satisfies Record<keyof typeof en, string>
 
@@ -68,6 +71,7 @@ export const es = {
   'tabs.label': 'Vistas de navegación',
   'tabs.workspace': 'Espacio de trabajo',
   'tabs.botTeam': 'Bot Team',
+  'tabs.team': 'Agentes',
   'version.copied': 'Versión copiada',
 } satisfies Record<keyof typeof en, string>
 
@@ -85,6 +89,7 @@ export const fr = {
   'tabs.label': 'Vues de navigation',
   'tabs.workspace': 'Espace de travail',
   'tabs.botTeam': 'Bot Team',
+  'tabs.team': 'Agents',
   'version.copied': 'Version copiée',
 } satisfies Record<keyof typeof en, string>
 
@@ -102,6 +107,7 @@ export const de = {
   'tabs.label': 'Navigationsansichten',
   'tabs.workspace': 'Arbeitsbereich',
   'tabs.botTeam': 'Bot Team',
+  'tabs.team': 'Agenten',
   'version.copied': 'Version kopiert',
 } satisfies Record<keyof typeof en, string>
 
@@ -119,6 +125,7 @@ export const ru = {
   'tabs.label': 'Режимы навигации',
   'tabs.workspace': 'Рабочая область',
   'tabs.botTeam': 'Bot Team',
+  'tabs.team': 'Агенты',
   'version.copied': 'Версия скопирована',
 } satisfies Record<keyof typeof en, string>
 
@@ -136,5 +143,6 @@ export const pt = {
   'tabs.label': 'Visões de navegação',
   'tabs.workspace': 'Área de trabalho',
   'tabs.botTeam': 'Bot Team',
+  'tabs.team': 'Agentes',
   'version.copied': 'Versão copiada',
 } satisfies Record<keyof typeof en, string>
