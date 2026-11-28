@@ -74,7 +74,7 @@ export function SidebarRoot({
   const botTeamAvailable = botTeamId !== undefined
   // 工具组渲染**全部已注册面板**（注册/注销即时生效），只排除两处既有入口的
   // 重复：logo 行固定的插件入口，以及第二行的 Bot Team 专属页签。
-  const toolPanels = panels.filter(({ id }) => id !== pluginsPanel?.id && id !== BOT_TEAM_PANEL_ID)
+  const toolPanels = panels.filter(({ id }) => id !== pluginsPanel?.id)
   const toolsRef = useRef<HTMLElement | null>(null)
   const [toolsOverflow, setToolsOverflow] = useState<'none' | 'start' | 'end' | 'both'>('none')
   useEffect(() => {
@@ -257,6 +257,13 @@ export function SidebarRoot({
 
   // Settings, achievements and the workbench used to sit in the footer; they
   // now ride in the More menu so the column keeps a single top strip.
+  const parked = useRef<HTMLDivElement>(null)
+  const clickParked = (label: string): void => {
+    setMoreOpen(false)
+    const button = [...(parked.current?.querySelectorAll<HTMLButtonElement>('button') ?? [])]
+      .find(candidate => (candidate.getAttribute('aria-label') ?? candidate.textContent ?? '').includes(label))
+    button?.click()
+  }
   const [moreOpen, setMoreOpen] = useState(false)
   const moreMenu = (
     <Menu
@@ -283,8 +290,9 @@ export function SidebarRoot({
         </Tooltip>
       )}
     >
-      {renderSlot('sidebar.settings', { wide })}
-      {renderSlot('sidebar.footer.action', { wide })}
+      <button type="button" className="dshsn-moreItem" onClick={() => { clickParked('设置') }}>设置</button>
+      <button type="button" className="dshsn-moreItem" onClick={() => { clickParked('成就') }}>成就</button>
+      <button type="button" className="dshsn-moreItem" onClick={() => { clickParked('工作台') }}>工作台</button>
     </Menu>
   )
 
@@ -365,17 +373,6 @@ export function SidebarRoot({
       >
         {t('tabs.workspace')}
       </button>
-      {botTeamAvailable && <button
-        ref={(node) => { tabButtons.current[1] = node }}
-        type="button"
-        aria-current={activePanelId === BOT_TEAM_PANEL_ID ? 'page' : undefined}
-        data-dshsn-tab="bot-team"
-        className={clsx('dshsn-tab', activePanelId === BOT_TEAM_PANEL_ID && 'dshsn-tabOn')}
-        data-dshsn-active={activePanelId === BOT_TEAM_PANEL_ID ? 'true' : 'false'}
-        onClick={() => { if (botTeamId !== undefined && activePanelId !== botTeamId) selectPanel(botTeamId) }}
-      >
-        {t('tabs.botTeam')}
-      </button>}
     </nav>
   )
 
@@ -450,6 +447,13 @@ export function SidebarRoot({
           })}
         </div>
       )}
+
+      {/* Settings, achievements and the workbench stay mounted in their own
+          column context; the More menu opens them through their triggers. */}
+      <div ref={parked} className={css.parkedSeats} aria-hidden="true">
+        {renderSlot('sidebar.settings', { wide })}
+        {renderSlot('sidebar.footer.action', { wide })}
+      </div>
 
       <div className={css.scrollRegion}>
         <div

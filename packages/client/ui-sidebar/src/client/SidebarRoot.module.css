@@ -883,3 +883,17 @@
     animation: none;
   }
 }
+
+/* Seats that moved into the More menu keep their mount point at the column
+   root (their own providers expect it) but take no space: the menu drives
+   their trigger buttons programmatically. */
+.parkedSeats {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  inset-inline-start: 0;
+  inset-block-end: 0;
+}
