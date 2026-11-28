@@ -19,6 +19,7 @@
  * pointing at carries no bar.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import clsx from 'clsx'
 import {
   focusWithoutRing, IconPanelLeftOutlineRegular, Menu,
@@ -297,7 +298,7 @@ export function SidebarRoot({
       <button
         type="button"
         className="dshsn-moreItem"
-        onClick={() => { setMoreOpen(false); selectPanel('dsh-context') }}
+        onClick={() => { setMoreOpen(false); selectPanel('dsh-context' as MainPanelId) }}
       >
         {panels.find(({ id }) => id === 'dsh-context')?.label ?? '上下文洞察'}
       </button>
