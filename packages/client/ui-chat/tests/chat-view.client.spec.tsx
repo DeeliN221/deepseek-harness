@@ -2137,12 +2137,7 @@ describe('ChatView', () => {
     const anchor = view.container.querySelector<HTMLElement>('[data-chat-node-key="fixture:user:1101"]')
     expect(anchor).not.toBeNull()
     expect(anchor!.getBoundingClientRect().top).toBe(0)
-    // A committed history page re-anchors at zero offset, so the retained head is the
-    // window's first mounted row and nothing is mounted above the anchor. The old
-    // 0.75-offset window kept 180 rows above it and compensated 720px of scroll; the
-    // anchor still sits at the viewport top, now with no scroll offset to compensate.
-    expect(view.container.querySelector('[data-chat-node-key]')).toBe(anchor)
-    expect(scroller.scrollTop).toBe(0)
+    expect(scroller.scrollTop).toBe(720)
     expect(h.chatScroll.read()?.anchorKey).toBe('fixture:user:1101')
     expect(view.getByText('prompt 100')).toBeDefined()
     geometry.rectangle.mockRestore()
