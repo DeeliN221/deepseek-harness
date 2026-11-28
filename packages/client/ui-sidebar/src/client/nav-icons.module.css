@@ -1,0 +1,445 @@
+/* Animated two-tone navigation glyphs (Kubai Icons duotone geometry, see nav-icons.tsx).
+
+   Paint: every glyph reads ONE colour variable per navigation item from the
+   palette below. The stylesheet derives the two tones from it — a solid `main`
+   and a translucent-to-pale `soft` — and lifts both in the dark theme, so no
+   colour is written into the SVG.
+
+   Motion has two registers:
+   · ambient — always on, once per 6–11s per item, staggered with negative
+     delays so the column never breathes in unison; transform/opacity/filter
+     only, amplitude <= 8% of the glyph.
+   · feedback — hover, keyboard focus, or a tap (`[data-nav-tap]`, set by the
+     shell for ~700ms on pointerdown) plays the item's stronger gesture.
+
+   Under `prefers-reduced-motion: reduce` the ambient register collapses to a
+   slow opacity breath and feedback becomes a 180ms opacity transition: never
+   fully still, never more than a shade of colour. A `.idlePaused` root pauses
+   every animation while the page is hidden. */
+
+:global(:root) {
+  --nav-color-task-center: #f2994a;
+  --nav-color-context-insight: #9b6bff;
+  --nav-color-task-board: #2f80ed;
+  --nav-color-bot-team: #27ae60;
+  --nav-color-more: #8a94a6;
+  --nav-color-workspace: #4c8dff;
+  --nav-color-new-session: #f2c94c;
+  --nav-color-new-session-to: #f2994a;
+}
+
+.icon {
+  display: block;
+  overflow: visible;
+  --nav-main: var(--nav-ink);
+  --nav-soft: color-mix(in srgb, var(--nav-ink) 32%, #fff);
+}
+
+.icon[data-anim-icon='task-center'] {
+  --nav-ink: var(--nav-color-task-center);
+}
+
+.icon[data-anim-icon='context-insight'] {
+  --nav-ink: var(--nav-color-context-insight);
+}
+
+.icon[data-anim-icon='task-board'] {
+  --nav-ink: var(--nav-color-task-board);
+}
+
+.icon[data-anim-icon='bot-team'] {
+  --nav-ink: var(--nav-color-bot-team);
+}
+
+.icon[data-anim-icon='more'] {
+  --nav-ink: var(--nav-color-more);
+}
+
+.icon[data-anim-icon='workspace'] {
+  --nav-ink: var(--nav-color-workspace);
+}
+
+.icon[data-anim-icon='new-session'] {
+  --nav-ink: var(--nav-color-new-session);
+}
+
+@media (prefers-color-scheme: dark) {
+  .icon {
+    --nav-main: color-mix(in srgb, var(--nav-ink) 78%, #fff);
+    --nav-soft: color-mix(in srgb, var(--nav-ink) 45%, transparent);
+  }
+}
+
+/* ── layer paint ───────────────────────────────────────────────────────── */
+
+.icon [data-layer='main'] path {
+  fill: var(--nav-main);
+}
+
+.icon [data-layer='soft'] path {
+  fill: var(--nav-soft);
+}
+
+.icon [data-layer='detail'] path {
+  fill: none;
+  stroke: var(--nav-main);
+}
+
+.icon [data-layer='flow'] path {
+  fill: none;
+}
+
+.icon[data-anim-icon='task-center'] [data-layer='detail'] path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+}
+
+/* ── ambient register (always on, one gesture per 6–11s) ───────────────── */
+
+.icon [data-l] {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .icon[data-anim-icon='task-center'] [data-l='2'] {
+    animation: nav-idle-tick 6s var(--ds-ease-in-out, ease-in-out) -2.2s infinite;
+  }
+
+  .icon[data-anim-icon='context-insight'] [data-l='0'] {
+    animation: nav-idle-glow 8s var(--ds-ease-in-out, ease-in-out) -5.1s infinite;
+  }
+
+  .icon[data-anim-icon='task-board'] [data-l='1'] {
+    animation: nav-idle-float 10s var(--ds-ease-in-out, ease-in-out) -1.7s infinite;
+  }
+
+  .icon[data-anim-icon='task-board'] [data-l='2'] {
+    animation: nav-idle-float 10s var(--ds-ease-in-out, ease-in-out) -0.9s infinite;
+  }
+
+  .icon[data-anim-icon='task-board'] [data-l='3'] {
+    animation: nav-idle-float 10s var(--ds-ease-in-out, ease-in-out) -0.1s infinite;
+  }
+
+  .icon[data-anim-icon='bot-team'] [data-l='0'] {
+    animation: nav-idle-blink 7s steps(1, end) -3.4s infinite;
+  }
+
+  .icon[data-anim-icon='more'] [data-l='q0'] {
+    animation: nav-idle-highlight 9s linear -6.3s infinite;
+  }
+
+  .icon[data-anim-icon='more'] [data-l='q1'] {
+    animation: nav-idle-highlight 9s linear -5.3s infinite;
+  }
+
+  .icon[data-anim-icon='more'] [data-l='q2'] {
+    animation: nav-idle-highlight 9s linear -4.3s infinite;
+  }
+
+  .icon[data-anim-icon='more'] [data-l='q3'] {
+    animation: nav-idle-highlight 9s linear -3.3s infinite;
+  }
+
+  .icon[data-anim-icon='workspace'] [data-l='0'] {
+    animation: nav-idle-sway 11s var(--ds-ease-in-out, ease-in-out) -4.6s infinite;
+  }
+
+  .icon[data-anim-icon='new-session'] [data-l='3'] {
+    animation: nav-idle-flow 6s linear -1.9s infinite;
+  }
+
+  /* ── feedback register (hover / focus-visible / tap) ─────────────────── */
+
+  :global(button):is(:hover, :focus-visible, [data-nav-tap]) .icon[data-anim-icon='task-center'] [data-l='2'] {
+    animation: nav-draw 520ms var(--ds-ease-out, ease-out) both;
+  }
+
+  :global(button):is(:hover, :focus-visible, [data-nav-tap]) .icon[data-anim-icon='task-center'] [data-l='1'] {
+    animation: nav-nudge 520ms var(--ds-ease-out, ease-out) both;
+  }
+
+  :global(button):is(:hover, :focus-visible, [data-nav-tap]) .icon[data-anim-icon='context-insight'] [data-l='0'] {
+    animation: nav-glow 640ms var(--ds-ease-in-out, ease-in-out) both;
+  }
+
+  :global(button):is(:hover, :focus-visible, [data-nav-tap]) .icon[data-anim-icon='context-insight'] [data-l='2'] {
+    animation: nav-fade-in 640ms var(--ds-ease-out, ease-out) both;
+  }
+
+  :global(button):is(:hover, :focus-visible, [data-nav-tap]) .icon[data-anim-icon='task-board'] [data-l='1'] {
+    animation: nav-unfold 460ms var(--ds-ease-out, ease-out) both;
+  }
+
+  :global(button):is(:hover, :focus-visible, [data-nav-tap]) .icon[data-anim-icon='task-board'] [data-l='2'] {
+    animation: nav-unfold 460ms var(--ds-ease-out, ease-out) 60ms both;
+  }
+
+  :global(button):is(:hover, :focus-visible, [data-nav-tap]) .icon[data-anim-icon='task-board'] [data-l='3'] {
+    animation: nav-unfold 460ms var(--ds-ease-out, ease-out) 120ms both;
+  }
+
+  :global(button):is(:hover, :focus-visible, [data-nav-tap]) .icon[data-anim-icon='bot-team'] [data-l='0'] {
+    transform-origin: bottom center;
+    animation: nav-swing 560ms var(--ds-ease-in-out, ease-in-out) both;
+  }
+
+  :global(button):is(:hover, :focus-visible, [data-nav-tap]) .icon[data-anim-icon='bot-team'] [data-l='2'],
+  :global(button):is(:hover, :focus-visible, [data-nav-tap]) .icon[data-anim-icon='bot-team'] [data-l='3'] {
+    animation: nav-blink 560ms var(--ds-ease-in-out, ease-in-out) both;
+  }
+
+  :global(button):is(:hover, :focus-visible, [data-nav-tap]) .icon[data-anim-icon='more'] [data-l='q0'],
+  :global(button):is(:hover, :focus-visible, [data-nav-tap]) .icon[data-anim-icon='more'] [data-l='q1'],
+  :global(button):is(:hover, :focus-visible, [data-nav-tap]) .icon[data-anim-icon='more'] [data-l='q2'],
+  :global(button):is(:hover, :focus-visible, [data-nav-tap]) .icon[data-anim-icon='more'] [data-l='q3'] {
+    animation: nav-unfold 440ms var(--ds-ease-out, ease-out) both;
+  }
+
+  :global(button):is(:hover, :focus-visible, [data-nav-tap]) .icon[data-anim-icon='more'] [data-l='1'] {
+    animation: nav-pulse 440ms var(--ds-ease-in-out, ease-in-out) both;
+  }
+
+  :global(button):is(:hover, :focus-visible, [data-nav-tap]) .icon[data-anim-icon='new-session'] [data-l='1'],
+  :global(button):is(:hover, :focus-visible, [data-nav-tap]) .icon[data-anim-icon='new-session'] [data-l='2'] {
+    animation: nav-write 640ms var(--ds-ease-in-out, ease-in-out) both;
+  }
+}
+
+/* ── reduced motion: a slow shade, never a still glyph ─────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .icon {
+    transition: opacity 180ms linear;
+  }
+
+  .icon [data-layer='soft'] {
+    animation: nav-rm-breath 4s linear infinite;
+  }
+
+  .icon [data-layer='detail'] {
+    animation: nav-rm-breath 5.6s linear infinite;
+  }
+
+  :global(button):is(:hover, :active, :focus-visible, [data-nav-tap]) .icon {
+    opacity: 0.82;
+  }
+}
+
+/* ── pause while the page is hidden ────────────────────────────────────── */
+
+:global(.nav-idle-paused) :global(svg[data-anim-icon]),
+:global(.nav-idle-paused) :global(svg[data-anim-icon] [data-l]) {
+  animation-play-state: paused !important;
+}
+
+@keyframes nav-idle-tick {
+  0%,
+  90%,
+  100% {
+    transform: scale(1);
+  }
+
+  94% {
+    transform: scale(1.06);
+  }
+}
+
+@keyframes nav-idle-glow {
+  0%,
+  100% {
+    opacity: 0.82;
+    filter: brightness(1);
+  }
+
+  50% {
+    opacity: 1;
+    filter: brightness(1.14);
+  }
+}
+
+@keyframes nav-idle-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  4% {
+    transform: translateY(-0.6px);
+  }
+
+  8% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes nav-idle-blink {
+  0%,
+  88%,
+  100% {
+    opacity: 1;
+  }
+
+  92% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes nav-idle-highlight {
+  0%,
+  82%,
+  100% {
+    filter: brightness(1);
+  }
+
+  88% {
+    filter: brightness(1.5);
+  }
+}
+
+@keyframes nav-idle-sway {
+  0% {
+    transform: rotate(-3deg);
+  }
+
+  8%,
+  100% {
+    transform: rotate(0);
+  }
+}
+
+@keyframes nav-idle-flow {
+  0% {
+    opacity: 0;
+    stroke-dashoffset: 0;
+  }
+
+  4% {
+    opacity: 0.9;
+  }
+
+  25% {
+    opacity: 0.9;
+    stroke-dashoffset: -1;
+  }
+
+  28%,
+  100% {
+    opacity: 0;
+    stroke-dashoffset: -1;
+  }
+}
+
+@keyframes nav-rm-breath {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.78;
+  }
+}
+
+@keyframes nav-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes nav-nudge {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  40% {
+    transform: translateY(-0.5px);
+  }
+}
+
+@keyframes nav-glow {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  45% {
+    transform: scale(1.08);
+  }
+}
+
+@keyframes nav-fade-in {
+  0% {
+    opacity: 0.45;
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes nav-unfold {
+  from {
+    opacity: 0.25;
+    transform: scale(0.6);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes nav-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  45% {
+    transform: scale(1.14);
+  }
+}
+
+@keyframes nav-swing {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+
+  30% {
+    transform: rotate(-12deg);
+  }
+
+  60% {
+    transform: rotate(8deg);
+  }
+}
+
+@keyframes nav-blink {
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+
+  45% {
+    transform: scaleY(0.2);
+  }
+}
+
+@keyframes nav-write {
+  0%,
+  100% {
+    transform: translate(0, 0) rotate(0);
+  }
+
+  45% {
+    transform: translate(-0.5px, 0.5px) rotate(-5deg);
+  }
+}
