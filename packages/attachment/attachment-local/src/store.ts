@@ -2,7 +2,7 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import { constants, createReadStream } from 'node:fs'
-import { chmod, link, mkdir, open, readFile, unlink } from 'node:fs/promises'
+import { chmod, link, mkdir, open, readFile, stat, unlink } from 'node:fs/promises'
 import { dirname, join, parse, resolve } from 'node:path'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { AttachmentId } from '@deepseek-ai/dsh-attachment/types'
@@ -156,7 +156,10 @@ async function ensureDurableDirectory(path: string, boundary: string): Promise<v
   const target = resolve(path)
   const stop = resolve(boundary)
   await mkdir(target, { recursive: true, mode: 0o700 })
-  await chmod(target, 0o700)
+  // A shared DSH_HOME can already be private while another UID owns it. Changing
+  // that directory's mode needs CAP_FOWNER, so only re-apply a widened mode
+  // instead of failing an upload on a no-op chmod of an already private one.
+  if (((await stat(target)).mode & 0o777) !== 0o700) await chmod(target, 0o700)
   let level = target
   while (level !== stop) {
     const parent = dirname(level)

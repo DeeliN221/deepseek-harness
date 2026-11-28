@@ -19,6 +19,7 @@ import {
 const fsControl = vi.hoisted(() => ({
   readSignals: [] as AbortSignal[],
   syncedDirectories: [] as string[],
+  chmoddedPaths: [] as string[],
 }))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -36,6 +37,10 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     async open(...args: Parameters<typeof actual.open>): ReturnType<typeof actual.open> {
       if (args[1] === constants.O_RDONLY) fsControl.syncedDirectories.push(String(args[0]))
       return actual.open(...args)
+    },
+    async chmod(...args: Parameters<typeof actual.chmod>): Promise<void> {
+      fsControl.chmoddedPaths.push(String(args[0]))
+      return actual.chmod(...args)
     },
   }
 })
@@ -117,6 +122,33 @@ describe('local attachment store', () => {
     const ref = await saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS, POLICY)
 
     await expect(readImageFile(storageRoot, ref)).resolves.toEqual({ ref, data: PNG })
+  })
+
+  it.skipIf(process.platform === 'win32')('keeps an already private shared DSH_HOME without a mode change', async () => {
+    const storageRoot = await root()
+    const home = resolve(join(storageRoot, '..', '..'))
+    await mkdir(storageRoot, { recursive: true, mode: 0o700 })
+    await chmod(home, 0o700)
+    fsControl.chmoddedPaths.length = 0
+
+    const ref = await saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS, POLICY)
+
+    // A DSH_HOME owned by another UID needs CAP_FOWNER to chmod; an already
+    // private tree must never ask for it, so uploads keep working there.
+    expect(fsControl.chmoddedPaths).not.toContain(home)
+    await expect(readImageFile(storageRoot, ref)).resolves.toEqual({ ref, data: PNG })
+  })
+
+  it.skipIf(process.platform === 'win32')('re-applies private mode to a widened shared DSH_HOME', async () => {
+    const storageRoot = await root()
+    const home = resolve(join(storageRoot, '..', '..'))
+    await chmod(home, 0o755)
+    fsControl.chmoddedPaths.length = 0
+
+    await saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS, POLICY)
+
+    expect(fsControl.chmoddedPaths).toContain(home)
+    expect((await stat(home)).mode & 0o777).toBe(0o700)
   })
 
   it('publishes one private content-addressed object and deduplicates equal bytes', async () => {
