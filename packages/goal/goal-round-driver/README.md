@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-goal-round-driver` automatically continues an active goal in the same session while the agent is idle, continuation is armed, and the configured round allowance remains. Each round gives the model another turn toward the objective; only goal rounds that reach model history consume the allowance, and exhaustion records a blocker. The driver has no configuration: the goal defines the round limit, and `dsh-tool-goal` defines when repeated blocking stops continuation. Mount it with `dsh-goal` and `dsh-tool-goal` for unattended multi-round progress; omit it when each step requires human steering.
+`dsh-goal-round-driver` automatically continues an active goal in the same session while the agent is idle, continuation is armed, and the configured round allowance remains. Each round gives the model another turn toward the objective; only goal rounds that reach model history consume the allowance, and exhaustion records a blocker. Goal-round scheduling is configuration-free: the goal defines the round limit, and `dsh-tool-goal` defines when repeated blocking stops continuation. Beyond goals, the plugin also owns a default-on turn-end self-check: when a turn ends while work remains and no goal owns the session, it queues the configured question and keeps the session moving until the model declares `done` or `blocked` through `turn_status`, or the per-request self-check allowance is exhausted. Mount it with `dsh-goal` and `dsh-tool-goal` for unattended multi-round progress; omit it when each step requires human steering.
 
 ## Table of Contents
 
@@ -29,7 +29,7 @@ Mount `dsh-goal-round-driver` when an active goal should keep making progress wi
 
 ### Compose it
 
-Mount the driver beside the goal service and the goal tools; the driver itself takes no configuration.
+Mount the driver beside the goal service and the goal tools. Goal rounds take no configuration; the turn-end self-check accepts three optional keys:
 
 ```yaml
 - id: goal
@@ -40,7 +40,13 @@ Mount the driver beside the goal service and the goal tools; the driver itself t
 
 - id: goal-round-driver
   name: '@deepseek-ai/dsh-goal-round-driver'
+  config:
+    turnGuardEnabled: true
+    turnGuardMaxRounds: 8
+    turnGuardQuestion: '任务是否全部完成，停在这是否真是因为必须由用户做方向性决策或者高危操作批准？如果不是，请继续自动推进，不要等待用户简单发送继续指令催促。'
 ```
+
+`turnGuardEnabled` defaults to `true`, `turnGuardMaxRounds` to `8`, and `turnGuardQuestion` to the bundled Chinese question; set a question in the deployment language when the model should see one specific wording. The self-check registers the `turn_status` tool and its prompt policy only while it is enabled.
 
 `maxGoalRounds` belongs to the goal definition, while the model-facing blocked threshold belongs to `dsh-tool-goal`; duplicating either value in the driver could produce divergent policy.
 
@@ -53,6 +59,8 @@ With an exact live agent idle, an active armed goal, and remaining capacity, the
 A round starts only at whole-agent idle and, when the subagent service is loaded, only after the agent's progressing descendants settle; completion, pause, and blocking suppress continuation; a host-initiated pause also aborts the turn already running, while a model-initiated pause inside its own turn finishes normally. An edit only invalidates an in-flight round through the revision fence, and the driver continues the new revision. The driver also stops on its own when a turn ends on max tokens, a durability write fails, the agent is cancelled, the plugin unloads, or the round cap is exhausted — at the cap it records a blocker with the stable code `round-limit`. Cancellation never auto-restarts a round: a goal whose round was under way is paused at the next idle point, and a cancellation unrelated to a goal attempt only disarms continuation. Agent disposal, such as a graceful process shutdown or a reload of the plugin that owns the Agent, aborts the round with the `disposed` cause and only disarms continuation, so the goal stays active, as on plugin unload; user, parent, and hook cancellations still pause it. A round prompt still queued when the agent reaches idle is removed from the inbox, so later human input does not wait behind it; when the cancelled turn belonged to other work, continuation is disarmed rather than paused.
 
 ### After resume, fork, or unload
+
+The turn-end self-check stops when the model declares `done` or `blocked`, when a human message starts a new request, when a delegated subagent owns the session, when a goal exists on the agent, or when `turnGuardMaxRounds` is exhausted for that request; a user cancellation suppresses the next question. Its rounds never consume a goal's allowance.
 
 Mounting the driver over an existing agent never arms a goal, and after session resume or fork an active goal stays disarmed until an explicit human-authorized resume — the driver never revives work on its own. Unloading the plugin cancels any in-flight round and ensures no later round starts.
 

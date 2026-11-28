@@ -4,20 +4,64 @@
  */
 
 import { isDeepStrictEqual } from 'node:util'
+import z from '@deepseek-ai/schemastery'
 import { FiberState } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { GoalMessageSource, GoalRef, GoalView } from '@deepseek-ai/dsh-goal'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-subagent'
+import type {} from '@deepseek-ai/dsh-system-prompt'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 import { renderGoalRoundPrompt } from './prompt.ts'
+import {
+  DEFAULT_TURN_GUARD_QUESTION,
+  createTurnGuardState,
+  guardStop,
+  renderTurnGuardGuidance,
+  renderTurnGuardPrompt,
+  resetTurnGuard,
+} from './turn-guard.ts'
+import type { TurnGuardState } from './turn-guard.ts'
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'turn-guard': { kind: 'turn-guard'; round: number }
+  }
+}
 
 export { renderGoalRoundPrompt } from './prompt.ts'
+export {
+  DEFAULT_TURN_GUARD_QUESTION,
+  createTurnGuardState,
+  guardStop,
+  renderTurnGuardGuidance,
+  renderTurnGuardPrompt,
+  resetTurnGuard,
+} from './turn-guard.ts'
+export type { TurnGuardState, TurnGuardStatus } from './turn-guard.ts'
 
 export const name = 'goal-round-driver'
-export const inject = ['agents', 'goals', 'sessions']
+export const inject = ['agents', 'goals', 'sessions', 'tools', 'systemPrompt']
+
+/** Turn-end self-check policy; goal-round scheduling itself remains config-free. */
+export interface Config {
+  /** Enable the automatic turn-end self-check and its `turn_status` tool. */
+  turnGuardEnabled?: boolean
+  /** Maximum automatic self-check rounds admitted for one human request. */
+  turnGuardMaxRounds?: number
+  /** Question injected when a turn ends with work still in progress. */
+  turnGuardQuestion?: string
+}
+
+/** Schemastery config for the turn-end self-check. */
+export const Config: z<Config> = z.object({
+  turnGuardEnabled: z.boolean().default(true),
+  turnGuardMaxRounds: z.number().step(1).min(1).default(8),
+  turnGuardQuestion: z.string().default(DEFAULT_TURN_GUARD_QUESTION),
+})
 
 /** Identity reserved before a goal continuation enters the agent inbox. */
 interface RoundIdentity {
@@ -44,6 +88,8 @@ interface DriverState {
   requested: boolean
   run: Promise<void> | undefined
   stopping: boolean
+  /** Turn-end self-check facts for the current human request. */
+  readonly guard: TurnGuardState
 }
 
 /** Whether a source identifies an automatic, positive-numbered goal round. */
@@ -74,7 +120,12 @@ function renderThrown(value: unknown): string {
 }
 
 /** Install automatic same-session continuation and its race fences. */
-export function apply(ctx: Context): void {
+export function apply(ctx: Context, config: Config = {}): void {
+  const guard = {
+    enabled: config.turnGuardEnabled ?? true,
+    maxRounds: config.turnGuardMaxRounds ?? 8,
+    question: config.turnGuardQuestion ?? DEFAULT_TURN_GUARD_QUESTION,
+  }
   const states = new Map<Agent, DriverState>()
   // Releases drivers still joining subagents when the plugin unloads.
   const unloading = Promise.withResolvers<void>()
@@ -91,6 +142,7 @@ export function apply(ctx: Context): void {
       requested: false,
       run: undefined,
       stopping: false,
+      guard: createTurnGuardState(),
     }
     states.set(agent, state)
     return state
@@ -119,6 +171,95 @@ export function apply(ctx: Context): void {
   /** Recheck every condition that an awaited checkpoint may have changed. */
   function readyAfterCheckpoint(state: DriverState): boolean {
     return readyToDrive(state) && !state.needsCheckpoint
+  }
+
+  /** Whether this exact agent is a delegated subagent rather than the session root. */
+  function delegated(agent: Agent): boolean {
+    return agent.session.header.origin === 'subagent'
+  }
+
+  /** Queue one turn-end self-check prompt when a turn ends with work still open. */
+  function maybeGuard(state: DriverState): void {
+    if (!guard.enabled || state.stopping) return
+    if (ctx.fiber.state !== FiberState.ACTIVE) return
+    if (ctx.agents.get(state.agent.id) !== state.agent) return
+    if (state.agent.status !== 'idle') return
+    if (state.guard.pending || !state.guard.dirty) return
+    if (guardStop(state.guard, guard.maxRounds)) return
+    if (delegated(state.agent)) return
+    const goal = currentGoal(state)
+    if (goal !== undefined) {
+      // Active, paused, or blocked goals have their own owner: the driver keeps an
+      // armed goal moving, a paused goal is a human decision, and a blocked goal
+      // already recorded why it waits. A completed goal counts as a done task.
+      if (goal.phase === 'complete') state.guard.status = 'done'
+      return
+    }
+    if (state.agent.inbox.nextTurn.length > 0 || state.agent.inbox.nextStep.length > 0) return
+    const round = state.guard.rounds + 1
+    state.guard.pending = true
+    try {
+      state.agent.followup(createUserMessage({
+        content: renderTurnGuardPrompt(round, guard.maxRounds, guard.question),
+        source: { kind: 'turn-guard', round },
+      }))
+      state.guard.rounds = round
+    } catch (error: unknown) {
+      state.guard.pending = false
+      ctx.logger.warn(`goal-round-driver: could not queue turn-guard round ${round} for agent "${state.agent.id}": ${renderThrown(error)}`)
+    }
+  }
+
+  if (guard.enabled) {
+    ctx.systemPrompt.section({
+      name: 'turn-guard',
+      order: ctx.systemPrompt.getSectionOrder('TOOL_GOAL') + 1,
+      text: renderTurnGuardGuidance(guard.maxRounds),
+    })
+    ctx.tools.register(defineTool({
+      name: 'turn_status',
+      description: 'Declare whether the current task is finished. Call this before ending a turn: done when the whole '
+        + 'task is complete and verified, blocked only when a user decision or an explicit high-risk approval is '
+        + 'genuinely required (include reason), and continue when work remains. The host asks the self-check question '
+        + 'again automatically when a turn ends while work is still in progress.',
+      parameters: {
+        status: {
+          type: 'string',
+          required: true,
+          enum: ['continue', 'done', 'blocked'],
+          description: 'Declared state of the current task.',
+        },
+        reason: {
+          type: 'string',
+          description: 'Concrete reason; required when status is blocked.',
+        },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            status: { type: 'string', required: true },
+          },
+        },
+        render: (_args, value) => [{ type: 'text', text: `turn_status: ${value.status}` }],
+      },
+      execute(args, exec) {
+        const agent = exec.agent
+        if (agent === undefined || ctx.agents.get(agent.id) !== agent || agent.status !== 'running') {
+          throw new HarnessError(
+            'turn_status requires the live calling agent inside its active turn',
+            'TURN_GUARD_AGENT_REQUIRED',
+          )
+        }
+        const status = args.status
+        if (status === 'blocked' && (args.reason === undefined || args.reason.trim().length === 0)) {
+          throw new HarnessError('reason is required when status is blocked', 'TURN_GUARD_REASON_REQUIRED')
+        }
+        stateFor(agent).guard.status = status
+        return Promise.resolve({ status })
+      },
+    }))
   }
 
   /** Remove automatic authority while preserving the durable phase. */
@@ -297,6 +438,7 @@ export function apply(ctx: Context): void {
           }
         }
         requestDrive(state)
+        maybeGuard(state)
       }
     })
     ctx.on('goal/changed', ({ agent, change }) => {
@@ -326,6 +468,16 @@ export function apply(ctx: Context): void {
       if (attempt !== undefined && sameQueued(message.content, message.source, attempt)) {
         attempt.phase = 'claimed'
       }
+      if (message.source.kind === 'user') {
+        resetTurnGuard(state.guard)
+        // A claimed human message opens a turn, so the work marker survives any
+        // turn/start ordering race with this reset.
+        state.guard.dirty = true
+      }
+      else if (message.source.kind === 'turn-guard') {
+        state.guard.pending = false
+        state.guard.dirty = true
+      }
     })
     ctx.on('agent/inbox/discarded', ({ agent, message }) => {
       const state = stateFor(agent)
@@ -345,6 +497,10 @@ export function apply(ctx: Context): void {
             state.attempt.phase = 'admitted'
           }
           return
+        case 'turn/start':
+          // A started turn proves real work for the current human request.
+          if (!delegated(agent)) state.guard.dirty = true
+          return
         case 'turn/end':
           if (event.data.reason.kind === 'max-tokens') {
             disarm(state)
@@ -352,6 +508,8 @@ export function apply(ctx: Context): void {
           }
           if (event.data.reason.kind !== 'aborted') return
           const abortReason = event.data.reason.reason
+          // A human cancellation must not be answered by an automatic self-check.
+          if (abortReason.kind === 'user') state.guard.status = 'blocked'
           // Agent disposal aborts the round without a pause decision, so continuation
           // is only disarmed and the durable phase stays active, as on driver unload.
           if (abortReason.kind === 'disposed') {
